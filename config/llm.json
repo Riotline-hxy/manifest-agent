@@ -1,0 +1,8 @@
+{
+  "provider": "modelflare",
+  "baseUrl": "https://modelflare.dev/v1",
+  "model": "gpt-6.1-sol",
+  "reasoning": "low",
+  "apiKeyEnv": "MODELFLARE_API_KEY",
+  "notes": "OpenAI-compatible; use for 显伴 demo chat; do not raise thinking for speed"
+}

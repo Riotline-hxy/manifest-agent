@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="小光">
+  <!-- idle: purple circle + 2 white capsule eyes -->
+  <circle cx="32" cy="32" r="26" fill="#6b4eff"/>
+  <g class="eyes" transform="rotate(18 38 28)">
+    <rect class="eye eye-l" x="32" y="18" width="7" height="14" rx="3.5" fill="#fff"/>
+    <rect class="eye eye-r" x="42" y="18" width="7" height="14" rx="3.5" fill="#fff"/>
+  </g>
+  <!-- thinking dots: hidden by default; show when .is-thinking -->
+  <g class="think-dots" opacity="0">
+    <circle cx="48" cy="14" r="2.2" fill="#9b7bff"/>
+    <circle cx="54" cy="10" r="2.8" fill="#9b7bff"/>
+    <circle cx="58" cy="4" r="3.2" fill="#9b7bff"/>
+  </g>
+</svg>

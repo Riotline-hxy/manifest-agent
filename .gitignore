@@ -1,0 +1,43 @@
+# Secrets — never commit real keys
+.env
+.env.*
+!.env.example
+!**/.env.example
+**/llm.env
+*.pem
+*.key
+id_rsa
+id_ed25519
+host_ops*
+
+# Runtime user data (keep example only)
+demo/data/users/*
+!demo/data/users/_example/
+!demo/data/users/_example/**
+
+# Python / OS junk
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.DS_Store
+Thumbs.db
+
+# Backups / editor
+*.bak
+*.bak-*
+*~
+*.swp
+*.swo
+
+# macOS zip junk
+__MACOSX/
+._*
+
+# Local caches / large scratch (keep vendor + shots + muse zip)
+.cache/
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="manifest，一个从认识自己开始的个人成长伙伴。本地比赛 MVP。">
+  <link rel="icon" href="/art/little-sun.svg" type="image/svg+xml">
+  <title>manifest · 从你出发</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到内容</a>
+  <div class="app-shell">
+    <div class="workspace">
+      <header class="topbar">
+        <button class="brand" aria-label="manifest首页"><img src="/art/little-sun.svg" alt="" width="38" height="38"><span>manifest</span></button>
+        <span class="page-context" id="page-title">聊聊</span>
+        <div class="topbar-tools">
+          <button class="runtime-badge" id="runtime-badge" title="查看当前模式">连接中</button>
+          <button class="icon-button" id="settings-button" aria-label="伙伴设置" title="伙伴设置"></button>
+          <button class="icon-button rail-toggle" id="rail-toggle" aria-label="打开伙伴面板" title="打开伙伴面板" aria-controls="companion-rail"></button>
+        </div>
+      </header>
+      <div class="content-layout" id="content-layout">
+        <main id="main" tabindex="-1"><div class="loading-state"><span class="loading-orb"></span><p>manifest正在这里等你…</p></div></main>
+      </div>
+      <div class="connection-notice" id="connection-notice" role="status" hidden></div>
+    </div>
+    <nav class="bottom-nav" aria-label="主导航"><div class="primary-nav" id="primary-nav"></div></nav>
+  </div>
+  <dialog class="companion-rail" id="companion-rail" aria-label="伙伴与愿景"></dialog>
+  <dialog id="detail-dialog" class="detail-dialog" aria-labelledby="dialog-title"><div id="dialog-content"></div></dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

@@ -1,0 +1,21 @@
+<!doctype html><meta charset=utf-8>
+<style>
+body{margin:40px;background:#f6f3ff;font-family:sans-serif}
+.avatar{width:120px;height:120px;border-radius:50%;background:#6b4eff;box-shadow:0 0 0 6px rgba(107,78,255,.12)}
+.avatar svg{width:100%;height:100%}
+.avatar .eye{transform-box:fill-box;transform-origin:center}
+.avatar.is-thinking .eye-l,.avatar.is-thinking .eye-r{transform:scaleY(.22)}
+.avatar.is-thinking .think-dots{opacity:1}
+.avatar .think-dots{opacity:0}
+.avatar.is-thinking .think-dots circle:nth-child(1){animation:d .9s ease-in-out infinite}
+.avatar.is-thinking .think-dots circle:nth-child(2){animation:d .9s ease-in-out .15s infinite}
+.avatar.is-thinking .think-dots circle:nth-child(3){animation:d .9s ease-in-out .3s infinite}
+@keyframes d{0%,100%{transform:translateY(0);opacity:.45}50%{transform:translateY(-6px);opacity:1}}
+label{display:block;margin-top:16px;color:#554}
+</style>
+<div class="avatar is-thinking" data-emotion-id="30">
+<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="26" fill="#6b4eff"/>
+<g transform="rotate(18 38 28)"><rect class="eye eye-l" x="32" y="18" width="7" height="14" rx="3.5" fill="#fff"/><rect class="eye eye-r" x="42" y="18" width="7" height="14" rx="3.5" fill="#fff"/></g>
+<g class="think-dots"><circle cx="48" cy="14" r="2.2" fill="#9b7bff"/><circle cx="54" cy="10" r="2.8" fill="#9b7bff"/><circle cx="58" cy="4" r="3.2" fill="#9b7bff"/></g></svg>
+</div>
+<label>thinking · emotionId 30</label>

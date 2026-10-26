@@ -1,0 +1,15 @@
+{
+  "user_id": "_example",
+  "agent_name": "小光",
+  "agent_avatar_id": "xiaoguang_capsule_v1",
+  "intent_primary": "稳定开口练口语 → 交换项目自信",
+  "intent_why": "交换项目时想敢开口",
+  "intent_sub": "睡前 5 分钟感恩，降低自我批判",
+  "schedule_hint": "夜猫",
+  "traits": ["敏感", "需要被提醒"],
+  "mbti_hint": "INFJ",
+  "boundaries": ["别说教", "别鸡血催促"],
+  "values": ["真诚表达", "长期主义", "身心节奏", "创造而非消耗"],
+  "preferred_address": "小光",
+  "updated_at": "2026-10-25T12:00:00+08:00"
+}

@@ -1,0 +1,4 @@
+# 用户落盘数据不进仓库；仅保留示例
+users/*
+!users/_example/
+!users/_example/**
