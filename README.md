@@ -2,7 +2,8 @@
 
 显化陪伴 agent 的网页 demo。线上：https://manifest.noryx.cn
 
-- 方案说明（创意 / 技术 / UI）：[docs/三方向方案.md](docs/三方向方案.md)
+- 方案说明 v2（创意 / 技术 / UI，对应线上 2.0.0）：[docs/三方向方案-v2.md](docs/三方向方案-v2.md)
+- v0.3 讨论稿原文：[docs/xiaoguang_v03.txt](docs/xiaoguang_v03.txt) · 旧方案：[docs/三方向方案.md](docs/三方向方案.md)
 - 会议纪要：[meeting.txt](meeting.txt) · 创意稿：[creative/](creative/)
 - 旧版 demo 归档：[_archive/demo-v0/](_archive/demo-v0/)
 
@@ -43,7 +44,12 @@ demo/
     scheduler.py     主动消息定时任务
     report.py        蜕变报告与惊喜句
     onboarding.py    8 题建档、体验账号示例数据
-  public/            前端（原生 JS）+ vendor/emotion-ball
+  public/
+    index.html
+    css/             tokens / shell / components / chat / pages
+    js/              api, store, ui, orb, app + views/（12 个 ES 模块）
+    assets/pets/     宠物九形态 + 报告封面（gpt-image-2 生成，WebP）
+tools/gen_pets.py    重新生成宠物素材
   tests/
 deploy/              systemd 与部署脚本
 ```
@@ -52,6 +58,8 @@ deploy/              systemd 与部署脚本
 
 运行时数据在 `demo/data/`（服务器上软链到 `/opt/manifest-agent/data`）：`auth.db` 存账号，`u/<user_id>/mind.db` 每人一份。不进 git。
 
-## 许可提醒
+## 形象与素材
 
-`public/vendor/emotion-ball` 来自 [sam70361/aora-bot](https://github.com/sam70361/aora-bot)，社区许可仅限非商业使用，球形角色外观永不商用。保留其 LICENSE 与 NOTICE。
+- 聊天中的小光是一枚自绘 SVG 光球（`public/js/orb.js`），原创、无第三方授权限制。
+- 宠物素材由 `tools/gen_pets.py` 调用 `gpt-image-2` 生成（需要 `OPENLUX_API_KEY`），统一风格提示词后压缩为 WebP。
+- `public/vendor/emotion-ball` 是上一版遗留素材，当前页面已不再引用；如确认不再使用，可以整目录删除。
