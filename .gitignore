@@ -11,9 +11,7 @@ id_ed25519
 host_ops*
 
 # Runtime user data (keep example only)
-demo/data/users/*
-!demo/data/users/_example/
-!demo/data/users/_example/**
+demo/data/
 
 # Python / OS junk
 __pycache__/
