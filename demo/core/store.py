@@ -34,6 +34,10 @@ DEFAULT_PROFILE = {
     "nickname": "", "intent_primary": "", "intent_why": "", "schedule_hint": "",
     "traits": [], "mbti_hint": "", "boundaries": [], "onboarded": False,
     "proactive": "normal",  # more | normal | less | off
+    # 互动偏好：中断时希望小光怎么做 + 一次问几个问题 + 是否接受被主动问候
+    "care_style": "",       # nudge | analyze | quiet | ""
+    "pace": "gentle",       # gentle | steady
+    "pet_name": "小芽", "pet_branch": "",
     "xp": 0, "badges": [], "last_chat_at": "", "last_proactive_at": "", "created_at": "",
 }
 
@@ -86,6 +90,12 @@ class Store:
             CREATE TABLE IF NOT EXISTS inbox(id TEXT PRIMARY KEY, text TEXT, cue TEXT, created_at TEXT, seen INTEGER DEFAULT 0);
             CREATE TABLE IF NOT EXISTS scene_run(
               id TEXT PRIMARY KEY, scene TEXT, step INTEGER, answers TEXT, status TEXT, created_at TEXT);
+            CREATE TABLE IF NOT EXISTS xp(
+              id TEXT PRIMARY KEY, day TEXT, source TEXT, amount INTEGER, ref TEXT,
+              note TEXT, created_at TEXT);
+            CREATE INDEX IF NOT EXISTS xp_day ON xp(day, source);
+            CREATE TABLE IF NOT EXISTS article_read(
+              id TEXT PRIMARY KEY, at TEXT);
             """
         )
 
@@ -217,16 +227,11 @@ class Store:
         return self.set_step(hit["id"], "done") if hit else None
 
     def gain_xp(self, n: int = 10) -> dict:
-        p = self.profile()
-        xp = int(p.get("xp") or 0) + n
-        badges = list(p.get("badges") or [])
-        done = sum(1 for x in self.steps() if x["status"] == "done")
-        if done >= 1 and "first_step" not in badges:
-            badges.append("first_step")
-        if done >= 7 and "seven_steps" not in badges:
-            badges.append("seven_steps")
-        self.set_profile({"xp": xp, "badges": badges})
-        return rank(xp) | {"gain": n, "badges": badges}
+        """Legacy helper kept for older call sites; new code uses growth.award,
+        which enforces the daily/source caps and de-duplication."""
+        from . import growth
+        out = growth.award(self, "action", ref=new_id("legacy"), note="经验", amount=n)
+        return rank(int(self.profile().get("xp") or 0)) | {"gain": out.get("amount", 0)}
 
     # ---- records (好消息 / 偷懒日 / 新发现) ---------------------------------
     def add_record(self, type_: str, text: str, day: str | None = None) -> dict:
@@ -292,6 +297,14 @@ class Store:
 
     def scenes_done(self) -> list[dict]:
         return [dict(r) for r in self.c.execute("SELECT scene, created_at FROM scene_run WHERE status='done'")]
+
+    # ---- academy read marks -------------------------------------------------
+    def mark_read(self, article_id: str) -> None:
+        with self.lock:
+            self.c.execute("INSERT OR IGNORE INTO article_read(id, at) VALUES(?,?)", (article_id, iso()))
+
+    def read_ids(self) -> set[str]:
+        return {r["id"] for r in self.c.execute("SELECT id FROM article_read")}
 
     # ---- aggregates ---------------------------------------------------------
     def counts(self) -> dict:

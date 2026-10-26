@@ -29,8 +29,8 @@ from core import auth, llm, scheduler  # noqa: E402
 from core.store import Store  # noqa: E402
 
 ONBOARD = {"agent_name": "阿光", "agent_avatar_id": "stardust", "intent_primary": "健康作息",
-           "intent_why": "白天总是很困", "schedule_hint": "夜猫", "traits": ["拖延但爆发"],
-           "mbti_hint": "跳过", "boundaries": ["别说教"]}
+           "intent_why": "白天总是很困", "schedule_hint": "夜猫", "care_style": "analyze",
+           "traits": ["拖延但爆发"], "mbti_hint": "跳过", "boundaries": ["别说教"]}
 
 
 class FakeLLM:
@@ -258,7 +258,7 @@ class ApiTest(unittest.TestCase):
         _, after = c.req("GET", "/api/bootstrap")
         self.assertEqual(after["counts"]["good"], before["counts"]["good"])
         self.assertEqual(after["counts"]["rest"], 1)
-        self.assertEqual(after["rank"]["xp"], before["rank"]["xp"])
+        self.assertEqual(after["growth"]["total"], before["growth"]["total"])
 
     def test_step_done_gives_xp(self):
         c, _ = self.onboarded("xp")
@@ -267,8 +267,10 @@ class ApiTest(unittest.TestCase):
         sid = [s for s in d["steps"] if s["status"] == "todo"][0]["id"]
         s, d2 = c.req("POST", "/api/step", {"action": "done", "id": sid})
         self.assertEqual(s, 200)
-        self.assertEqual(d2["xp"]["gain"], 10)
-        self.assertIn("first_step", d2["xp"]["badges"])
+        self.assertEqual(d2["xp"]["amount"], 10)
+        self.assertEqual(d2["growth"]["today"]["by_source"]["action"], 10)
+        earned = {b["id"] for b in d2["growth"]["badges"] if b["earned"]}
+        self.assertIn("first_step", earned)
 
     def test_memory_confirm_edit_forget(self):
         c, uid = self.onboarded("mem")
@@ -407,15 +409,19 @@ class ApiTest(unittest.TestCase):
         c = Client(self.port)
         c.req("POST", "/api/auth/guest", {})
         self.fake.json_out = None  # model unavailable -> template letter
-        s, d = c.req("GET", "/api/report?days=10")
+        s, d = c.req("GET", "/api/report?days=14")
         self.assertEqual(s, 200)
         self.assertFalse(d["empty"])
-        self.assertTrue(d["facts"]["surprise"])
-        self.assertIn(str(d["facts"]["good"]), d["letter"]["text"])
+        self.assertTrue(d["surprise"])
+        self.assertIn(str(d["facts"]["good"]), json.dumps(d["facts"]))
+        self.assertTrue(d["ready"])  # the seeded guest is 15 days in
+        self.assertGreaterEqual(len(d["nodes"]), 2)
+        self.assertTrue(all("sources" in n for n in d["nodes"]))
         c2, _ = self.onboarded("empty_report")
-        _, d2 = c2.req("GET", "/api/report?days=10")
+        _, d2 = c2.req("GET", "/api/report?days=14")
         self.assertTrue(d2["empty"])
-        self.assertIsNone(d2["letter"])
+        self.assertIsNone(d2["narrative"])
+        self.assertFalse(d2["ready"])
 
 
 if __name__ == "__main__":

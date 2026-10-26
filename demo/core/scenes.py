@@ -13,6 +13,23 @@ from .store import Store
 from .util import clip
 
 SCENES = {
+    "relearn": {
+        "title": "重新认识我", "minutes": 4, "stage": "偏好", "icon": "compass",
+        "desc": "六个生活中的小岔路。答完，小光会知道以后怎么陪你。",
+        "steps": [
+            {"q": "如果连续三天没完成计划，你更希望小光怎么反应？",
+             "chips": ["轻轻提醒我一下", "陪我一起找原因", "先别提，等我自己说"],
+             "save": {"field": "care_style",
+                      "map": {"轻轻提醒我一下": "nudge", "陪我一起找原因": "analyze", "先别提，等我自己说": "quiet"}}},
+            {"q": "你更愿意怎么被称呼？", "ph": "比如：小鱼、名字、随便叫"},
+            {"q": "一天里，你状态最好的时候通常是？",
+             "chips": ["早上", "下午", "晚上", "不固定"]},
+            {"q": "完成一件小事以后，你希望被怎样对待？",
+             "chips": ["被看见、被说出来", "自己知道就好", "想听具体的观察，不想听夸奖"]},
+            {"q": "有什么话题你现在不想聊？", "ph": "可以写「跳过」，或者留白"},
+            {"q": "最后一题：如果只能改一件小事，你想先改哪件？", "ph": "越具体越好"},
+        ],
+    },
     "clarify": {
         "title": "说清想要的", "minutes": 3, "stage": "澄清",
         "desc": "把模糊的「想变好」说成一个具体画面。",
@@ -59,7 +76,7 @@ SCENES = {
 
 def catalog() -> list[dict]:
     return [{"id": k, "title": v["title"], "minutes": v["minutes"], "stage": v["stage"], "desc": v["desc"],
-             "steps": len(v["steps"])} for k, v in SCENES.items()]
+             "icon": v.get("icon", ""), "steps": len(v["steps"])} for k, v in SCENES.items()]
 
 
 def _render_step(scene_id: str, i: int, profile: dict) -> dict:
@@ -119,7 +136,30 @@ def finish(store: Store, sid: str, a: list[str]) -> list[dict]:
         r = store.add_record(type_, text)
         out.append({"type": "record", "label": "记下一条好消息" if type_ == "good" else "记下一条发现", "item": r})
 
-    if sid == "clarify":
+    if sid == "relearn":
+        steps_def = SCENES["relearn"]["steps"]
+        patch = {}
+        for i, sd in enumerate(steps_def):
+            field = (sd.get("save") or {}).get("field")
+            if not field or i >= len(a):
+                continue
+            val = a[i]
+            mapping = (sd.get("save") or {}).get("map") or {}
+            patch[field] = mapping.get(val, clip(val, 60))
+        if a[1]:
+            patch["nickname"] = clip(a[1], 16)
+        if a[2]:
+            patch["schedule_hint"] = clip(a[2], 12)
+        if patch:
+            store.set_profile(patch)
+            out.append({"type": "profile", "label": "更新了互动偏好", "item": patch})
+        if a[3]:
+            mem("完成一件小事后更希望：" + clip(a[3], 40), "preference")
+        if a[4] and a[4] not in ("跳过", "无"):
+            mem("暂时不想聊：" + clip(a[4], 40), "boundary")
+        if a[5]:
+            step(clip(a[5], 40), "来自「重新认识我」：想先改的那件小事")
+    elif sid == "clarify":
         step(clip(a[2], 40), "来自「说清想要的」：" + clip(a[0], 40))
         mem("想要的画面：" + clip(a[1] or a[0], 60), "intent")
     elif sid == "gratitude":
@@ -140,6 +180,10 @@ def finish(store: Store, sid: str, a: list[str]) -> list[dict]:
 
 
 def summary(sid: str, a: list[str]) -> str:
+    if sid == "relearn":
+        style = {"轻轻提醒我一下": "轻轻提醒你", "陪我一起找原因": "陪你一起看原因",
+                 "先别提，等我自己说": "先不提，等你开口"}.get(a[0], "按你选的来")
+        return f"记下了。以后你中断的时候，我会{style}。这些都可以在「我的空间」里改。"
     if sid == "clarify":
         return f"你想要的画面是「{clip(a[0], 30)}」。明天早上的第一件事，我放进计划了：{clip(a[2], 30)}。"
     if sid == "gratitude":

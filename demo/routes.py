@@ -5,7 +5,7 @@ the only source of the user id.
 """
 from __future__ import annotations
 
-from core import auth, llm, onboarding, report, scenes, scheduler
+from core import academy, auth, growth, llm, onboarding, report, scenes, scheduler
 from core.store import Store
 from core.util import clip, iso
 from core.api import VERSION, ApiError, bootstrap, public_user
@@ -80,13 +80,16 @@ def chat(h, u, b, q):
 
 
 PROFILE_FIELDS = {"nickname", "agent_name", "agent_hue", "agent_avatar_id", "intent_primary", "intent_why",
-                  "schedule_hint", "traits", "mbti_hint", "boundaries", "proactive"}
+                  "schedule_hint", "traits", "mbti_hint", "boundaries", "proactive",
+                  "care_style", "pace", "pet_name"}
 
 
 def profile(h, u, b, q):
     patch = {k: v for k, v in b.items() if k in PROFILE_FIELDS}
     if "proactive" in patch and patch["proactive"] not in ("more", "normal", "less", "off"):
         raise ApiError(400, "频率不对")
+    if "care_style" in patch and patch["care_style"] not in ("", "nudge", "analyze", "quiet"):
+        raise ApiError(400, "偏好不对")
     for k in ("traits", "boundaries"):
         if k in patch:
             patch[k] = [clip(str(x), 20) for x in (patch[k] or [])][:6]
@@ -123,7 +126,7 @@ def memory(h, u, b, q):
         elif act == "add":
             if not text:
                 raise ApiError(400, "内容不能为空")
-            m = st.add_memory(text, "identity", "confirmed")
+            st.add_memory(text, "identity", "confirmed")
             st.log("memory", "你亲手写下：" + text)
         else:
             raise ApiError(400, "未知操作")
@@ -144,7 +147,7 @@ def step(h, u, b, q):
             s = st.complete_step(str(b.get("id") or ""))
             if not s:
                 raise ApiError(404, "这一步不在待办里")
-            result["xp"] = st.gain_xp(10)
+            result["xp"] = growth.award(st, "action", ref="step:" + s["id"], note="完成：" + s["title"])
             st.log("plan", "完成了：" + s["title"])
         elif act in ("todo", "drop"):
             s = st.set_step(str(b.get("id") or ""), "todo" if act == "todo" else "dropped")
@@ -164,11 +167,12 @@ def record(h, u, b, q):
     if not text:
         raise ApiError(400, "写点什么")
     with Store(u["id"]) as st:
-        st.add_record(type_, text)
+        r = st.add_record(type_, text)
+        xp = None
         if type_ == "good":
-            st.gain_xp(5)
+            xp = growth.award(st, "good", ref="rec:" + r["id"], note="好消息")
         st.log("record", {"good": "收下一条好消息", "rest": "今天是偷懒日", "find": "记下一条新发现"}[type_])
-        return 200, bootstrap(st)
+        return 200, {"xp": xp, **bootstrap(st)}
 
 
 def scene_start(h, u, b, q):
@@ -196,7 +200,8 @@ def scene_answer(h, u, b, q):
         st.add_msg("user", text, {"scene": run["scene"]})
         if out["done"]:
             st.add_msg("assistant", out["summary"], {"scene_done": True, "wrote": [w["label"] for w in out["wrote"]]})
-            st.gain_xp(8)
+            out["xp"] = growth.award(st, "practice", ref="scene:" + run["id"],
+                                     note="完成练习：" + scenes.SCENES[run["scene"]]["title"])
             out["state"] = bootstrap(st)
         return 200, out
 
@@ -222,14 +227,44 @@ def inbox_seen(h, u, b, q):
         return 200, {"ok": True}
 
 
+def growth_get(h, u, b, q):
+    with Store(u["id"]) as st:
+        return 200, growth.state(st)
+
+
+def growth_branch(h, u, b, q):
+    with Store(u["id"]) as st:
+        out = growth.set_branch(st, str(b.get("branch") or ""))
+        if not out.get("ok"):
+            raise ApiError(400, out.get("reason") or "不能选这个分支")
+        return 200, {**out, **bootstrap(st)}
+
+
+def academy_list(h, u, b, q):
+    with Store(u["id"]) as st:
+        read = st.read_ids()
+        items = [{**a, "read": a["id"] in read} for a in academy.catalog()]
+    return 200, {"articles": items}
+
+
+def academy_get(h, u, b, q):
+    article = academy.get(str((q.get("id") or [""])[0]))
+    if not article:
+        raise ApiError(404, "没有这篇文章")
+    with Store(u["id"]) as st:
+        st.mark_read(article["id"])
+    return 200, {"article": article}
+
+
 def report_get(h, u, b, q):
     try:
-        days = int((q.get("days") or ["10"])[0])
+        days = int((q.get("days") or ["14"])[0])
     except ValueError:
-        days = 10
-    days = 30 if days >= 30 else 10
+        days = 14
+    days = 30 if days >= 30 else 14
+    fast = (q.get("fast") or ["0"])[0] == "1"
     with Store(u["id"]) as st:
-        return 200, report.build(st, days)
+        return 200, report.build(st, days, with_letter=not fast)
 
 
 def export(h, u, b, q):
@@ -258,6 +293,10 @@ ROUTES = {
     ("POST", "/api/scene/cancel"): (scene_cancel, True),
     ("POST", "/api/proactive/now"): (proactive_now, True),
     ("POST", "/api/inbox/seen"): (inbox_seen, True),
+    ("GET", "/api/growth"): (growth_get, True),
+    ("POST", "/api/growth/branch"): (growth_branch, True),
+    ("GET", "/api/academy"): (academy_list, True),
+    ("GET", "/api/academy/article"): (academy_get, True),
     ("GET", "/api/report"): (report_get, True),
     ("GET", "/api/export"): (export, True),
 }

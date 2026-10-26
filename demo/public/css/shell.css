@@ -1,0 +1,340 @@
+/* 应用外壳：左导航 / 中央画布 / 右侧「此刻」 */
+
+.app {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr) var(--ctx);
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* ---------- 左轨 ---------- */
+.rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 22px 14px 14px;
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 18px;
+}
+.brand-mark { width: 26px; height: 26px; flex: none; }
+.brand-name {
+  font-family: var(--serif);
+  font-size: 17px;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+.brand-sub {
+  font-size: 11px;
+  color: var(--ink-3);
+  letter-spacing: 0.2em;
+  margin-top: -4px;
+}
+
+.nav-group { margin-top: 12px; }
+.nav-label {
+  font-size: 10.5px;
+  letter-spacing: 0.22em;
+  color: var(--ink-4);
+  padding: 0 10px 6px;
+  text-transform: uppercase;
+}
+
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 10px;
+  color: var(--ink-2);
+  font-size: 14px;
+  text-align: left;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+}
+.nav-item:hover { background: var(--paper-2); color: var(--ink); }
+.nav-item.active { background: var(--paper-3); color: var(--ink); font-weight: 500; }
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: -14px;
+  top: 50%;
+  width: 3px;
+  height: 18px;
+  transform: translateY(-50%);
+  border-radius: 0 3px 3px 0;
+  background: var(--jade);
+}
+.nav-item svg { width: 17px; height: 17px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; }
+.nav-item .dot {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--jade);
+  color: #fff;
+  font-size: 10.5px;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.nav-item .dot.gold { background: var(--gold); }
+
+.rail-spacer { flex: 1; }
+
+.rail-pet {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 4px 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: linear-gradient(160deg, var(--jade-wash), transparent 70%);
+  text-align: left;
+  transition: border-color 0.2s var(--ease), transform 0.2s var(--ease);
+}
+.rail-pet:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+.rail-pet img {
+  width: 42px; height: 42px; border-radius: 50%;
+  object-fit: cover;
+  background: var(--paper-2);
+  filter: saturate(0.95);
+}
+.rail-pet .name { font-size: 12.5px; font-weight: 500; }
+.rail-pet .stage { font-size: 11px; color: var(--ink-3); }
+
+.rail-user {
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px;
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+.rail-user .avatar {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--ink); color: var(--paper);
+  display: grid; place-items: center;
+  font-size: 11px; font-family: var(--serif);
+}
+.rail-user .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-user button { color: var(--ink-3); font-size: 11.5px; }
+.rail-user button:hover { color: var(--ink); }
+
+/* ---------- 中央画布 ---------- */
+.canvas {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 28px;
+  min-height: 56px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--paper) 86%, transparent);
+  backdrop-filter: blur(10px);
+  z-index: 5;
+}
+.topbar h1 {
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+.topbar .crumb { font-size: 12px; color: var(--ink-3); }
+.topbar .spacer { flex: 1; }
+.topbar .tbtn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12px; color: var(--ink-2);
+  transition: border-color 0.18s var(--ease), color 0.18s var(--ease), background 0.18s var(--ease);
+}
+.topbar .tbtn:hover { border-color: var(--line-strong); color: var(--ink); background: var(--paper-2); }
+.topbar .tbtn svg { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 1.7; }
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+}
+.page-inner {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 34px 32px 120px;
+}
+.page-inner.wide { max-width: 1020px; }
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 18px;
+}
+.section-head h2 {
+  font-family: var(--serif);
+  font-size: 26px;
+  letter-spacing: 0.02em;
+  margin: 0;
+  font-weight: 600;
+}
+.section-head p { margin: 0; color: var(--ink-3); font-size: 12.5px; }
+.section-head .spacer { flex: 1; }
+
+.eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.24em;
+  color: var(--ink-4);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+/* ---------- 右栏 ---------- */
+.context {
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
+  padding: 22px 20px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: color-mix(in srgb, var(--paper-2) 45%, var(--paper));
+}
+
+.c-card {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.c-card:first-child { border-top: 0; padding-top: 0; }
+.c-card .c-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; letter-spacing: 0.16em; color: var(--ink-4);
+  margin-bottom: 10px;
+}
+.c-card .c-head .more { margin-left: auto; letter-spacing: 0; color: var(--ink-3); font-size: 11.5px; }
+.c-card .c-head .more:hover { color: var(--ink); }
+
+.pet-card { text-align: center; }
+.pet-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1.15;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 50% 30%, var(--jade-wash), transparent 70%),
+    var(--paper-2);
+  display: grid; place-items: center;
+}
+.pet-frame img {
+  width: 100%; height: 100%; object-fit: cover;
+  mix-blend-mode: multiply;
+  transition: transform 0.6s var(--ease-out);
+}
+html[data-theme="dusk"] .pet-frame img { mix-blend-mode: normal; opacity: 0.9; }
+.pet-frame:hover img { transform: scale(1.03); }
+.pet-frame .whisper {
+  position: absolute; left: 12px; right: 12px; bottom: 10px;
+  font-size: 11.5px; color: var(--ink-2);
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  backdrop-filter: blur(6px);
+  border-radius: 8px; padding: 6px 9px;
+  text-align: left;
+}
+.pet-meta { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin-top: 10px; }
+.pet-meta .nm { font-family: var(--serif); font-size: 15px; font-weight: 600; }
+.pet-meta .st { font-size: 11.5px; color: var(--ink-3); }
+
+.today-step {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.today-step:last-child { border-bottom: 0; }
+.today-step .box {
+  width: 17px; height: 17px; margin-top: 3px; flex: none;
+  border: 1.5px solid var(--line-strong); border-radius: 5px;
+  display: grid; place-items: center;
+  transition: all 0.2s var(--ease);
+}
+.today-step .box:hover { border-color: var(--jade); background: var(--jade-wash); }
+.today-step .box svg { width: 10px; height: 10px; stroke: var(--jade); fill: none; stroke-width: 2.4; opacity: 0; }
+.today-step.done .box { background: var(--jade); border-color: var(--jade); }
+.today-step.done .box svg { opacity: 1; stroke: #fff; }
+.today-step.done .t { color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--ink-4); }
+.today-step .t { font-size: 13px; line-height: 1.5; }
+.today-step .w { font-size: 11px; color: var(--ink-3); margin-top: 1px; }
+
+.guess-card {
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  padding: 11px 12px;
+  background: color-mix(in srgb, var(--gold-soft) 25%, transparent);
+}
+.guess-card .q { font-size: 12.5px; line-height: 1.55; }
+.guess-card .acts { display: flex; gap: 6px; margin-top: 9px; }
+.guess-card .acts button {
+  font-size: 11.5px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--line-strong); color: var(--ink-2);
+}
+.guess-card .acts button:hover { background: var(--paper-2); color: var(--ink); }
+.guess-card .acts .yes { border-color: var(--jade); color: var(--jade-ink); }
+
+/* 移动端：侧栏与右栏收进抽屉 */
+.mobile-only { display: none; }
+
+@media (max-width: 1200px) {
+  .app { grid-template-columns: var(--rail) minmax(0, 1fr); }
+  .context {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(360px, 88vw);
+    z-index: 60; transform: translateX(102%);
+    transition: transform 0.36s var(--ease-out);
+    box-shadow: var(--shadow-2);
+  }
+  .app.ctx-open .context { transform: none; }
+  .mobile-only { display: inline-flex; }
+}
+
+@media (max-width: 860px) {
+  .app { grid-template-columns: 1fr; }
+  .rail {
+    position: fixed; left: 0; right: 0; bottom: 0; top: auto;
+    flex-direction: row; align-items: center; gap: 0;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    border-right: 0; border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--paper) 92%, transparent);
+    backdrop-filter: blur(14px);
+    z-index: 70; overflow-x: auto; overflow-y: hidden;
+  }
+  .rail .brand, .rail .nav-label, .rail .rail-spacer, .rail .rail-pet, .rail .rail-user { display: none; }
+  .rail .nav-group { display: flex; margin: 0; gap: 2px; flex: 0 0 auto; }
+  .nav-group + .nav-group { border-left: 1px solid var(--line); padding-left: 4px; margin-left: 4px; }
+  .nav-item { flex-direction: column; gap: 3px; padding: 7px 9px; font-size: 10px; width: auto; flex: 0 0 auto; justify-content: center; }
+  .nav-item span { white-space: nowrap; }
+  .nav-item.active::before { display: none; }
+  .nav-item .dot { position: absolute; top: 2px; right: 8px; min-width: 15px; height: 15px; line-height: 15px; font-size: 9px; }
+  .page-inner { padding: 20px 18px 120px; }
+  .topbar { padding: 10px 16px; }
+  .nav-secondary { display: none; }
+}

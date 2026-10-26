@@ -1,29 +1,24 @@
-"""The 小光 agent: prompt assembly, tools, and the streaming tool loop.
+"""小光 agent：人设、工具、流式工具循环。
 
-One agent, no sub-agents (as agreed in the 10-22 meeting). Per turn:
-  1. retrieve top-k memories for the user's message (lexical FTS + recency)
-  2. build system prompt = persona + manifestation method + core block + retrieved
-  3. stream; if the model calls tools, run them against this user's Store and
-     loop (≤ MAX_ROUNDS), then stream the final text
-  4. background: memory write pipeline (core/memory.py)
+一个主 Agent + 按需工具，不引入多 Agent 编排（10-22 会议决定）。
+每轮：
+  1. 检索这个用户的相关记忆（FTS + 新近度）
+  2. 组装 system prompt = 人设 + 显化方法 + 核心档案 + 互动偏好 + 检索结果 + 成长规则
+  3. 流式对话；模型要调工具就在本用户的 Store 上执行（≤ MAX_ROUNDS 轮）
+  4. 后台：记忆写入管线（core/memory.py）
 
-Events yielded to the HTTP layer (sent as SSE):
-  mood {id}            emotion-ball id for the avatar
-  context {memories}   what was retrieved (shown as 「小光参考了」)
-  delta {text}
-  tool {name, args, result}   for UI cards (step added, good news saved…)
-  done {message_id}
-  error {message}
+边界（讨论稿 2.4）：写入类工具返回真实回执，失败时模型必须说「没写进去」；
+学堂只有只读检索，没有编辑 / 发布工具；经验值只能由 growth.award 计算。
 """
 from __future__ import annotations
 
 import json
 import threading
 
-from . import llm, memory
+from . import academy, growth, llm, memory
 from .scenes import SCENES
 from .store import Store
-from .util import clip, day_key, now
+from .util import clip, now
 
 MAX_ROUNDS = 4
 HISTORY_TURNS = 16
@@ -32,9 +27,15 @@ MOODS = {"idle": "02", "curious": "03", "happy": "10", "shy": "14", "tired": "15
          "satisfied": "19", "thinking": "30", "done": "33", "listening": "35", "recall": "37",
          "replying": "39", "searching": "40", "sad": "12", "surprised": "13"}
 
+CARE_STYLE = {
+    "nudge": "被打断时，TA 希望你先轻轻提醒一次，再一起想办法。",
+    "analyze": "被打断时，TA 希望你先陪着一起看看原因，不要催促。",
+    "quiet": "被打断时，TA 希望你先不要提这件事，等 TA 自己开口。",
+}
+
 PERSONA = """你是「{name}」，一个显化陪伴 agent。你只做一件事：帮这个人把「想成为的人」收成今天能走的一小步。你不是万能助理——查天气、写代码、写论文这类请求，温和地说明这不是你擅长的，再把话题带回他自己。
 
-你陪伴的方法来自显化七步：澄清想要什么 → 建立「我配得上」的信念 → 感受实现时的状态 → 采取一个小行动 → 感恩已有的 → 释放执念 → 见证自己的变化。不用每次都讲这些词，把它们化在对话里。
+你陪伴的方法来自显化七步：澄清想要什么 → 建立「我配得上」的信念 → 感受实现时的状态 → 采取一个小行动 → 感恩已有的 → 释放执念 → 见证自己的变化。不用每次都讲这些词，把它们化在对话里。显化是「更清楚地想要什么、感受到可能性、推动行动」，不是「想着就会实现」。
 
 说话方式：
 - 像发消息的朋友。一次 1–3 句，短句，口语。不用标题、列表、加粗，除非对方要。
@@ -45,14 +46,21 @@ PERSONA = """你是「{name}」，一个显化陪伴 agent。你只做一件事�
 - 不说「加油」「你一定可以」这类空话，用具体的观察代替：「你上周也是这样把第一段写出来的」。
 - 只用下面「你知道的」里的事实谈论这个人。不知道就问，不要编造过去的对话。
 - 标注为「待确认的猜测」的内容，不能当成事实说。
-{boundaries}
+{care}{boundaries}
+把「事件」和「人格」分开：用户说「我三天没健身」，这是一件带日期的事，最多记成事件；
+绝不能据此说 TA 是「三分钟热度」「没毅力」。人格判断只能来自用户自己说的，或反复出现后由 TA 确认。
+
 工具使用：
 - 用户说了一件好事 → log_good_news；说今天想休息/偷懒 → log_lazy_day。
 - 你们一起定下一个小行动 → add_step；用户说做完了某一步 → complete_step。
-- 用户想冥想、感恩、理清目标、走一遍七步 → start_scene。
+- 用户想冥想、感恩、理清目标、走一遍七步、或想「重新认识我」→ start_scene。
 - 需要回忆以前的事、而下面没提供时 → search_memory。
-- 用户明确让你记住某事 → remember。
-- 调用工具后，用一句自然的话告诉对方你做了什么，不要复述工具名。
+- 用户明确让你记住某事 → remember（说「帮我记住」这类明确请求才用）。
+- 用户问成长、等级、宠物、还差多少 XP、什么时候进化 → get_growth，用工具返回的真实数字回答，不要自己编。
+- 用户问某个心理 / 显化概念 → knowledge_search，只说检索到的内容，并说明是团队整理的版本。
+- 用户说「以后别催我」「我更喜欢你先听我说」→ set_care_style。
+- 调用工具后，用一句自然的话告诉对方你做了什么；工具返回 ok=false 时必须说没写成，不能说「已经记好了」。
+- 工具返回的 xp 里如果 capped 或 duplicate 为真，说明这次没加分，别暗示加了。
 
 现在是 {now}（{weekday}）。"""
 
@@ -83,13 +91,26 @@ TOOLS = [
         "name": "log_lazy_day", "description": "用户今天想休息/偷懒。不会清零任何进度",
         "parameters": {"type": "object", "properties": {"note": {"type": "string"}}}}},
     {"type": "function", "function": {
-        "name": "start_scene", "description": "开始一个灵感场景，由界面一步步引导用户回答",
+        "name": "start_scene", "description": "开始一个引导场景，由界面一步步带用户完成",
         "parameters": {"type": "object", "properties": {
-            "scene": {"type": "string", "enum": list(SCENES)}}, "required": ["scene"]}}}
+            "scene": {"type": "string", "enum": list(SCENES)}}, "required": ["scene"]}}},
+    {"type": "function", "function": {
+        "name": "get_growth", "description": "查询真实的成长状态：经验值、今日上限、下一形态、宠物分支、徽章",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "knowledge_search", "description": "在团队审核的心灵学堂内容里检索（只读）",
+        "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "set_care_style", "description": "用户说明希望被怎样对待时，更新互动偏好",
+        "parameters": {"type": "object", "properties": {
+            "care_style": {"type": "string", "enum": ["nudge", "analyze", "quiet"],
+                           "description": "nudge 轻轻提醒 / analyze 一起找原因 / quiet 先不提"},
+            "note": {"type": "string"}}, "required": ["care_style"]}}},
 ]
 
 TOOL_MOOD = {"complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
-             "add_step": "satisfied", "remember": "recall", "start_scene": "curious"}
+             "add_step": "satisfied", "remember": "recall", "start_scene": "curious",
+             "get_growth": "focused", "knowledge_search": "searching", "set_care_style": "shy"}
 
 WEEKDAYS = "一二三四五六日"
 
@@ -112,26 +133,32 @@ def core_block(p: dict, store: Store) -> str:
     done = [s for s in store.steps() if s["status"] == "done"][:3]
     if done:
         lines.append("最近完成：" + "；".join(s["title"] for s in done))
-    c = store.counts()
-    lines.append(f"陪伴第 {c['days']} 天；好消息 {c['good']} 条，完成小步 {c['done']} 个，偷懒日 {c['rest']} 天。")
+    g = growth.state(store)
+    lines.append(f"陪伴第 {store.counts()['days']} 天；今天经验 {g['today']['total']}/120；"
+                 f"宠物「{g['pet_name']}」现在是{g['stage']['name']}"
+                 + (f"，再 {g['to_next']} 到{g['next']['name']}" if g.get("next") else "")
+                 + (f"；分支：{g['branch_name']}" if g.get("branch_name") else "")
+                 + ("；已经可以化形，还没选分支" if g["needs_branch"] else "") + "。")
     return "\n".join(lines)
 
 
 def system_prompt(store: Store, retrieved: list[dict]) -> str:
     p = store.profile()
-    b = p.get("boundaries") or []
-    b = [x for x in b if x and x != "无"]
+    b = [x for x in (p.get("boundaries") or []) if x and x != "无"]
     bound = ("- 这个人明确说过的边界（必须遵守）：" + "、".join(b) + "\n") if b else ""
+    care = CARE_STYLE.get(p.get("care_style") or "", "")
+    care = ("- 互动偏好（来自 TA 在「重新认识我」里的选择）：" + care + "\n") if care else ""
     t = now()
-    s = PERSONA.format(name=p.get("agent_name") or "小光", boundaries=bound,
+    s = PERSONA.format(name=p.get("agent_name") or "小光", boundaries=bound, care=care,
                        now=t.strftime("%Y-%m-%d %H:%M"), weekday="周" + WEEKDAYS[t.weekday()])
-    s += "\n\n## 你知道的（核心）\n" + (core_block(p, store) or "（还很少）")
+    s += "\n## 你知道的（核心）\n" + (core_block(p, store) or "（还很少）")
     facts = [m for m in retrieved if m["status"] == "active"]
     guesses = [m for m in retrieved if m["status"] == "guess"]
     if facts:
         s += "\n\n## 和这句话相关的记忆\n" + "\n".join(f"- {m['text']}（{m['created_at'][:10]}）" for m in facts)
     if guesses:
         s += "\n\n## 待确认的猜测（不能当事实）\n" + "\n".join(f"- {m['text']}" for m in guesses)
+    s += "\n\n## 成长规则（如果被问到就照实说）\n" + growth.rules_text()
     return s
 
 
@@ -148,9 +175,12 @@ def history(store: Store) -> list[dict]:
 def run_tool(store: Store, name: str, args: dict) -> dict:
     if name == "search_memory":
         hits = store.search(str(args.get("query") or ""), k=5)
-        return {"memories": [{"text": m["text"], "date": m["created_at"][:10]} for m in hits]}
+        return {"ok": True, "memories": [{"text": m["text"], "date": m["created_at"][:10]} for m in hits]}
     if name == "remember":
-        m = store.add_memory(str(args.get("text") or ""), args.get("kind") or "insight", "chat:explicit")
+        text = clip(str(args.get("text") or ""), 200)
+        if not text:
+            return {"ok": False, "error": "内容为空"}
+        m = store.add_memory(text, args.get("kind") or "insight", "chat:explicit")
         store.log("memory", "记住了：" + m["text"])
         return {"ok": True, "memory": m}
     if name == "add_step":
@@ -164,13 +194,17 @@ def run_tool(store: Store, name: str, args: dict) -> dict:
         s = store.complete_step(args.get("step_id"), args.get("title"))
         if not s:
             return {"ok": False, "error": "没找到这一步"}
-        xp = store.gain_xp(10)
+        xp = growth.award(store, "action", ref="step:" + s["id"], note="完成：" + s["title"])
         store.log("plan", "完成了：" + s["title"])
         return {"ok": True, "step": s, "xp": xp}
     if name == "log_good_news":
-        r = store.add_record("good", str(args.get("text") or ""))
+        text = clip(str(args.get("text") or ""), 200)
+        if not text:
+            return {"ok": False, "error": "内容为空"}
+        r = store.add_record("good", text)
+        xp = growth.award(store, "good", ref="rec:" + r["id"], note="好消息")
         store.log("record", "收下一条好消息")
-        return {"ok": True, "record": r, "count": store.counts()["good"]}
+        return {"ok": True, "record": r, "xp": xp, "count": store.counts()["good"]}
     if name == "log_lazy_day":
         r = store.add_record("rest", str(args.get("note") or "今天偷懒"))
         store.log("record", "今天是偷懒日")
@@ -181,6 +215,23 @@ def run_tool(store: Store, name: str, args: dict) -> dict:
             return {"ok": False, "error": "unknown scene"}
         return {"ok": True, "scene": sid, "title": SCENES[sid]["title"],
                 "note": "界面会接手引导，你只需用一句话邀请对方开始。"}
+    if name == "get_growth":
+        g = growth.state(store)
+        return {"ok": True, "growth": {k: g[k] for k in
+                ("total", "today", "stage", "next", "to_next", "needs_branch", "branch_name", "pet_name", "badges")},
+                "rules": growth.rules_text()}
+    if name == "knowledge_search":
+        hits = academy.search(str(args.get("query") or ""))
+        if not hits:
+            return {"ok": True, "articles": [], "note": "学堂里没有相关篇目，不要自己编一篇。"}
+        return {"ok": True, "articles": hits}
+    if name == "set_care_style":
+        style = args.get("care_style")
+        if style not in CARE_STYLE:
+            return {"ok": False, "error": "unknown style"}
+        store.set_profile({"care_style": style})
+        store.log("profile", "互动偏好改为：" + {"nudge": "轻轻提醒", "analyze": "一起找原因", "quiet": "先不提"}[style])
+        return {"ok": True, "care_style": style, "shown": CARE_STYLE[style]}
     return {"ok": False, "error": "unknown tool"}
 
 
@@ -198,6 +249,10 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
     user_text = clip(user_text, 2000)
     store.add_message("user", user_text)
     store.set_profile({"last_chat_at": now().isoformat(timespec="seconds")})
+    # 每天第一次来聊天算一次签到；award() 对同一天同一个 ref 是幂等的
+    checkin = growth.award(store, "checkin", ref="day:" + now().strftime("%Y-%m-%d"), note="今天来聊了")
+    if checkin.get("amount"):
+        yield ("tool", {"name": "checkin", "args": {}, "result": checkin})
     yield ("mood", {"id": MOODS["thinking"]})
 
     retrieved = store.search(user_text, k=6, include_guess=True)
@@ -235,12 +290,11 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
                 result = run_tool(store, c["name"], args)
                 tool_log.append({"name": c["name"], "args": args, "result": result})
                 yield ("tool", {"name": c["name"], "args": args, "result": result})
-                # the orb reacts to what 小光 just did, without spending a model round on it
                 if result.get("ok") and c["name"] in TOOL_MOOD:
                     mood_set = True
                     yield ("mood", {"id": MOODS[TOOL_MOOD[c["name"]]]})
                 msgs.append({"role": "tool", "tool_call_id": c["id"] or f"call_{i}",
-                             "content": json.dumps(result, ensure_ascii=False)[:1500]})
+                             "content": json.dumps(result, ensure_ascii=False)[:2000]})
     except llm.LLMError as e:
         if not reply:
             reply = "我这边连不上了，稍等一下再试试？你刚才说的我先记在这里。"
