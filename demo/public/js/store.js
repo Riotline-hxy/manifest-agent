@@ -41,7 +41,10 @@ export function setData(data, { silent = false } = {}) {
   if (g) {
     // 一次性标记：服务端只会在真实发生时给一次
     if (g.evolved) celebrate("evolve", g.evolved, "evo:" + g.evolved.to);
-    for (const b of g.badges_new || []) celebrate("badge", b, "badge:" + b.id);
+    // 一次最多弹两枚；老账号升级后可能一下解锁很多，其余用一条提示带过
+    const nb = g.badges_new || [];
+    nb.slice(0, 2).forEach((b) => celebrate("badge", b, "badge:" + b.id));
+    if (nb.length > 2) import("./ui.js").then((m) => m.toast(`另外还解锁了 ${nb.length - 2} 枚徽章，去成长页看看`, "", "st-chest-open"));
     if (prevQuests !== null && prevQuests < 4 && g.quests_done === 4) {
       celebrate("chest", {}, "chest:" + new Date().toDateString());
     }
