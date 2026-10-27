@@ -1,0 +1,18 @@
+[Unit]
+Description=Manifest Agent (显伴 demo)
+After=network.target
+
+[Service]
+Type=simple
+User=ops11768
+Group=ops11768
+WorkingDirectory=/opt/manifest-agent/app/demo
+EnvironmentFile=/opt/manifest-agent/.env
+ExecStart=/usr/bin/python3 server.py 18765
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
