@@ -494,6 +494,16 @@ class ApiTest(unittest.TestCase):
         self.assertIn("喜欢吃寿司", texts)
         self.assertNotIn("三天没健身", texts)
 
+    def test_theme_and_agent_color(self):
+        c, _ = self.onboarded("theme")
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["profile"]["theme"], "forest")              # 建档没选时用默认
+        s, d = c.req("POST", "/api/profile", {"theme": "peach", "agent_hue": "#4fd1a5"})
+        self.assertEqual(s, 200)
+        self.assertEqual((d["profile"]["theme"], d["profile"]["agent_hue"]), ("peach", "#4fd1a5"))
+        self.assertEqual(c.req("POST", "/api/profile", {"theme": "neon"})[0], 400)
+        self.assertEqual(c.req("POST", "/api/profile", {"agent_hue": "#123456"})[0], 400)
+
     def test_correct_memory_tool(self):
         c, uid = self.onboarded("correct")
         with Store(uid) as st:

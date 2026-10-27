@@ -2,9 +2,9 @@
 // 上：进度条；中：小光 + 气泡 + 选项卡 / 输入框 / 呼吸圈；下：继续按钮。
 // 每答一题，小光有一个小反应；最后是完成页，经验数字滚动上来。
 
-import { esc } from "./ui.js";
+import { esc, icon, tile } from "./ui.js";
 import { mountBall } from "./ball.js";
-import { art, confetti, countUp } from "./fx.js";
+import { confetti, countUp } from "./fx.js";
 
 const NICE = ["记下了", "嗯，我懂了", "这个很重要", "谢谢你告诉我", "收到", "好，就按你说的"];
 const KEYS = "123456789";
@@ -33,7 +33,7 @@ export function runLesson({ kicker = "", start, answer, onClose, onDone, finishL
   document.body.append(el);
   requestAnimationFrame(() => el.classList.add("in"));
 
-  const ball = mountBall(el.querySelector(".lesson-ball"), { size: 116, emotion: "03" });
+  const ball = mountBall(el.querySelector(".lesson-ball"), { size: 116, emotion: "03", agent: false });
   const $ = (s) => el.querySelector(s);
   const go = $(".lesson-go");
   const skip = $(".lesson-skip");
@@ -88,10 +88,12 @@ export function runLesson({ kicker = "", start, answer, onClose, onDone, finishL
     let html = "";
     if (opts.length) {
       html += `<div class="opts ${opts.length > 4 ? "many" : ""}">${opts.map((o, i) => `
-        <button class="opt" data-v="${esc(o.v)}" style="--i:${i}">
+        <button class="opt ${o.theme ? "opt-theme" : ""}" data-v="${esc(o.v)}" style="--i:${i}">
           <span class="key">${KEYS[i] || ""}</span>
-          ${o.art ? `<img src="${art(o.art)}" alt="">` : ""}
-          <span class="lbl">${esc(o.label)}</span>
+          ${o.theme ? `<span class="opt-prev" style="background:linear-gradient(160deg, ${o.theme.swatch[0]}, ${o.theme.swatch[1]})"><i style="background:${o.theme.agent}"></i></span>`
+            : o.color ? `<span class="opt-swatch" style="background:${o.color}"></span>`
+            : o.icon ? tile(o.icon, o.tint || "var(--accent)", 38) : ""}
+          <span class="lbl">${esc(o.label)}${o.sub ? `<small>${esc(o.sub)}</small>` : ""}</span>
         </button>`).join("")}</div>`;
     }
     if (s.ph || s.free) {
@@ -131,6 +133,7 @@ export function runLesson({ kicker = "", start, answer, onClose, onDone, finishL
       value = v;
       setReady(true);
     }
+    step.onPick?.(v, ball);
     ball.set("curious");
   }
 
@@ -140,7 +143,7 @@ export function runLesson({ kicker = "", start, answer, onClose, onDone, finishL
     const v = skipIt ? null : value;
     // 小反应：底栏变绿 + 一句话 + 小光开心一下
     el.querySelector(".lesson-foot").classList.add("good");
-    $(".lesson-react").innerHTML = `<img src="${art("st-seed")}" alt=""><b>${skipIt ? "没关系，跳过" : NICE[(Math.random() * NICE.length) | 0]}</b>`;
+    $(".lesson-react").innerHTML = `${tile(skipIt ? "arrow" : "check", "var(--good)", 40)}<b>${skipIt ? "没关系，跳过" : NICE[(Math.random() * NICE.length) | 0]}</b>`;
     ball.set(skipIt ? "shy" : "happy");
     ball.pulse("bounce");
     go.classList.add("off");
@@ -165,12 +168,12 @@ export function runLesson({ kicker = "", start, answer, onClose, onDone, finishL
     ball.set("done");
     ball.pulse("burst");
     const wrote = out.wrote || [];
-    const WROTE_ART = { memory: "st-mirror", step: "st-flag", record: "st-jar", profile: "st-compass" };
+    const WROTE = { memory: ["memory", "var(--c-violet)"], step: ["flag", "var(--c-orange)"], record: ["star", "var(--c-lemon)"], profile: ["compass", "var(--c-sky)"] };
     $(".lesson-q").textContent = out.summary || "完成啦。";
     $(".lesson-answer").innerHTML = `
       <div class="lesson-done">
-        ${out.xp?.amount ? `<div class="xp-card"><img src="${art("st-jar")}" alt=""><div><div class="lbl">获得经验</div><div class="num big">+<span data-c>0</span></div></div></div>` : ""}
-        ${wrote.length ? `<div class="wrote">${wrote.map((w, i) => `<div class="w" style="--i:${i}"><img src="${art(WROTE_ART[w.type] || "st-seed")}" alt="">
+        ${out.xp?.amount ? `<div class="xp-card">${tile("bolt", "var(--accent)", 56)}<div><div class="lbl">获得经验</div><div class="num big">+<span data-c>0</span></div></div></div>` : ""}
+        ${wrote.length ? `<div class="wrote">${wrote.map((w, i) => `<div class="w" style="--i:${i}">${tile((WROTE[w.type] || ["sparkles"])[0], (WROTE[w.type] || [0, "var(--accent)"])[1], 40)}
           <div><b>${esc(w.label)}</b><span>${esc(w.item?.title || w.item?.text || (w.type === "profile" ? "以后会按你的选择来" : ""))}</span></div></div>`).join("")}</div>` : ""}
       </div>`;
     if (out.xp?.amount) setTimeout(() => countUp($("[data-c]"), out.xp.amount, 700), 300);

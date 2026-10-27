@@ -81,7 +81,7 @@ def chat(h, u, b, q):
 
 PROFILE_FIELDS = {"nickname", "agent_name", "agent_hue", "agent_avatar_id", "intent_primary", "intent_why",
                   "schedule_hint", "traits", "mbti_hint", "boundaries", "proactive",
-                  "care_style", "pace", "pet_name"}
+                  "care_style", "pace", "pet_name", "theme"}
 
 
 def profile(h, u, b, q):
@@ -90,6 +90,10 @@ def profile(h, u, b, q):
         raise ApiError(400, "频率不对")
     if "care_style" in patch and patch["care_style"] not in ("", "nudge", "analyze", "quiet"):
         raise ApiError(400, "偏好不对")
+    if "theme" in patch and patch["theme"] not in onboarding.THEMES:
+        raise ApiError(400, "没有这个氛围")
+    if "agent_hue" in patch and patch["agent_hue"] not in onboarding.AGENT_COLORS | {""}:
+        raise ApiError(400, "没有这个颜色")
     for k in ("traits", "boundaries"):
         if k in patch:
             patch[k] = [clip(str(x), 20) for x in (patch[k] or [])][:6]

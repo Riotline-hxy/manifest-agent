@@ -111,8 +111,9 @@ def build(store: Store, days: int = 14, with_letter: bool = True) -> dict:
 
     if not letter:
         if good or done:
+            rest_in_surprise = bool(surprise and "放了" in surprise)
             body = (f"这 {days} 天里，你收集了 {len(good)} 条好消息，完成了 {len(done)} 个小步"
-                    + (f"，也给自己放了 {len(rest_days)} 天假" if rest_days else "") + "。")
+                    + (f"，也给自己放了 {len(rest_days)} 天假" if rest_days and not rest_in_surprise else "") + "。")
             if surprise:
                 body += surprise
             body += "下一段不用更快，保持这样就好。"

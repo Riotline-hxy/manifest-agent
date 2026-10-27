@@ -16,6 +16,14 @@ from .util import clip, iso, now
 QUESTIONS = [
     {"key": "agent_name", "q": "先给你的伙伴起个名字？", "type": "text", "default": "小光", "ph": "小光",
      "hint": "它会一直用这个名字。以后也能改。"},
+    {"key": "theme", "q": "选一个你喜欢的氛围", "type": "single", "optional": True, "hint": "点一下就能看到效果，之后随时能换。",
+     "options": [{"v": "forest", "label": "森林夜", "sub": "安静、专注"}, {"v": "midnight", "label": "深空", "sub": "极简、夜里聊天"},
+                 {"v": "paper", "label": "晨光", "sub": "清爽、白天用"}, {"v": "peach", "label": "暖阳", "sub": "温柔一点"},
+                 {"v": "mist", "label": "海雾", "sub": "慢下来"}]},
+    {"key": "agent_hue", "q": "给我挑个颜色？", "type": "single", "optional": True, "skip": True,
+     "hint": "不选就用这个氛围的默认色。",
+     "options": [{"v": c, "label": n} for c, n in (("#f7cb4d", "灯黄"), ("#f2f2f4", "月白"), ("#8b7cff", "薰衣草"),
+                                                    ("#ff8a65", "珊瑚"), ("#4fd1a5", "薄荷"), ("#5b9dff", "海蓝"), ("#ff8fb1", "樱粉"))]},
     {"key": "intent_primary", "q": "你这阵子最想靠近的是？", "type": "single_or_text",
      "options": ["自信与表达", "健康作息", "学业或作品", "关系与边界"], "ph": "或者自己写一句"},
     {"key": "intent_why", "q": "为什么这件事对你重要？一句话就好。", "type": "text", "ph": "比如：交换项目时想敢开口"},
@@ -33,8 +41,10 @@ QUESTIONS = [
      "options": ["别说教", "别鸡血催促", "无"], "ph": "别提某个话题……", "optional": True, "skip": True},
 ]
 
-# 小光的形象是固定的（v0.3：Agent 形象稳定，成长发生在宠物身上），不再让用户选「气质」
-HUE_BY_AVATAR = {"soft": "#f7cb4d"}
+# 小光的形象是固定的（v0.3：Agent 形象稳定，成长发生在宠物身上）；可以换的只有颜色和背景氛围
+THEMES = {"forest", "midnight", "paper", "peach", "mist"}
+AGENT_COLORS = {"#f7cb4d", "#f2f2f4", "#8b7cff", "#ff8a65", "#4fd1a5", "#5b9dff", "#ff8fb1"}
+HUE_BY_AVATAR = {"soft": ""}
 
 
 def apply(store: Store, answers: dict) -> dict:
@@ -56,8 +66,10 @@ def apply(store: Store, answers: dict) -> dict:
         if not v and not q.get("optional") and q["key"] not in ("boundaries",):
             raise ValueError(f"缺少：{q['q']}")
         a[q["key"]] = v
-    if isinstance(a.get("agent_avatar_id"), str) and a["agent_avatar_id"] in HUE_BY_AVATAR:
-        a["agent_hue"] = HUE_BY_AVATAR[a["agent_avatar_id"]]
+    if a.get("theme") not in THEMES:
+        a["theme"] = "forest"
+    if a.get("agent_hue") not in AGENT_COLORS:
+        a["agent_hue"] = ""
     a["onboarded"] = True
     a["last_chat_at"] = iso()
     if not a.get("care_style"):
@@ -86,7 +98,7 @@ def seed_guest(store: Store) -> None:
         return (t0.replace(hour=h, minute=m, second=0) + timedelta(days=d)).isoformat(timespec="seconds")
 
     store.set_profile({
-        "agent_name": "小光", "agent_avatar_id": "soft", "agent_hue": "#8a7dff", "nickname": "林夏",
+        "agent_name": "小光", "agent_avatar_id": "soft", "agent_hue": "", "theme": "forest", "nickname": "林夏",
         "intent_primary": "自信与表达", "intent_why": "交换项目时想敢开口说英语", "schedule_hint": "夜猫",
         "traits": ["敏感", "拖延但爆发", "需要被提醒"], "mbti_hint": "INFJ", "boundaries": ["别鸡血催促"],
         "care_style": "analyze", "onboarded": True, "proactive": "normal", "xp": 0,

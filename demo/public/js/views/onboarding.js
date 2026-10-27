@@ -1,15 +1,16 @@
-// 建档：用「一课」的形式，一屏一题，小光问，你点。可以跳过可选题，
-// 也可以一开始就「先跳过」，直接去聊天。
+// 建档：「一课」形式。选氛围时整页背景当场切换，选颜色时提问的小光当场变色。
 import { api } from "../api.js";
 import { state } from "../store.js";
 import { runLesson } from "../lesson.js";
 import { toast } from "../ui.js";
+import { applyTheme, themeOf } from "../theme.js";
+import { setAgentColor } from "../ball.js";
 
-const OPT_ART = {
-  soft: "st-seed", stardust: "st-jar", ink: "st-book", geo: "st-compass",
-  "自信与表达": "st-letter", "健康作息": "st-moon", "学业或作品": "st-book", "关系与边界": "st-mirror",
-  "早起型": "st-seed", "夜猫": "st-moon", "不固定": "st-steps",
-  nudge: "st-letter", analyze: "st-compass", quiet: "st-moon",
+const OPT_ICON = {
+  "自信与表达": ["chat", "var(--c-sky)"], "健康作息": ["moon", "var(--c-violet)"], "学业或作品": ["book", "var(--c-coral)"],
+  "关系与边界": ["heart", "var(--c-pink)"], "早起型": ["sun", "var(--c-lemon)"], "夜猫": ["moon", "var(--c-violet)"],
+  "不固定": ["steps", "var(--c-sky)"], nudge: ["letter", "var(--c-sky)"], analyze: ["compass", "var(--c-mint)"],
+  quiet: ["moon", "var(--c-violet)"], "别说教": ["close", "var(--c-coral)"], "别鸡血催促": ["bolt", "var(--c-orange)"], "无": ["check", "var(--c-mint)"],
 };
 
 export function renderOnboarding(root) {
@@ -23,13 +24,19 @@ export function renderOnboarding(root) {
     const opts = (q.options || []).map((o) => {
       const v = typeof o === "string" ? o : o.v;
       const label = typeof o === "string" ? o : o.label;
-      return { v, label, art: OPT_ART[v] || OPT_ART[label] };
+      const base = { v, label, sub: o.sub };
+      if (q.key === "theme") return { ...base, theme: themeOf(v) };
+      if (q.key === "agent_hue") return { ...base, color: v };
+      const ic = OPT_ICON[v] || OPT_ICON[label];
+      return ic ? { ...base, icon: ic[0], tint: ic[1] } : base;
     });
     return {
-      q: q.q, hint: q.hint || "", index: k, total: qs.length,
-      opts, multi: q.type.startsWith("multi"), maxPick: q.max || 3,
+      q: q.q, hint: q.hint || "", index: k, total: qs.length, opts,
+      multi: q.type.startsWith("multi"), maxPick: q.max || 3,
       free: q.type === "text" || q.type.endsWith("_or_text"), ph: q.ph || "",
       optional: !!(q.optional || q.skip || q.key === "boundaries"),
+      onPick: q.key === "theme" ? (v) => { applyTheme(v); setAgentColor(answers.agent_hue || themeOf(v).agent); }
+        : q.key === "agent_hue" ? (v) => setAgentColor(v) : null,
     };
   };
 
@@ -39,7 +46,7 @@ export function renderOnboarding(root) {
     start: async () => step(0),
     answer: async (v) => {
       const q = qs[i];
-      answers[q.key] = q.type.startsWith("multi") ? (v || []) : (v ?? (q.key === "agent_name" ? "小光" : ""));
+      answers[q.key] = q.type.startsWith("multi") ? (v || []) : (v ?? (q.key === "agent_name" ? "小光" : q.key === "theme" ? "forest" : ""));
       i += 1;
       if (i < qs.length) return { done: false, step: step(i) };
       await api.onboard(answers);
@@ -54,14 +61,13 @@ export function renderOnboarding(root) {
     },
     onDone: () => window.dispatchEvent(new CustomEvent("xg:enter")),
     onClose: async () => {
-      // 一题都不想答：用最小的默认值建档，进去以后随时可以「重新认识我」
       try {
         await api.onboard({
-          agent_name: answers.agent_name || "小光", agent_avatar_id: answers.agent_avatar_id || "soft",
-          intent_primary: answers.intent_primary || "还没想好", intent_why: answers.intent_why || "想先看看",
-          care_style: answers.care_style || "analyze",
+          agent_name: answers.agent_name || "小光", theme: answers.theme || localStorage.getItem("xg-theme") || "forest",
+          agent_hue: answers.agent_hue || "", intent_primary: answers.intent_primary || "还没想好",
+          intent_why: answers.intent_why || "想先看看", care_style: answers.care_style || "analyze",
         });
-        toast("先进去看看吧，想说的时候再说", "", "st-seed");
+        toast("先进去看看吧，想说的时候再说");
         window.dispatchEvent(new CustomEvent("xg:enter"));
       } catch (e) { toast(e.message, "err"); }
     },

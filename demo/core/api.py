@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import academy, growth, scenes, scheduler
 from .store import Store
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。

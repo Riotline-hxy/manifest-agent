@@ -2,7 +2,7 @@
 
 显化陪伴 agent 的网页 demo。线上：https://manifest.noryx.cn
 
-- 方案说明（创意 / 技术 / UI，对应线上 2.1.0）：[docs/三方向方案-v2.md](docs/三方向方案-v2.md)
+- 方案说明（创意 / 技术 / UI，对应线上 2.2.0）：[docs/三方向方案-v2.md](docs/三方向方案-v2.md)
 - v0.3 讨论稿原文：[docs/xiaoguang_v03.txt](docs/xiaoguang_v03.txt) · 旧方案：[docs/三方向方案.md](docs/三方向方案.md)
 - 会议纪要：[meeting.txt](meeting.txt) · 创意稿：[creative/](creative/)
 - 旧版 demo 归档：[_archive/demo-v0/](_archive/demo-v0/)
@@ -49,12 +49,11 @@ demo/
   public/
     index.html
     css/             base · components · shell · chat · pages · lesson · gate · fonts(生成)
-    js/              app · store · api · ui · fx(动效/庆祝) · ball(Emotion Ball 适配) · lesson(「一课」) · scene · views/
-    assets/art/      宠物、浮岛、植物、贴纸（gpt-image-1.5 透明底，WebP）
+    js/              app · store · api · ui(线性图标) · theme(五种氛围) · pet(扁平 SVG 宠物/植物) · fx(动效/庆祝)
+                     · ball(Emotion Ball 适配) · lesson(「一课」) · scene · views/
     fonts/           源流圆体 CN + Nunito 的按需切片（生成）
     vendor/emotion-ball/
 tools/
-  gen_assets.py      重新生成 assets/art（需要 OPENLUX_API_KEY）
   build_fonts.py     重新切字体（需要源字体与 jieba 词频表，见文件头）
   shoot.py           本地桌面截图（开发用，依赖仓库外的 Playwright）
 deploy/              systemd 与部署脚本
@@ -67,5 +66,5 @@ deploy/              systemd 与部署脚本
 ## 形象与素材
 
 - 小光的形象是 Emotion Ball（[sam70361/emotion-ball](https://github.com/sam70361/emotion-ball)）：引擎非商业免费，**球形角色外观永不商用**。本仓库用于竞赛 demo，页面有署名并保留其 LICENSE / NOTICE；商用前需换成自研形象，只改 `public/js/ball.js`。
-- 宠物与贴纸由 `tools/gen_assets.py` 生成（openlux `gpt-image-1.5`，原生透明背景）。
+- 宠物、植物、宝箱、星罐是代码画的扁平 SVG（`public/js/pet.js`），和小光同一种造型语言；全站没有位图素材。
 - 字体：源流圆体 CN（Resource Han Rounded，SIL OFL 1.1）与 Nunito（SIL OFL 1.1）。

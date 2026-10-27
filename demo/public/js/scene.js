@@ -1,34 +1,30 @@
-// 引导场景的入口：任何地方（点子、对话里小光提议、我的空间）都走这里。
+// 引导场景入口：点子、对话里小光提议、我的空间，都走这里。
 import { api } from "./api.js";
 import { setData, refresh } from "./store.js";
 import { runLesson } from "./lesson.js";
 import { toast } from "./ui.js";
 
-// 选项配贴纸：只给有明确含义的选项配，其他用数字键
-const CHIP_ART = {
-  "轻轻提醒我一下": "st-letter", "陪我一起找原因": "st-compass", "先别提，等我自己说": "st-moon",
-  "早上": "st-seed", "下午": "plant-tree", "晚上": "st-moon", "不固定": "st-steps",
-  "被看见、被说出来": "st-jar", "自己知道就好": "st-mirror", "想听具体的观察，不想听夸奖": "st-book",
-  "做完了": "st-lotus", "平静": "st-lotus", "轻松": "st-seed", "温暖": "st-letter", "踏实": "plant-bush",
-  "开阔": "plant-glow", "兴奋": "st-chest-open", "坚定": "st-flag", "温柔": "plant-tulip",
-  "还是它": "st-flag", "允许自己慢一点": "st-moon",
+// 有明确含义的选项配一个图标方块，其他用数字键
+const CHIP_ICON = {
+  "轻轻提醒我一下": ["letter", "var(--c-sky)"], "陪我一起找原因": ["compass", "var(--c-mint)"], "先别提，等我自己说": ["moon", "var(--c-violet)"],
+  "早上": ["sun", "var(--c-lemon)"], "下午": ["sun", "var(--c-orange)"], "晚上": ["moon", "var(--c-violet)"], "不固定": ["steps", "var(--c-sky)"],
+  "被看见、被说出来": ["star", "var(--c-lemon)"], "自己知道就好": ["lock", "var(--c-sky)"], "想听具体的观察，不想听夸奖": ["eye", "var(--c-mint)"],
+  "做完了": ["check", "var(--c-mint)"], "还是它": ["flag", "var(--c-orange)"], "允许自己慢一点": ["moon", "var(--c-violet)"],
+  "平静": ["wind", "var(--c-sky)"], "轻松": ["leaf", "var(--c-mint)"], "温暖": ["heart", "var(--c-pink)"], "踏实": ["steps", "var(--c-orange)"],
+  "开阔": ["sun", "var(--c-lemon)"], "兴奋": ["sparkles", "var(--c-pink)"], "坚定": ["flag", "var(--c-orange)"], "温柔": ["heart", "var(--c-coral)"],
 };
 
 export function toStep(s, title) {
   return {
     ...s,
-    opts: (s.chips || []).map((c) => ({ v: c, label: c, art: CHIP_ART[c] })),
-    free: !!s.ph,
-    optional: !!s.optional,
-    title,
+    opts: (s.chips || []).map((c) => ({ v: c, label: c, icon: CHIP_ICON[c]?.[0], tint: CHIP_ICON[c]?.[1] })),
+    free: !!s.ph, optional: !!s.optional, title,
   };
 }
 
 export function startScene(sceneId, { onFinish } = {}) {
-  let runId = null;
-  let title = "";
+  let runId = null, title = "";
   runLesson({
-    kicker: "",
     start: async () => {
       const out = await api.sceneStart(sceneId);
       runId = out.run?.id;
@@ -38,17 +34,15 @@ export function startScene(sceneId, { onFinish } = {}) {
     },
     answer: async (v) => {
       const out = await api.sceneAnswer(runId, v ?? "（跳过）");
-      if (out.done) return out;
-      return { done: false, step: toStep(out.step, title) };
+      return out.done ? out : { done: false, step: toStep(out.step, title) };
     },
     onDone: (out) => {
-      if (out.state) setData(out.state);
-      else refresh();
+      if (out.state) setData(out.state); else refresh();
       onFinish?.(out);
     },
     onClose: async () => {
       try { await api.sceneCancel(); await refresh(); } catch {}
-      toast("先停在这儿，随时可以再来", "", "st-moon");
+      toast("先停在这儿，随时可以再来");
     },
   });
 }
