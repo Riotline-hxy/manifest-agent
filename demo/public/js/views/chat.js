@@ -1,553 +1,290 @@
-// 对话：整站的主工作台。一个延续的线程，不做会话切换。
+// 对话：主工作台。一个延续的线程；小光（Emotion Ball）在顶上，
+// 表情跟着对话状态变；工具结果落成带贴纸的卡片，经验飞进顶栏。
 import { api, streamChat } from "../api.js";
 import { state, setData, refresh, go, xpNote } from "../store.js";
-import { esc, richText, h, fmtDay, fmtTime, toast, icon } from "../ui.js";
-import { orb, installOrbStyles } from "../orb.js";
+import { esc, richText, fmtDay, fmtTime, toast, icon } from "../ui.js";
+import { mountBall, MOOD_TEXT } from "../ball.js";
+import { art, flyXP, burstAt } from "../fx.js";
+import { startScene } from "../scene.js";
 
-const TOOL_META = {
-  add_step: { label: "计划", icon: "plan" },
-  complete_step: { label: "计划", icon: "check" },
-  log_good_news: { label: "好消息", icon: "star" },
-  log_lazy_day: { label: "偷懒日", icon: "moon" },
-  remember: { label: "记忆", icon: "space" },
-  search_memory: { label: "回忆", icon: "spark" },
-  get_growth: { label: "成长", icon: "pet" },
-  knowledge_search: { label: "心灵学堂", icon: "book" },
-  set_care_style: { label: "偏好", icon: "space" },
-  start_scene: { label: "场景", icon: "spark" },
+const TOOL_ART = {
+  add_step: "st-flag", complete_step: "st-flag", log_good_news: "st-jar", log_lazy_day: "st-moon",
+  remember: "st-mirror", correct_memory: "st-mirror", search_memory: "st-mirror", get_growth: "@pet",
+  knowledge_search: "st-book", set_care_style: "st-compass", start_scene: "st-lotus", checkin: "st-letter",
+};
+const TOOL_LABEL = {
+  add_step: "加进计划", complete_step: "完成一小步", log_good_news: "收下好消息", log_lazy_day: "偷懒日",
+  remember: "记住了", correct_memory: "改掉旧记忆", search_memory: "翻了翻记忆", get_growth: "查了成长",
+  knowledge_search: "心灵学堂", set_care_style: "互动偏好", start_scene: "开始练习", checkin: "今天来聊了",
 };
 
 const HINTS = [
-  "帮我记住我喜欢吃寿司",
-  "我三天没健身了",
-  "小光，你对我了解多少？",
-  "今天有什么值得开心的事吗",
-  "水桶效应是什么意思",
-  "我什么时候能进化到下一阶段？",
+  ["帮我记住我喜欢吃寿司", "st-mirror"],
+  ["我三天没健身了", "st-moon"],
+  ["你对我了解多少？", "st-compass"],
+  ["今天被老师夸了", "st-jar"],
+  ["水桶效应是什么意思", "st-book"],
+  ["我什么时候能进化？", "@pet"],
 ];
 
-function toolCard(name, args, result) {
-  const meta = TOOL_META[name] || { label: "动作", icon: "spark" };
-  const ok = result?.ok !== false;
-  const wrap = document.createElement("div");
-  wrap.className = `toolcard ${ok ? "" : "fail"}`;
-  let title = "";
-  let note = "";
-  let xp = "";
-  let extra = "";
-  if (name === "add_step" && ok) {
-    title = result.step?.title || args.title || "";
-    note = "已写入你的蜕变计划";
-  } else if (name === "complete_step") {
-    if (ok) {
-      title = result.step?.title || "";
-      note = "这一小步完成了";
-      xp = xpNote(result.xp);
-    } else {
-      title = "没找到对应的一小步";
-      note = "没有写入任何完成记录";
-    }
-  } else if (name === "log_good_news") {
-    if (ok) {
-      title = result.record?.text || "";
-      note = `第 ${result.count} 条好消息`;
-      xp = xpNote(result.xp);
-    } else {
-      title = "没有记下来";
-      note = result.error || "保存失败";
-    }
-  } else if (name === "log_lazy_day") {
-    title = "今天记成了偷懒日";
-    note = "不清零任何进度";
-  } else if (name === "remember") {
-    if (ok) {
-      title = result.memory?.text || "";
-      note = "已写入长期记忆，可以在「我的空间」修改";
-    } else {
-      title = "没有写入";
-      note = result.error || "";
-    }
-  } else if (name === "get_growth") {
-    const g = result.growth || {};
-    title = g.stage?.name ? `现在是「${g.stage.name}」` : "查了成长状态";
-    note = `累计 ${g.total ?? "?"} 经验` + (g.to_next ? `，再 ${g.to_next} 到${g.next.name}` : "");
-  } else if (name === "knowledge_search") {
-    const list = result.articles || [];
-    title = list.length ? "找到了这些篇目" : "学堂里没有相关篇目";
-    note = list.length ? list.map((a) => a.title).join(" · ") : "不会凭空写一篇";
-    extra = list.map((a) => `
-      <div class="mini-step">
-        <span>${esc(a.title)}</span>
-        <button class="btn btn-quiet btn-sm cta" data-article="${esc(a.id)}">阅读</button>
-      </div>`).join("");
-  } else if (name === "set_care_style") {
-    title = ok ? "互动偏好更新了" : "没有更新";
-    note = ok ? result.shown || "" : result.error || "";
-  } else if (name === "start_scene") {
-    title = result.title || args.scene || "";
-    note = "场景会在输入框上方开始";
-  } else if (name === "search_memory") {
-    const list = result.memories || [];
-    title = list.length ? `从记忆里找到 ${list.length} 条` : "没有找到相关记忆";
-    note = list.map((m) => m.text).join("；");
-  } else {
-    title = ok ? "完成" : "没有写成";
-    note = result?.error || "";
-  }
-  wrap.innerHTML = `
-    <div class="tc-head">${icon(meta.icon)}<span>${esc(meta.label)}</span>
-      ${xp ? `<span class="xp">${esc(xp)}</span>` : ""}</div>
-    <div class="tc-body">
-      <div class="tc-title">${esc(title)}</div>
-      ${note ? `<div class="tc-note">${esc(note)}</div>` : ""}
-    </div>
-    ${extra}`;
-  wrap.querySelectorAll("[data-article]").forEach((b) => {
-    b.addEventListener("click", () => {
-      state.articleId = b.dataset.article;
-      go("article");
-    });
-  });
-  return wrap;
-}
+const artOf = (k) => art(k === "@pet" ? (state.data?.growth?.stage?.art || "pet-egg") : k);
 
-function recallBlock(memories) {
-  if (!memories?.length) return null;
-  const el = document.createElement("details");
-  el.className = "recall";
-  el.innerHTML = `<summary>小光参考了 ${memories.length} 条${memories.some((m) => m.status === "guess") ? "（含待确认）" : ""}记忆</summary>
-    <ul>${memories.map((m) => `<li><span class="tag ${m.status === "guess" ? "gold" : "jade"}">${m.status === "guess" ? "猜测" : "记得"}</span><span>${esc(m.text)}</span></li>`).join("")}</ul>`;
+function toolCard(name, args, result) {
+  const ok = result?.ok !== false;
+  let title = "", note = "", foot = "";
+  switch (name) {
+    case "add_step": title = result.step?.title || args.title || ""; note = "写进蜕变计划了"; break;
+    case "complete_step":
+      title = ok ? result.step?.title : "没找到对应的一小步";
+      note = ok ? "打勾了，花园里多了一棵植物" : "没有写入任何完成记录"; break;
+    case "log_good_news": title = ok ? result.record?.text : "没有记下来"; note = ok ? `星罐里第 ${result.count} 颗星` : result.error; break;
+    case "log_lazy_day": title = "今天记成偷懒日"; note = "什么都不会清零"; break;
+    case "remember": title = ok ? result.memory?.text : "没有写入"; note = ok ? "长期记住了，在「我的空间」可以改" : result.error; break;
+    case "correct_memory":
+      title = ok ? (result.deleted ? `删掉：${result.old}` : result.new) : "没找到要改的那条";
+      note = ok ? (result.deleted ? "按你说的忘掉了" : `原来是：${result.old}`) : "什么都没改"; break;
+    case "search_memory": {
+      const l = result.memories || [];
+      title = l.length ? `找到 ${l.length} 条` : "没找到相关记忆"; note = l.map((m) => m.text).join("；"); break;
+    }
+    case "get_growth": {
+      const g = result.growth || {};
+      title = `${g.pet_name || "小芽"} · ${g.stage || ""} · Lv${g.level || 1}`;
+      note = g.next ? `累计 ${g.total} 经验，再 ${g.to_next} 到「${g.next.name}」` : `累计 ${g.total} 经验`;
+      foot = `<button class="btn btn-sm btn-ghost" data-go="growth">去成长页看看</button>`; break;
+    }
+    case "knowledge_search": {
+      const l = result.articles || [];
+      title = l.length ? l.map((a) => a.title).join(" · ") : "学堂里没有相关篇目";
+      note = l.length ? "团队审核的内容，小光只读" : "不会凭空写一篇";
+      foot = l.map((a) => `<button class="btn btn-sm btn-ghost" data-article="${esc(a.id)}">读「${esc(a.title)}」</button>`).join(""); break;
+    }
+    case "set_care_style": title = ok ? result.shown : "没有更新"; note = "以后按这个方式陪你"; break;
+    case "start_scene": title = result.title || ""; note = "马上开始"; break;
+    case "checkin": title = "今天的第一句话"; note = "陪伴任务完成"; break;
+    default: title = ok ? "完成" : "没有写成"; note = result?.error || "";
+  }
+  const xp = result?.xp ? xpNote(result.xp) : name === "checkin" ? xpNote(result) : "";
+  const el = document.createElement("div");
+  el.className = `tool ${ok ? "" : "fail"}`;
+  el.innerHTML = `
+    <img class="tool-art" src="${artOf(TOOL_ART[name] || "st-seed")}" alt="">
+    <div class="tool-main">
+      <div class="tool-k">${esc(TOOL_LABEL[name] || "动作")}${ok ? "" : " · 没成功"}</div>
+      <div class="tool-t">${esc(title || "")}</div>
+      ${note ? `<div class="tool-n">${esc(note)}</div>` : ""}
+      ${foot ? `<div class="tool-f">${foot}</div>` : ""}
+    </div>
+    ${xp ? `<span class="tool-xp ${result?.xp?.amount || result?.amount ? "" : "zero"}">${esc(xp)}</span>` : ""}`;
+  el.querySelectorAll("[data-article]").forEach((b) => b.addEventListener("click", () => go("article", { id: b.dataset.article })));
+  el.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
+  const amount = result?.xp?.amount || (name === "checkin" ? result?.amount : 0);
+  if (amount) setTimeout(() => flyXP(el.querySelector(".tool-xp"), amount), 250);
+  if (ok && ["log_good_news", "complete_step"].includes(name)) setTimeout(() => burstAt(el.querySelector(".tool-art"), 30), 150);
   return el;
 }
 
-function messageNode(msg, { streaming = false } = {}) {
-  const wrap = document.createElement("div");
-  wrap.className = `msg ${msg.role}`;
-  if (msg.role === "user") {
-    wrap.innerHTML = `<div class="bubble">${esc(msg.content)}</div>`;
-    return wrap;
-  }
-  const meta = msg.meta || {};
-  wrap.innerHTML = `
-    <div class="who"><span class="glyph">光</span></div>
-    <div class="body">
-      <div class="text">${streaming ? "" : richText(msg.content)}</div>
-      <div class="meta">
-        <span>${msg.created_at ? fmtTime(msg.created_at) : ""}${meta.scene ? " · 场景" : ""}${meta.proactive ? " · 主动找你" : ""}${meta.scene_done ? " · 已写入" : ""}</span>
-        ${streaming ? "" : `<button data-copy>复制</button>`}
-      </div>
-    </div>`;
-  const copy = wrap.querySelector("[data-copy]");
-  if (copy) {
-    copy.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(msg.content);
-        toast("已复制");
-      } catch {
-        toast("复制失败", "err");
-      }
-    });
-  }
-  return wrap;
+function recall(memories) {
+  if (!memories?.length) return null;
+  const el = document.createElement("details");
+  el.className = "recall";
+  el.innerHTML = `<summary><img src="${art("st-mirror")}" alt="">参考了 ${memories.length} 条记忆</summary>
+    <ul>${memories.map((m) => `<li><span class="pill ${m.status === "guess" ? "lamp" : "leaf"}">${m.status === "guess" ? "猜测" : "记得"}</span>${esc(m.text)}</li>`).join("")}</ul>`;
+  return el;
 }
 
-function dayRule(iso) {
-  const d = document.createElement("div");
-  d.className = "day-rule";
-  d.textContent = fmtDay(iso);
-  return d;
+function bubble(m) {
+  const el = document.createElement("div");
+  el.className = `msg ${m.role}`;
+  if (m.role === "user") {
+    el.innerHTML = `<div class="bub">${esc(m.content)}</div>`;
+    return el;
+  }
+  const meta = m.meta || {};
+  const tag = meta.proactive ? `<span class="pill lamp">小光主动找你</span>` : meta.scene ? `<span class="pill sky">练习</span>` : "";
+  el.innerHTML = `<span class="mini-orb"></span>
+    <div class="col"><div class="bub">${tag}<div class="txt">${richText(m.content)}</div></div>
+    <div class="when">${fmtTime(m.created_at)}</div></div>`;
+  return el;
 }
 
 export function renderChat(root) {
-  installOrbStyles();
-  const data = state.data;
-  const messages = data.messages || [];
-  const steps = (data.steps || []).filter((s) => s.status === "todo");
-  const scene = data.scene;
+  const d = state.data;
+  const p = d.profile || {};
+  const msgs = d.messages || [];
+  const mems = (d.memories || []).filter((m) => m.status === "active").length;
 
-  root.innerHTML = `<div class="chat"></div>`;
-  const chat = root.firstElementChild;
+  root.innerHTML = `
+    <div class="chat">
+      <div class="buddy-bar"><div class="buddy">
+        <div class="buddy-ball"></div>
+        <div class="buddy-txt">
+          <div class="buddy-nm">${esc(p.agent_name || "小光")}<span class="buddy-st"><i></i><span>${MOOD_TEXT["02"]}</span></span></div>
+          <div class="buddy-pills"><span class="pill leaf">记得你 ${mems} 件事</span><span class="pill">陪伴第 ${d.counts?.days || 1} 天</span>
+          ${p.care_style ? `<span class="pill sky">中断时：${esc(d.prefs?.care_label || "")}</span>` : ""}</div>
+        </div>
+      </div></div>
+      <div class="thread"><div class="thread-in">
+        <div class="msgs"></div>
+      </div></div>
+      <div class="composer"><div class="composer-in">
+        <div class="hints">${HINTS.map(([t, a]) => `<button class="chip" data-fill="${esc(t)}"><img src="${artOf(a)}" alt="">${esc(t)}</button>`).join("")}</div>
+        <div class="inbox">
+          <button class="ib" data-act="good" title="记一条好消息"><img src="${art("st-jar")}" alt=""></button>
+          <textarea rows="1" placeholder="和${esc(p.agent_name || "小光")}说点什么…" aria-label="消息"></textarea>
+          <button class="ib" data-act="rest" title="今天是偷懒日"><img src="${art("st-moon")}" alt=""></button>
+          <button class="send" aria-label="发送">${icon("send")}</button>
+        </div>
+        <div class="c-foot">只用你确认过的事理解你 · 猜测要你点头才算数 · 夜里会帮你整理当天的记忆</div>
+      </div></div>
+    </div>`;
 
-  const thread = document.createElement("div");
-  thread.className = "thread";
-  const inner = document.createElement("div");
-  inner.className = "thread-inner";
-  thread.append(inner);
+  const ball = mountBall(root.querySelector(".buddy-ball"), { size: 72, emotion: "02", idle: true });
+  const status = root.querySelector(".buddy-st span");
+  ball.onChange((id) => { status.textContent = MOOD_TEXT[id] || "在这儿陪着你"; });
 
-  // 开场 / 空态
-  const hasHistory = messages.length > 0;
-  if (!hasHistory) {
-    const op = document.createElement("div");
-    op.className = "opener";
-    const ow = document.createElement("div");
-    ow.className = "orb-wrap";
-    ow.append(orb("idle", { size: "lg" }));
-    op.append(ow);
-    op.insertAdjacentHTML("beforeend", `
-      <h2>${esc(data.profile?.nickname || "你好")}，今天想从哪一件小事开始？</h2>
-      <p>你可以直接说话，也可以让我替你记下来。${data.prefs?.intent ? `你正在靠近「${esc(data.prefs.intent)}」。` : ""}</p>
-      <div class="chips">${["帮我定一个今天能做的小步", "我想记一件好事", "陪我呼吸一下", "你还记得我吗"].map((t) => `<button class="chip" data-fill="${esc(t)}">${esc(t)}</button>`).join("")}</div>`);
-    inner.append(op);
-  }
-
+  const list = root.querySelector(".msgs");
+  const thread = root.querySelector(".thread");
   let lastDay = "";
-  for (const m of messages) {
+  if (!msgs.length) {
+    list.innerHTML = `<div class="opener card">
+      <h2>${esc(p.nickname || "你好")}，今天想从哪件小事开始？</h2>
+      <p>${p.intent_primary ? `你正在靠近「${esc(p.intent_primary)}」。` : ""}直接说话就行，也可以让我替你记下来。</p></div>`;
+  }
+  for (const m of msgs) {
     const dk = fmtDay(m.created_at);
-    if (dk && dk !== lastDay) {
-      inner.append(dayRule(m.created_at));
+    if (dk !== lastDay) {
+      list.insertAdjacentHTML("beforeend", `<div class="day"><span>${esc(dk)}</span></div>`);
       lastDay = dk;
     }
-    inner.append(messageNode(m));
+    list.append(bubble(m));
   }
+  const scroll = () => { thread.scrollTop = thread.scrollHeight; };
+  requestAnimationFrame(scroll);
 
-  chat.append(thread);
-
-  // 输入区
-  const composer = document.createElement("div");
-  composer.className = "composer";
-  composer.innerHTML = `<div class="composer-inner"></div>`;
-  const ci = composer.firstElementChild;
-  chat.append(composer);
-
-  const hints = document.createElement("div");
-  hints.className = "hints";
-  hints.innerHTML = HINTS.map((t) => `<button class="chip" data-fill="${esc(t)}">${esc(t)}</button>`).join("");
-  ci.append(hints);
-
-  const inputbox = document.createElement("div");
-  inputbox.className = "inputbox";
-  inputbox.innerHTML = `
-    <button class="ib" data-act="good" title="记一条好消息" aria-label="记一条好消息">${icon("star")}</button>
-    <textarea rows="1" placeholder="跟小光说点什么…" aria-label="消息"></textarea>
-    <button class="ib" data-act="rest" title="今天是偷懒日" aria-label="今天是偷懒日">${icon("moon")}</button>
-    <button class="send" aria-label="发送">${icon("send")}</button>`;
-  ci.append(inputbox);
-
-  const foot = document.createElement("div");
-  foot.className = "composer-foot";
-  foot.innerHTML = `<span>小光记得你确认过的内容；猜测要你点头才算数。</span>
-    <span class="spacer"></span>
-    <span><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行</span>`;
-  ci.append(foot);
-
-  const ta = inputbox.querySelector("textarea");
-  const sendBtn = inputbox.querySelector(".send");
-
-  function autoGrow() {
+  const ta = root.querySelector("textarea");
+  const send = root.querySelector(".send");
+  const hints = root.querySelector(".hints");
+  const grow = () => {
     ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 168) + "px";
-  }
-  ta.addEventListener("input", () => {
-    state.composerDraft = ta.value;
-    autoGrow();
-  });
+    ta.style.height = Math.min(ta.scrollHeight, 160) + "px";
+    hints.classList.toggle("hide", !!ta.value.trim());
+    send.classList.toggle("ready", !!ta.value.trim());
+  };
   ta.value = state.composerDraft || "";
-  autoGrow();
+  grow();
+  ta.addEventListener("input", () => { state.composerDraft = ta.value; grow(); });
+  root.querySelectorAll("[data-fill]").forEach((b) => b.addEventListener("click", () => {
+    ta.value = b.dataset.fill; state.composerDraft = ta.value; grow(); ta.focus();
+  }));
 
-  function fill(text) {
-    ta.value = text;
-    state.composerDraft = text;
-    autoGrow();
-    ta.focus();
-  }
-  root.querySelectorAll("[data-fill]").forEach((b) => b.addEventListener("click", () => fill(b.dataset.fill)));
-  hints.querySelectorAll("[data-fill]").forEach((b) => b.addEventListener("click", () => fill(b.dataset.fill)));
-
-  // 场景状态条
-  function renderScene() {
-    ci.querySelector(".scene-bar")?.remove();
-    const sc = state.data?.scene;
-    if (!sc) return;
-    const step = state.sceneStep;
-    if (!step) {
-      loadSceneStep(sc.id);
-      return;
-    }
-    const bar = document.createElement("div");
-    bar.className = "scene-bar";
-    const total = step.total || 1;
-    const chips = (step.chips || []).map((c) => `<button class="chip" data-chip="${esc(c)}">${esc(c)}</button>`).join("");
-    bar.innerHTML = `
-      <div class="sb-top">引导 · ${esc(step.title || "")}
-        <button class="x" data-act="cancel">结束</button></div>
-      <div class="q">${esc(step.q)}</div>
-      ${step.timer ? breathBox(step.timer) : ""}
-      <div class="chips">${chips}</div>
-      <div class="prog">${Array.from({ length: total }, (_, i) => `<i class="${i <= step.index ? "on" : ""}"></i>`).join("")}</div>`;
-    ci.insertBefore(bar, hints);
-    bar.querySelectorAll("[data-chip]").forEach((b) => b.addEventListener("click", () => answerScene(b.dataset.chip)));
-    bar.querySelector("[data-act=cancel]").addEventListener("click", async () => {
-      await api.sceneCancel();
-      state.sceneStep = null;
-      await refresh();
-      renderScene();
-    });
-    if (step.timer) startBreath(bar, step.timer);
-    if (step.ph) ta.placeholder = step.ph;
-  }
-
-  async function loadSceneStep(sceneId) {
-    try {
-      const out = await api.sceneStart(sceneId);
-      state.sceneStep = { ...out.step, title: out.scene.title };
-      if (out.run) state.sceneRunId = out.run.id;
-      setData({ scene: out.run });
-      renderScene();
-    } catch (e) {
-      toast(e.message, "err");
-    }
-  }
-
-  async function answerScene(text) {
-    const runId = state.sceneRunId || state.data?.scene?.id;
-    if (!runId) return;
-    try {
-      const out = await api.sceneAnswer(runId, text);
-      const t = document.createElement("div");
-      t.className = "msg user";
-      t.innerHTML = `<div class="bubble">${esc(text)}</div>`;
-      inner.append(t);
-      if (out.done) {
-        state.sceneStep = null;
-        state.sceneRunId = null;
-        setData(out.state || {});
-        const done = document.createElement("div");
-        done.className = "msg assistant";
-        done.innerHTML = `<div class="who"><span class="glyph">光</span></div>
-          <div class="body"><div class="text">${richText(out.summary)}</div>
-          <div class="meta"><span>${out.xp?.amount ? `+${out.xp.amount} 经验` : "练习已完成"}</span></div></div>`;
-        inner.append(done);
-        renderScene();
-        scroll();
-        await refresh();
-        return;
-      }
-      state.sceneStep = out.step;
-      renderScene();
-      scroll();
-    } catch (e) {
-      toast(e.message, "err");
-    }
-  }
-
-  function scroll() {
-    thread.scrollTop = thread.scrollHeight;
-  }
-  scroll();
-
-  // 发送
   let busy = false;
-  async function send(textOverride) {
-    const text = (textOverride ?? ta.value).trim();
+  async function sendMsg() {
+    const text = ta.value.trim();
     if (!text || busy) return;
     busy = true;
-    sendBtn.disabled = true;
-    ta.value = "";
-    state.composerDraft = "";
-    autoGrow();
-    hints.style.opacity = "0";
-
-    const um = document.createElement("div");
-    um.className = "msg user";
-    um.innerHTML = `<div class="bubble">${esc(text)}</div>`;
-    inner.append(um);
-
+    ta.value = ""; state.composerDraft = ""; grow();
+    if (lastDay !== "今天") { list.insertAdjacentHTML("beforeend", `<div class="day"><span>今天</span></div>`); lastDay = "今天"; }
+    list.querySelector(".opener")?.remove();
+    list.append(bubble({ role: "user", content: text }));
     const am = document.createElement("div");
     am.className = "msg assistant";
-    am.innerHTML = `<div class="who"><span class="glyph">光</span></div>
-      <div class="body"><div class="text"><span class="thinking"><i></i><i></i><i></i></span></div><div class="meta"></div></div>`;
-    inner.append(am);
+    am.innerHTML = `<span class="mini-orb"></span><div class="col"><div class="bub"><div class="txt"><span class="dots"><i></i><i></i><i></i></span></div></div><div class="when"></div></div>`;
+    list.append(am);
     scroll();
+    const col = am.querySelector(".col");
+    const txt = am.querySelector(".txt");
+    let acc = "", started = false;
+    const tools = [];
+    let sceneToStart = null;
 
-    const body = am.querySelector(".body");
-    const textEl = am.querySelector(".text");
-    const glyph = am.querySelector(".glyph");
-    let acc = "";
-    let started = false;
-    let tools = [];
-    let moodTimer;
-    let finalized = false;
-    // done 与 close 都可能到达；只收尾一次。服务端把这条回复完整落库，
-    // 所以即使最后几个 delta 丢了，也以落库内容为准。
-    async function finalize() {
-      if (finalized) return;
-      finalized = true;
-      textEl.classList.remove("streaming");
-      if (acc) {
-        textEl.innerHTML = richText(acc);
-        body.querySelector(".meta").innerHTML = `<span>${fmtTime(new Date().toISOString())}</span><button data-copy>复制</button>`;
-        body.querySelector("[data-copy]")?.addEventListener("click", async () => {
-          try {
-            await navigator.clipboard.writeText(acc);
-            toast("已复制");
-          } catch {}
-        });
-      }
-      glyph.style.background = "";
-      glyph.style.color = "";
-      glyph.style.transform = "";
+    const finalize = async () => {
+      if (!started && !acc) txt.innerHTML = richText("嗯。");
+      txt.innerHTML = richText(acc || txt.textContent);
+      am.querySelector(".when").textContent = fmtTime(new Date().toISOString());
+      busy = false;
       try {
         const data = await refresh();
         const last = (data.messages || []).filter((m) => m.role === "assistant").pop();
-        if (last && acc && last.content && last.content.length > acc.length) {
-          acc = last.content;
-          textEl.innerHTML = richText(acc);
-        }
-        renderScene();
+        if (last?.content && last.content.length > acc.length) txt.innerHTML = richText(last.content);
       } catch {}
-      if (tools.some((t) => t.name === "start_scene" && t.result?.ok)) {
-        state.sceneStep = null;
-        loadSceneStep(tools.find((t) => t.name === "start_scene").result.scene);
-      }
+      if (sceneToStart) setTimeout(() => startScene(sceneToStart), 900);
+      setTimeout(() => { if (ball.emotion !== "02") ball.set("idle"); }, 2600);
       scroll();
-    }
+    };
 
     try {
       await streamChat(text, {
-        mood: ({ id }) => {
-          clearTimeout(moodTimer);
-          const speaking = id === "39";
-          glyph.style.transform = speaking ? "scale(1.08)" : "";
-        },
-        context: ({ memories }) => {
-          const r = recallBlock(memories);
-          if (r) body.insertBefore(r, body.querySelector(".meta"));
-        },
+        mood: ({ id }) => ball.set(id),
+        context: ({ memories }) => { const r = recall(memories); if (r) col.insertBefore(r, am.querySelector(".when")); },
         delta: ({ text: t }) => {
-          if (!started) {
-            started = true;
-            textEl.innerHTML = "";
-            textEl.classList.add("streaming");
-            glyph.textContent = "光";
-            glyph.style.background = "var(--jade)";
-            glyph.style.color = "#fff";
-          }
+          if (!started) { started = true; txt.innerHTML = ""; }
           acc += t;
-          textEl.innerHTML = richText(acc) + `<span class="caret"></span>`;
+          txt.innerHTML = richText(acc) + '<span class="caret"></span>';
           scroll();
         },
         tool: ({ name, args, result }) => {
-          tools.push({ name, result });
-          body.insertBefore(toolCard(name, args, result), body.querySelector(".meta"));
+          tools.push(name);
+          col.insertBefore(toolCard(name, args, result), am.querySelector(".when"));
+          if (name === "start_scene" && result?.ok) sceneToStart = result.scene;
+          if (name === "complete_step" || name === "log_good_news") ball.pulse("bounce");
           scroll();
         },
-        error: ({ message }) => {
-          if (!acc) {
-            textEl.innerHTML = richText(message || "我这边出了点问题。");
-          }
-          toast("模型服务暂时不可用", "err");
-        },
-        done: finalize,
-        close: finalize,
+        error: () => { ball.set("error"); toast("模型服务暂时连不上", "err"); },
+        done: () => {},
       });
     } catch (e) {
-      textEl.innerHTML = richText("我这边连不上了，稍后再试试。你刚才说的我先留着。");
+      txt.innerHTML = richText("我这边连不上了，稍后再试试。你刚才说的我先留着。");
+      ball.set("error");
       toast(e.message || "发送失败", "err");
     } finally {
-      clearTimeout(moodTimer);
-      finalize();
-      busy = false;
-      sendBtn.disabled = false;
+      await finalize();
       ta.focus();
-      scroll();
     }
   }
-
-  sendBtn.addEventListener("click", () => send());
+  send.addEventListener("click", sendMsg);
+  if (state.autoSend) {
+    ta.value = state.autoSend;
+    state.autoSend = "";
+    grow();
+    setTimeout(sendMsg, 400);
+  }
   ta.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-      e.preventDefault();
-      send();
-    }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMsg(); }
   });
 
-  inputbox.querySelector("[data-act=good]").addEventListener("click", async () => {
-    const text = prompt("记一件好事（再小也算）")?.trim();
-    if (!text) return;
+  root.querySelector("[data-act=good]").addEventListener("click", (e) => quickGood(e.currentTarget));
+  root.querySelector("[data-act=rest]").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
     try {
-      const out = await api.record("good", text);
-      sortRefresh(out, "收下一条好消息");
-    } catch (e) {
-      toast(e.message, "err");
-    }
-  });
-  inputbox.querySelector("[data-act=rest]").addEventListener("click", async () => {
-    try {
-      const out = await api.record("rest", "今天想休息");
-      sortRefresh(out, "今天是偷懒日，什么都不会清零");
-    } catch (e) {
-      toast(e.message, "err");
-    }
+      setData(await api.record("rest", "今天想休息"));
+      ball.set("tired");
+      toast("今天是偷懒日，什么都不会清零", "", "st-moon");
+      btn.classList.add("pop");
+    } catch (err) { toast(err.message, "err"); }
   });
 
-  async function sortRefresh(out, msg) {
-    setData(out);
-    toast(msg);
-    await refresh();
-    rerenderKeepDraft();
+  async function quickGood(btn) {
+    const { sheet, h } = await import("../ui.js");
+    const input = h("textarea", { class: "field", rows: "3", maxlength: "200", placeholder: "今天发生了什么好事？再小也算。" });
+    const s = sheet({
+      title: "收下一颗星", sticker: "st-jar", body: input,
+      footer: [h("button", {
+        class: "btn btn-lamp", onclick: async () => {
+          const t = input.value.trim();
+          if (!t) return;
+          try {
+            const out = await api.record("good", t);
+            s.close();
+            setData(out);
+            ball.set("happy"); ball.pulse("bounce");
+            if (out.xp?.amount) flyXP(btn, out.xp.amount);
+            burstAt(btn, 34);
+            toast("收下了，星罐里又多一颗", "", "st-jar");
+          } catch (e) { toast(e.message, "err"); }
+        },
+      }, "收下")],
+    });
+    setTimeout(() => input.focus(), 60);
   }
-
-  function rerenderKeepDraft() {
-    const draft = ta.value;
-    const pos = thread.scrollTop;
-    renderChat(root);
-    const nt = root.querySelector("textarea");
-    if (nt) {
-      nt.value = draft;
-      state.composerDraft = draft;
-    }
-    const t2 = root.querySelector(".thread");
-    if (t2) t2.scrollTop = pos;
-  }
-
-  renderScene();
-  return { renderScene, rerenderKeepDraft };
-}
-
-// 呼吸练习
-function breathBox(timer) {
-  return `<div class="breath" data-breath>
-      <div class="ring"></div><div class="pulse"></div>
-      <span class="cnt">准备好就开始</span>
-    </div>`;
-}
-
-let breathTimer = null;
-function startBreath(bar, timer) {
-  clearInterval(breathTimer);
-  const box = bar.querySelector("[data-breath]");
-  if (!box) return;
-  const pulse = box.querySelector(".pulse");
-  const cnt = box.querySelector(".cnt");
-  let round = 0;
-  let phase = "in";
-  let left = timer.inhale;
-  const total = timer.rounds || 6;
-  const tick = () => {
-    cnt.textContent = `${phase === "in" ? "吸气" : "呼气"} ${left} · 第 ${Math.min(round + 1, total)}/${total} 轮`;
-    left -= 1;
-    if (left < 0) {
-      if (phase === "in") {
-        phase = "out";
-        left = timer.exhale - 1;
-        pulse.classList.remove("in");
-        pulse.classList.add("out");
-      } else {
-        round += 1;
-        if (round >= total) {
-          cnt.textContent = "做完了";
-          pulse.className = "pulse";
-          clearInterval(breathTimer);
-          return;
-        }
-        phase = "in";
-        left = timer.inhale - 1;
-        pulse.classList.remove("out");
-        pulse.classList.add("in");
-      }
-    }
-  };
-  pulse.classList.add("in");
-  tick();
-  breathTimer = setInterval(tick, 1000);
 }

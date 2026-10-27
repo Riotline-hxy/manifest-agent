@@ -1,0 +1,148 @@
+/* 显伴 · 森林夜
+   深绿的夜色 + 斜射的光 + 漂浮的光尘；字体圆润；按钮可以「按下去」。
+   一个主色（叶绿）和一个点睛色（灯黄），其余颜色只给宠物分支和分类用。 */
+:root {
+  --night-0: #07211a;
+  --night-1: #0b2c22;
+  --night-2: #0f3a2c;
+  --night-3: #155039;
+  --night-4: #1d6448;
+
+  --glass: rgba(255, 255, 255, 0.055);
+  --glass-2: rgba(255, 255, 255, 0.085);
+  --glass-3: rgba(255, 255, 255, 0.13);
+  --edge: rgba(255, 255, 255, 0.1);
+  --edge-2: rgba(255, 255, 255, 0.18);
+
+  --cream: #f6f2e4;
+  --text: #f4f1e6;
+  --text-2: rgba(244, 241, 230, 0.74);
+  --text-3: rgba(244, 241, 230, 0.5);
+  --text-4: rgba(244, 241, 230, 0.32);
+  --ink: #1c2a22;
+
+  --leaf: #7ed957;
+  --leaf-2: #58b83a;
+  --leaf-deep: #3d8f2a;
+  --mint: #9be3c4;
+  --lamp: #f7cb4d;
+  --lamp-2: #ffdc6e;
+  --lamp-deep: #c99a1c;
+  --pink: #ff93b5;
+  --pink-deep: #d9658c;
+  --sky: #8ccbf0;
+  --sky-deep: #4f9ccc;
+  --violet: #ae9dff;
+  --violet-deep: #7a66e0;
+  --orange: #ffad4d;
+  --orange-deep: #d9822a;
+  --danger: #ff7a6e;
+
+  --font: "Nunito", "XG Rounded", "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: "SFMono-Regular", Consolas, monospace;
+
+  --r-sm: 10px;
+  --r-md: 16px;
+  --r-lg: 22px;
+  --r-xl: 30px;
+
+  --rail: 248px;
+  --side: 320px;
+
+  --lift: 0 10px 30px rgba(0, 0, 0, 0.22);
+  --lift-2: 0 24px 70px rgba(0, 0, 0, 0.42);
+
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--night-1);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+button, input, textarea, select { font: inherit; color: inherit; }
+button { background: none; border: 0; padding: 0; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; user-select: none; -webkit-user-drag: none; }
+h1, h2, h3, h4 { font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+::selection { background: rgba(247, 203, 77, 0.35); }
+:focus-visible { outline: 2.5px solid var(--lamp); outline-offset: 3px; border-radius: 8px; }
+
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.16) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 99px; border: 3px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background-color: rgba(255,255,255,.24); }
+
+.num { font-family: "Nunito", var(--font); font-variant-numeric: tabular-nums; font-weight: 800; }
+.hl { color: var(--lamp); }
+.muted { color: var(--text-3); }
+
+/* ---------- 背景场景：光束 / 光尘 / 远山 ---------- */
+.scene {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+  background:
+    radial-gradient(120% 80% at 78% -10%, #2e8463 0%, rgba(46,132,99,0) 55%),
+    radial-gradient(90% 70% at 10% 0%, #1a5a43 0%, rgba(26,90,67,0) 60%),
+    linear-gradient(180deg, #145039 0%, #0d3528 46%, #08241b 100%);
+}
+.scene .ray {
+  position: absolute; top: -20%; width: 22vw; height: 150%;
+  background: linear-gradient(180deg, rgba(255,255,240,.13), rgba(255,255,240,0) 70%);
+  filter: blur(18px);
+  transform-origin: top center;
+  animation: ray-sway 14s ease-in-out infinite alternate;
+}
+.scene .ray.r1 { left: 52%; transform: rotate(24deg); }
+.scene .ray.r2 { left: 66%; width: 12vw; transform: rotate(27deg); animation-delay: -4s; opacity: .8; }
+.scene .ray.r3 { left: 80%; width: 18vw; transform: rotate(22deg); animation-delay: -8s; opacity: .7; }
+.scene .ray.r4 { left: 30%; width: 9vw; transform: rotate(28deg); animation-delay: -2s; opacity: .45; }
+@keyframes ray-sway { from { opacity: .55; translate: 0 0; } to { opacity: 1; translate: -3vw 0; } }
+
+.scene .hill {
+  position: absolute; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(4,22,16,.75), rgba(4,22,16,0));
+}
+.scene .hill.h1 { left: -15%; bottom: -30%; width: 70vw; height: 55vh; }
+.scene .hill.h2 { right: -20%; bottom: -34%; width: 80vw; height: 60vh; }
+
+.scene .dust {
+  position: absolute; width: 3px; height: 3px; border-radius: 50%;
+  background: rgba(255, 245, 200, .7);
+  box-shadow: 0 0 8px 2px rgba(255, 230, 150, .35);
+  animation: dust-rise linear infinite;
+}
+@keyframes dust-rise {
+  0% { transform: translate(0, 0); opacity: 0; }
+  12% { opacity: .9; }
+  88% { opacity: .7; }
+  100% { transform: translate(var(--dx, 30px), -60vh); opacity: 0; }
+}
+
+.sparkle {
+  position: absolute; width: 22px; height: 22px; pointer-events: none;
+  animation: twinkle 3.6s ease-in-out infinite;
+}
+.sparkle::before {
+  content: ""; position: absolute; inset: 0;
+  background: #fffbe6;
+  clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%);
+  filter: drop-shadow(0 0 6px rgba(255, 240, 180, .95));
+}
+@keyframes twinkle { 0%, 100% { transform: scale(.55) rotate(0); opacity: .35; } 50% { transform: scale(1) rotate(20deg); opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+}

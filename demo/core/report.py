@@ -124,5 +124,5 @@ def build(store: Store, days: int = 14, with_letter: bool = True) -> dict:
     return {"period": days, "narrative": letter, "nodes": nodes, "facts": facts,
             "surprise": surprise, "empty": not (good or done or finds),
             "ready": days_in >= days, "days_in": days_in,
-            "xp": xp_sum, "cover": "report-cover",
+            "xp": xp_sum,
             "periods": [{"days": d, "ready": days_in >= d, "label": f"{d} 天"} for d in PERIODS]}

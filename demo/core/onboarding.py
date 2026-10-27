@@ -16,9 +16,6 @@ from .util import clip, iso, now
 QUESTIONS = [
     {"key": "agent_name", "q": "先给你的伙伴起个名字？", "type": "text", "default": "小光", "ph": "小光",
      "hint": "它会一直用这个名字。以后也能改。"},
-    {"key": "agent_avatar_id", "q": "选一个它的气质", "type": "single",
-     "options": [{"v": "soft", "label": "柔光", "hue": "#8a7dff"}, {"v": "stardust", "label": "星尘", "hue": "#ff8fb1"},
-                 {"v": "ink", "label": "水墨", "hue": "#5c6b7a"}, {"v": "geo", "label": "几何", "hue": "#3fbf9f"}]},
     {"key": "intent_primary", "q": "你这阵子最想靠近的是？", "type": "single_or_text",
      "options": ["自信与表达", "健康作息", "学业或作品", "关系与边界"], "ph": "或者自己写一句"},
     {"key": "intent_why", "q": "为什么这件事对你重要？一句话就好。", "type": "text", "ph": "比如：交换项目时想敢开口"},
@@ -36,7 +33,8 @@ QUESTIONS = [
      "options": ["别说教", "别鸡血催促", "无"], "ph": "别提某个话题……", "optional": True, "skip": True},
 ]
 
-HUE_BY_AVATAR = {o["v"]: o["hue"] for o in QUESTIONS[1]["options"]}
+# 小光的形象是固定的（v0.3：Agent 形象稳定，成长发生在宠物身上），不再让用户选「气质」
+HUE_BY_AVATAR = {"soft": "#f7cb4d"}
 
 
 def apply(store: Store, answers: dict) -> dict:
@@ -197,3 +195,27 @@ def seed_guest(store: Store) -> None:
         store.c.execute("UPDATE activity SET at=? WHERE id=(SELECT id FROM activity ORDER BY rowid DESC LIMIT 1)", (at(d, 22),))
     store.push_inbox("明天那一步不急。今天想说的话，我都在。", "checkin")
     store.c.execute("UPDATE inbox SET created_at=?", (at(13, 9),))
+
+    # 过去三晚的日终整理（与 core/digest.py 写入的结构一致）
+    digests = [
+        (11, "你完成了「重新认识我」，说中断时更想被陪着找原因。", ["选了「一起找原因」", "把第一句话练顺"],
+         {"added": 1, "updated": 0, "deleted": 0, "guesses": 0, "user_lines": 6},
+         [{"op": "ADD", "text": "中断时更希望被陪着找原因，而不是被催", "kind": "preference", "status": "active"}]),
+        (12, "面试官笑了一下，你没那么紧张了。开场白练了一次。", ["面试官笑了一下", "对着镜子练开场"],
+         {"added": 0, "updated": 1, "deleted": 0, "guesses": 0, "user_lines": 4},
+         [{"op": "UPDATE", "text": "跟熟悉的朋友一起练口语时不紧张，面对陌生人也在慢慢放松",
+           "old": "跟熟悉的朋友一起练口语时不紧张", "kind": "insight", "status": ""}]),
+        (13, "早上居然自然醒了，还读完一篇英文播客文稿。", ["自然醒", "读完一篇文稿"],
+         {"added": 0, "updated": 0, "deleted": 0, "guesses": 1, "user_lines": 3},
+         [{"op": "ADD", "text": "可能更怕说错，而不是不会说", "kind": "insight", "status": "guess"}]),
+    ]
+    for d, summary, hl, stats, ops in digests:
+        store.save_digest(at(d, 3)[:10], summary, hl, stats, ops, True)
+        store.c.execute("UPDATE digest SET created_at=? WHERE day=?", (at(d + 1, 3, 10), at(d, 3)[:10]))
+    store.set_profile({"last_digest_day": at(13, 3)[:10]})
+    store.bump("report_open", 0)
+
+    # 示例账号里已经发生的进化与徽章算作「看过」，免得第一次打开就弹一串庆祝
+    total = growth.total_xp(store)
+    store.set_profile({"pet_stage_seen": growth.stage_of(total, "")["key"]})
+    growth.badges(store, total=total)

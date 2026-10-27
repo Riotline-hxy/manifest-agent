@@ -37,7 +37,8 @@ DEFAULT_PROFILE = {
     # 互动偏好：中断时希望小光怎么做 + 一次问几个问题 + 是否接受被主动问候
     "care_style": "",       # nudge | analyze | quiet | ""
     "pace": "gentle",       # gentle | steady
-    "pet_name": "小芽", "pet_branch": "",
+    "pet_name": "小芽", "pet_branch": "", "pet_branch_at": "", "pet_stage_seen": "",
+    "last_digest_day": "",
     "xp": 0, "badges": [], "last_chat_at": "", "last_proactive_at": "", "created_at": "",
 }
 
@@ -96,6 +97,14 @@ class Store:
             CREATE INDEX IF NOT EXISTS xp_day ON xp(day, source);
             CREATE TABLE IF NOT EXISTS article_read(
               id TEXT PRIMARY KEY, at TEXT);
+            CREATE TABLE IF NOT EXISTS badge(id TEXT PRIMARY KEY, at TEXT);
+            CREATE TABLE IF NOT EXISTS stat(k TEXT PRIMARY KEY, n INTEGER DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS digest(
+              day TEXT PRIMARY KEY, summary TEXT, highlights TEXT, stats TEXT, ops TEXT,
+              by_model INTEGER DEFAULT 0, created_at TEXT);
+            CREATE TABLE IF NOT EXISTS memory_rev(
+              id TEXT PRIMARY KEY, memory_id TEXT, old_text TEXT, new_text TEXT,
+              reason TEXT, evidence TEXT, at TEXT);
             """
         )
 
@@ -128,27 +137,68 @@ class Store:
         r = self.c.execute("SELECT * FROM memory WHERE id=?", (mid,)).fetchone()
         return dict(r) if r else None
 
-    def update_memory(self, mid: str, text: str | None = None, status: str | None = None, kind: str | None = None) -> dict | None:
+    def update_memory(self, mid: str, text: str | None = None, status: str | None = None, kind: str | None = None,
+                      reason: str = "", evidence: str = "") -> dict | None:
         m = self.get_memory(mid)
         if not m:
             return None
         with self.lock:
-            if text is not None:
+            if text is not None and text != m["text"]:
                 text = clip(text, 240)
                 self.c.execute("UPDATE memory SET text=?, updated_at=? WHERE id=?", (text, iso(), mid))
                 self.c.execute("DELETE FROM memory_fts WHERE id=?", (mid,))
                 self.c.execute("INSERT INTO memory_fts(id, tok) VALUES(?,?)", (mid, fts_doc(text + " " + (kind or m["kind"]))))
+                self._rev(mid, m["text"], text, reason or "edit", evidence)
             if status is not None:
                 self.c.execute("UPDATE memory SET status=?, updated_at=? WHERE id=?", (status, iso(), mid))
             if kind is not None:
                 self.c.execute("UPDATE memory SET kind=? WHERE id=?", (kind, mid))
         return self.get_memory(mid)
 
-    def delete_memory(self, mid: str) -> bool:
+    def delete_memory(self, mid: str, reason: str = "forget", evidence: str = "") -> bool:
+        m = self.get_memory(mid)
         with self.lock:
             n = self.c.execute("DELETE FROM memory WHERE id=?", (mid,)).rowcount
             self.c.execute("DELETE FROM memory_fts WHERE id=?", (mid,))
+            if n and m:
+                self._rev(mid, m["text"], None, reason, evidence)
         return n > 0
+
+    def _rev(self, mid: str, old: str | None, new: str | None, reason: str, evidence: str = "") -> None:
+        """Every change to a memory keeps its before/after and why — the
+        「变更依据」 that lets a user see how 小光 came to believe something."""
+        self.c.execute("INSERT INTO memory_rev(id, memory_id, old_text, new_text, reason, evidence, at) VALUES(?,?,?,?,?,?,?)",
+                       (new_id("v"), mid, old, new, reason, clip(evidence or "", 200), iso()))
+
+    def revisions(self, limit: int = 40) -> list[dict]:
+        return [dict(r) for r in self.c.execute("SELECT * FROM memory_rev ORDER BY at DESC, rowid DESC LIMIT ?", (limit,))]
+
+    # ---- counters (badges) ----------------------------------------------------
+    def stat(self, k: str) -> int:
+        r = self.c.execute("SELECT n FROM stat WHERE k=?", (k,)).fetchone()
+        return int(r["n"]) if r else 0
+
+    def bump(self, k: str, n: int = 1) -> int:
+        with self.lock:
+            self.c.execute("INSERT INTO stat(k, n) VALUES(?, ?) ON CONFLICT(k) DO UPDATE SET n = n + ?", (k, n, n))
+        return self.stat(k)
+
+    # ---- daily digests -------------------------------------------------------
+    def digests(self, limit: int = 14) -> list[dict]:
+        out = []
+        for r in self.c.execute("SELECT * FROM digest ORDER BY day DESC LIMIT ?", (limit,)):
+            d = dict(r)
+            d["highlights"] = loads(d["highlights"], [])
+            d["stats"] = loads(d["stats"], {})
+            d["ops"] = loads(d["ops"], [])
+            out.append(d)
+        return out
+
+    def save_digest(self, day: str, summary: str, highlights: list, stats: dict, ops: list, by_model: bool) -> None:
+        with self.lock:
+            self.c.execute("INSERT OR REPLACE INTO digest(day, summary, highlights, stats, ops, by_model, created_at) "
+                           "VALUES(?,?,?,?,?,?,?)", (day, summary, dumps(highlights), dumps(stats), dumps(ops),
+                                                     1 if by_model else 0, iso()))
 
     def memories(self, status: str | None = None, limit: int = 200, statuses: tuple | None = None) -> list[dict]:
         if statuses:
@@ -255,6 +305,10 @@ class Store:
     def msgs(self, limit: int = 80) -> list[dict]:
         rows = self.c.execute("SELECT * FROM msg ORDER BY created_at DESC, rowid DESC LIMIT ?", (limit,)).fetchall()
         return [{**dict(r), "meta": loads(r["meta"], {})} for r in reversed(rows)]
+
+    def msgs_on(self, day: str) -> list[dict]:
+        rows = self.c.execute("SELECT * FROM msg WHERE substr(created_at,1,10)=? ORDER BY created_at, rowid", (day,)).fetchall()
+        return [{**dict(r), "meta": loads(r["meta"], {})} for r in rows]
 
     # ---- activity log -------------------------------------------------------
     def log(self, kind: str, text: str) -> None:

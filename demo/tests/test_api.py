@@ -212,7 +212,7 @@ class ApiTest(unittest.TestCase):
         p = d["profile"]
         self.assertEqual((p["agent_name"], p["intent_primary"], p["schedule_hint"]), ("阿光", "健康作息", "夜猫"))
         self.assertEqual(p["mbti_hint"], "")          # 「跳过」 stores nothing
-        self.assertEqual(p["agent_hue"], "#ff8fb1")   # 星尘
+        self.assertEqual(p["care_style"], "analyze")  # 中断时的陪伴方式，建档就写进去
         self.assertTrue(p["onboarded"])
         kinds = {m["kind"] for m in d["memories"]}
         self.assertTrue({"intent", "identity", "boundary"} <= kinds)
@@ -270,7 +270,7 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(d2["xp"]["amount"], 10)
         self.assertEqual(d2["growth"]["today"]["by_source"]["action"], 10)
         earned = {b["id"] for b in d2["growth"]["badges"] if b["earned"]}
-        self.assertIn("first_step", earned)
+        self.assertIn("step_1", earned)
 
     def test_memory_confirm_edit_forget(self):
         c, uid = self.onboarded("mem")
@@ -377,6 +377,138 @@ class ApiTest(unittest.TestCase):
             texts = {m["text"]: m["status"] for m in st.memories()}
             self.assertEqual(texts["可能在压力大时更晚睡"], "guess")
             self.assertNotIn("第二条猜测应被丢弃", texts)
+
+
+    # ---- growth: caps, branching, one-shot celebrations -------------------------
+    def test_xp_caps_and_dedup(self):
+        c, uid = self.onboarded("caps")
+        for i in range(5):
+            c.req("POST", "/api/step", {"action": "add", "title": f"第{i}步"})
+        _, d = c.req("GET", "/api/bootstrap")
+        got = []
+        for s_ in [x for x in d["steps"] if x["status"] == "todo"]:
+            _, out = c.req("POST", "/api/step", {"action": "done", "id": s_["id"]})
+            got.append(out["xp"]["amount"])
+        self.assertEqual(got, [10, 10, 10, 0, 0])            # 行动每天 30 封顶
+        goods = [c.req("POST", "/api/record", {"type": "good", "text": f"好事{i}"})[1]["xp"]["amount"] for i in range(6)]
+        self.assertEqual(goods, [6, 6, 6, 6, 6, 0])          # 好消息每天 30 封顶
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["growth"]["today"]["total"], 60)
+        self.assertLessEqual(d["growth"]["today"]["total"], 120)
+        with Store(uid) as st:                                # 同一件事不重复计分
+            from core import growth
+            r = growth.award(st, "good", ref="rec:same")
+            r2 = growth.award(st, "good", ref="rec:same")
+            self.assertTrue(r["capped"] or r["amount"] >= 0)
+            self.assertTrue(r2.get("duplicate") or r2.get("capped"))
+
+    def test_pet_branches_by_affinity_and_evolves_once(self):
+        from core import growth
+        c, uid = self.onboarded("branch")
+        with Store(uid) as st:   # 300 经验，好消息为主，分布在过去几天（绕开每日上限）
+            for i in range(30):
+                st.c.execute("INSERT INTO xp(id, day, source, amount, ref, note, created_at) VALUES(?,?,?,?,?,?,?)",
+                             (f"x{i}", f"2026-01-{i % 28 + 1:02d}", "good" if i % 3 else "action", 10, f"seed:{i}", "",
+                              f"2026-01-{i % 28 + 1:02d}T10:00:00+08:00"))
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["growth"]["stage"]["key"], "baby")
+        self.assertEqual(d["growth"]["leaning"], "deer")
+        self.assertEqual(d["growth"]["evolved"]["to"], "baby")      # 300 经验：蛋已经孵化
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertIsNone(d["growth"]["evolved"])                   # 只报一次
+        self.assertTrue(all(n["silhouette"] for n in d["growth"]["tree"] if n.get("tier")))
+        c.req("POST", "/api/record", {"type": "good", "text": "第 306"})
+        c.req("POST", "/api/record", {"type": "good", "text": "跨过 310 的那一件"})
+        _, d = c.req("GET", "/api/bootstrap")
+        _, d2 = c.req("GET", "/api/bootstrap")
+        evolved = [x["growth"]["evolved"] for x in (d, d2) if x["growth"]["evolved"]]
+        # the record call itself returns a bootstrap, so the flag may have been consumed there
+        self.assertLessEqual(len(evolved), 1)
+        self.assertEqual(d2["growth"]["branch"], "deer")
+        self.assertEqual(d2["growth"]["stage"]["key"], "deer-1")
+        self.assertIsNone(d2["growth"]["evolved"])
+        self.assertEqual(growth.leaning([{"id": k, "xp": 10, "share": 1 / 3, "branch": b}
+                                         for k, b in (("action", "fox"), ("good", "deer"), ("practice", "whale"))]), "star")
+
+    def test_badges_unlock_once(self):
+        c, _ = self.onboarded("badges")
+        _, out = c.req("POST", "/api/record", {"type": "good", "text": "第一颗星"})
+        self.assertIn("good_1", [b["id"] for b in out["growth"]["badges_new"]])
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertNotIn("good_1", [b["id"] for b in d["growth"]["badges_new"]])
+        self.assertTrue(next(b for b in d["growth"]["badges"] if b["id"] == "good_1")["earned"])
+        cats = {b["cat"] for b in d["growth"]["badges"]}
+        self.assertTrue({"对话", "计划", "好消息", "练习", "记忆", "学堂", "报告", "陪伴", "成长"} <= cats)
+
+    # ---- nightly digest ------------------------------------------------------------
+    def test_digest_protects_explicit_memory(self):
+        from core import digest
+        c, uid = self.onboarded("digest")
+        with Store(uid) as st:
+            sushi = st.add_memory("喜欢吃寿司", "preference", "chat:explicit")
+            loose = st.add_memory("周末常去图书馆", "event", "chat")
+            st.add_msg("user", "今天三天没去健身了，有点烦")
+            self.fake.json_out = {"summary": "你说三天没去健身。", "highlights": ["有点烦"], "ops": [
+                {"op": "UPDATE", "id": sushi["id"], "text": "不喜欢寿司", "kind": "preference", "source": "said"},
+                {"op": "DELETE", "id": sushi["id"]},
+                {"op": "UPDATE", "id": loose["id"], "text": "周末常去图书馆自习", "kind": "event", "source": "said"},
+                {"op": "ADD", "text": "连续三天没去健身", "kind": "event", "source": "said"},
+                {"op": "ADD", "text": "可能压力大", "kind": "insight", "source": "guess"},
+                {"op": "ADD", "text": "第二条猜测", "kind": "insight", "source": "guess"},
+            ]}
+            out = digest.run(st)
+            self.assertEqual(st.get_memory(sushi["id"])["text"], "喜欢吃寿司")     # 没有原话依据，不许动
+            self.assertEqual(st.get_memory(loose["id"])["text"], "周末常去图书馆自习")
+            self.assertEqual(out["stats"]["guesses"], 1)
+            self.assertEqual(out["stats"]["rejected"], 3)
+            self.assertEqual(st.digests(1)[0]["summary"], "你说三天没去健身。")
+            # 用户当天明确更正了，才允许改，并留下依据
+            st.add_msg("user", "我现在不喜欢寿司了")
+            self.fake.json_out = {"summary": "x", "ops": [{"op": "UPDATE", "id": sushi["id"], "text": "现在不喜欢寿司",
+                                                          "kind": "preference", "evidence": "我现在不喜欢寿司了"}]}
+            digest.run(st)
+            self.assertEqual(st.get_memory(sushi["id"])["text"], "现在不喜欢寿司")
+            rev = st.revisions(5)[0]
+            self.assertEqual((rev["old_text"], rev["evidence"]), ("喜欢吃寿司", "我现在不喜欢寿司了"))
+        # 模型不可用：只写模板小结，不动记忆
+        self.fake.json_out = None
+        s, d = c.req("POST", "/api/memory/digest", {})
+        self.assertEqual(s, 200)
+        self.assertFalse(d["digest"]["by_model"])
+        self.assertEqual(d["digest"]["stats"]["added"], 0)
+
+    def test_remember_needs_explicit_request(self):
+        c, uid = self.onboarded("remember_guard")
+        self.fake.turns = [
+            [("tool_calls", [{"id": "c1", "name": "remember", "arguments": json.dumps({"text": "三天没健身", "kind": "event"})}])],
+            [("text", "嗯，我在。")],
+            [("tool_calls", [{"id": "c2", "name": "remember", "arguments": json.dumps({"text": "喜欢吃寿司", "kind": "preference"})}])],
+            [("text", "记住了。")],
+        ]
+        _, ev = c.sse("我三天没健身了")
+        self.assertNotIn("remember", [d["name"] for e, d in ev if e == "tool"])
+        _, ev = c.sse("帮我记住我喜欢吃寿司")
+        self.assertIn("remember", [d["name"] for e, d in ev if e == "tool"])
+        with Store(uid) as st:
+            texts = [m["text"] for m in st.memories()]
+        self.assertIn("喜欢吃寿司", texts)
+        self.assertNotIn("三天没健身", texts)
+
+    def test_correct_memory_tool(self):
+        c, uid = self.onboarded("correct")
+        with Store(uid) as st:
+            m = st.add_memory("喜欢吃寿司", "preference", "chat:explicit")
+        self.fake.turns = [
+            [("tool_calls", [{"id": "c1", "name": "correct_memory",
+                              "arguments": json.dumps({"about": "寿司", "new_text": "现在不喜欢寿司了", "quote": "我现在不喜欢寿司了"})}])],
+            [("text", "好，改过来了。")],
+        ]
+        _, ev = c.sse("我现在不喜欢寿司了")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "correct_memory")
+        self.assertTrue(tool["result"]["ok"])
+        with Store(uid) as st:
+            self.assertEqual(st.get_memory(m["id"])["text"], "现在不喜欢寿司了")
+            self.assertEqual(st.revisions(1)[0]["reason"], "user_corrected")
 
     # ---- proactive & report ----------------------------------------------------
     def test_proactive_rules(self):

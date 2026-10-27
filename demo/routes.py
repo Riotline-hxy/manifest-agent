@@ -5,7 +5,7 @@ the only source of the user id.
 """
 from __future__ import annotations
 
-from core import academy, auth, growth, llm, onboarding, report, scenes, scheduler
+from core import academy, auth, digest, growth, llm, onboarding, report, scenes, scheduler
 from core.store import Store
 from core.util import clip, iso
 from core.api import VERSION, ApiError, bootstrap, public_user
@@ -110,17 +110,19 @@ def memory(h, u, b, q):
         if act != "add" and not m:
             raise ApiError(404, "没有这条记忆")
         text = clip(str(b.get("text") or ""), 120).strip()
+        if act in ("confirm", "reject", "edit"):
+            st.bump("memory_fix")
         if act == "confirm":
             st.update_memory(m["id"], status="active")
             st.c.execute("UPDATE memory SET source='confirmed' WHERE id=?", (m["id"],))
             st.log("memory", "你确认了：" + m["text"])
         elif act in ("reject", "forget"):
-            st.delete_memory(m["id"])
+            st.delete_memory(m["id"], reason="user_" + act)
             st.log("memory", ("你说不对，删掉了：" if act == "reject" else "按你说的忘掉了：") + m["text"])
         elif act == "edit":
             if not text:
                 raise ApiError(400, "内容不能为空")
-            st.update_memory(m["id"], text=text, status="active")
+            st.update_memory(m["id"], text=text, status="active", reason="user_edit")
             st.c.execute("UPDATE memory SET source='confirmed' WHERE id=?", (m["id"],))
             st.log("memory", "你改了一条记忆：" + text)
         elif act == "add":
@@ -130,7 +132,7 @@ def memory(h, u, b, q):
             st.log("memory", "你亲手写下：" + text)
         else:
             raise ApiError(400, "未知操作")
-        return 200, {"memories": st.memories(limit=120), "counts": st.counts()}
+        return 200, bootstrap(st)
 
 
 def step(h, u, b, q):
@@ -232,12 +234,11 @@ def growth_get(h, u, b, q):
         return 200, growth.state(st)
 
 
-def growth_branch(h, u, b, q):
+def digest_now(h, u, b, q):
+    """Run today's nightly memory pass now (the scheduler does it at 03:00 for yesterday)."""
     with Store(u["id"]) as st:
-        out = growth.set_branch(st, str(b.get("branch") or ""))
-        if not out.get("ok"):
-            raise ApiError(400, out.get("reason") or "不能选这个分支")
-        return 200, {**out, **bootstrap(st)}
+        out = digest.run(st)
+        return 200, {"digest": out, **bootstrap(st)}
 
 
 def academy_list(h, u, b, q):
@@ -264,6 +265,8 @@ def report_get(h, u, b, q):
     days = 30 if days >= 30 else 14
     fast = (q.get("fast") or ["0"])[0] == "1"
     with Store(u["id"]) as st:
+        if fast:
+            st.bump("report_open")
         return 200, report.build(st, days, with_letter=not fast)
 
 
@@ -294,7 +297,7 @@ ROUTES = {
     ("POST", "/api/proactive/now"): (proactive_now, True),
     ("POST", "/api/inbox/seen"): (inbox_seen, True),
     ("GET", "/api/growth"): (growth_get, True),
-    ("POST", "/api/growth/branch"): (growth_branch, True),
+    ("POST", "/api/memory/digest"): (digest_now, True),
     ("GET", "/api/academy"): (academy_list, True),
     ("GET", "/api/academy/article"): (academy_get, True),
     ("GET", "/api/report"): (report_get, True),

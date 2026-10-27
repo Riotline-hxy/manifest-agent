@@ -13,7 +13,7 @@ from __future__ import annotations
 import threading
 import time
 
-from . import llm
+from . import digest, llm
 from .store import Store, UID_RE
 from .util import DATA, clip, hours_since, iso, now
 
@@ -100,6 +100,10 @@ def tick() -> int:
             continue
         try:
             with Store(d.name) as st:
+                # 日终整理：03:00 之后处理「昨天」，每人每天一次
+                day = digest.due(st)
+                if day:
+                    digest.run(st, day)
                 if deliver(st)["sent"]:
                     sent += 1
         except Exception as e:  # one broken user must not stop the loop

@@ -13,6 +13,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import threading
 
 from . import academy, growth, llm, memory
@@ -56,6 +58,8 @@ PERSONA = """你是「{name}」，一个显化陪伴 agent。你只做一件事�
 - 用户想冥想、感恩、理清目标、走一遍七步、或想「重新认识我」→ start_scene。
 - 需要回忆以前的事、而下面没提供时 → search_memory。
 - 用户明确让你记住某事 → remember（说「帮我记住」这类明确请求才用）。
+- 用户明确更正或否定以前记住的事（「我现在不喜欢寿司了」「那条不对」）→ correct_memory，写清新的说法；
+  只是随口提到、没有明确更正时不要改。普通聊天里的其他信息不用你记，夜里会统一整理。
 - 用户问成长、等级、宠物、还差多少 XP、什么时候进化 → get_growth，用工具返回的真实数字回答，不要自己编。
 - 用户问某个心理 / 显化概念 → knowledge_search，只说检索到的内容，并说明是团队整理的版本。
 - 用户说「以后别催我」「我更喜欢你先听我说」→ set_care_style。
@@ -75,6 +79,13 @@ TOOLS = [
             "text": {"type": "string", "description": "第三人称一句话"},
             "kind": {"type": "string", "enum": ["identity", "intent", "preference", "boundary", "insight", "event"]}},
             "required": ["text"]}}},
+    {"type": "function", "function": {
+        "name": "correct_memory", "description": "用户明确更正或否定一条已有记忆时使用",
+        "parameters": {"type": "object", "properties": {
+            "about": {"type": "string", "description": "要改的是哪条记忆，用几个关键词描述"},
+            "new_text": {"type": "string", "description": "更正后的说法，第三人称一句话；如果用户是要删掉就留空"},
+            "quote": {"type": "string", "description": "用户这句话的原文"}},
+            "required": ["about", "quote"]}}},
     {"type": "function", "function": {
         "name": "add_step", "description": "把一个今天就能开始的小行动加入计划",
         "parameters": {"type": "object", "properties": {
@@ -108,7 +119,7 @@ TOOLS = [
             "note": {"type": "string"}}, "required": ["care_style"]}}},
 ]
 
-TOOL_MOOD = {"complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
+TOOL_MOOD = {"correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
              "add_step": "satisfied", "remember": "recall", "start_scene": "curious",
              "get_growth": "focused", "knowledge_search": "searching", "set_care_style": "shy"}
 
@@ -133,12 +144,10 @@ def core_block(p: dict, store: Store) -> str:
     done = [s for s in store.steps() if s["status"] == "done"][:3]
     if done:
         lines.append("最近完成：" + "；".join(s["title"] for s in done))
-    g = growth.state(store)
-    lines.append(f"陪伴第 {store.counts()['days']} 天；今天经验 {g['today']['total']}/120；"
-                 f"宠物「{g['pet_name']}」现在是{g['stage']['name']}"
-                 + (f"，再 {g['to_next']} 到{g['next']['name']}" if g.get("next") else "")
-                 + (f"；分支：{g['branch_name']}" if g.get("branch_name") else "")
-                 + ("；已经可以化形，还没选分支" if g["needs_branch"] else "") + "。")
+    total = growth.total_xp(store)
+    stg = growth.stage_of(total, p.get("pet_branch") or "")
+    lines.append(f"陪伴第 {store.counts()['days']} 天；累计经验 {total}（Lv{growth.level_of(total)['lv']}）；"
+                 f"宠物「{p.get('pet_name') or '小芽'}」现在是{stg['name']}。具体数字用 get_growth 查。")
     return "\n".join(lines)
 
 
@@ -172,17 +181,40 @@ def history(store: Store) -> list[dict]:
 
 # ---- tools -------------------------------------------------------------------
 
-def run_tool(store: Store, name: str, args: dict) -> dict:
+# 「明确要求记住」的说法。没有这些词时，remember 一律拒绝——近况交给夜里的整理，
+# 不让模型把随口一提升级成受保护的长期记忆（讨论稿 2.4 的读写边界）。
+EXPLICIT_REMEMBER = re.compile(r"记住|记得|别忘|不要忘|记一下|记下来|帮我记|你要知道")
+
+
+def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
     if name == "search_memory":
         hits = store.search(str(args.get("query") or ""), k=5)
         return {"ok": True, "memories": [{"text": m["text"], "date": m["created_at"][:10]} for m in hits]}
     if name == "remember":
+        if user_text and not EXPLICIT_REMEMBER.search(user_text):
+            return {"ok": False, "skipped": True,
+                    "error": "用户这句话没有明确要求记住。近况不用现在写，夜里会统一整理；回复里不要说「记住了」。"}
         text = clip(str(args.get("text") or ""), 200)
         if not text:
             return {"ok": False, "error": "内容为空"}
         m = store.add_memory(text, args.get("kind") or "insight", "chat:explicit")
         store.log("memory", "记住了：" + m["text"])
         return {"ok": True, "memory": m}
+    if name == "correct_memory":
+        hits = store.search(str(args.get("about") or ""), k=1)
+        if not hits:
+            return {"ok": False, "error": "没找到要改的那条记忆"}
+        m = hits[0]
+        new_text = clip(str(args.get("new_text") or ""), 200).strip()
+        quote = clip(str(args.get("quote") or ""), 200)
+        if new_text:
+            store.update_memory(m["id"], text=new_text, status="active", reason="user_corrected", evidence=quote)
+            store.c.execute("UPDATE memory SET source='confirmed' WHERE id=?", (m["id"],))
+        else:
+            store.delete_memory(m["id"], reason="user_corrected", evidence=quote)
+        store.bump("memory_fix")
+        store.log("memory", ("按你说的改了：" if new_text else "按你说的删掉了：") + m["text"])
+        return {"ok": True, "old": m["text"], "new": new_text, "deleted": not new_text}
     if name == "add_step":
         title = clip(str(args.get("title") or ""), 40)
         if not title:
@@ -216,9 +248,16 @@ def run_tool(store: Store, name: str, args: dict) -> dict:
         return {"ok": True, "scene": sid, "title": SCENES[sid]["title"],
                 "note": "界面会接手引导，你只需用一句话邀请对方开始。"}
     if name == "get_growth":
-        g = growth.state(store)
-        return {"ok": True, "growth": {k: g[k] for k in
-                ("total", "today", "stage", "next", "to_next", "needs_branch", "branch_name", "pet_name", "badges")},
+        g = growth.state(store, consume=False)   # leave the celebration flags for the UI
+        return {"ok": True, "growth": {
+                    "total": g["total"], "level": g["level"]["lv"], "today": g["today"], "stage": g["stage"]["name"],
+                    "next": g["next"], "to_next": g["to_next"],
+                    "branch": (g["branch_info"] or {}).get("name", ""),
+                    "leaning": ("" if g["branch"] else ("隐藏形态（别透露名字）" if g["leaning"] == "star"
+                                                        else growth.BRANCHES[g["leaning"]]["name"])),
+                    "affinity": [{a["label"]: a["xp"]} for a in g["affinity"]],
+                    "badges_earned": [b["name"] for b in g["badges"] if b["earned"]],
+                    "quests_done": g["quests_done"], "pet_name": g["pet_name"]},
                 "rules": growth.rules_text()}
     if name == "knowledge_search":
         hits = academy.search(str(args.get("query") or ""))
@@ -287,9 +326,10 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
                 args = _parse_args(c["arguments"])
                 if c["name"] == "search_memory":
                     yield ("mood", {"id": MOODS["searching"]})
-                result = run_tool(store, c["name"], args)
+                result = run_tool(store, c["name"], args, user_text)
                 tool_log.append({"name": c["name"], "args": args, "result": result})
-                yield ("tool", {"name": c["name"], "args": args, "result": result})
+                if not result.get("skipped"):
+                    yield ("tool", {"name": c["name"], "args": args, "result": result})
                 if result.get("ok") and c["name"] in TOOL_MOOD:
                     mood_set = True
                     yield ("mood", {"id": MOODS[TOOL_MOOD[c["name"]]]})
@@ -306,7 +346,8 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
     yield ("done", {"message_id": mid})
     yield ("mood", {"id": MOODS["idle"]})
 
-    if extract and reply:
+    # 隐性记忆改为日终统一整理（core/digest.py）；逐轮抽取只在显式打开时运行
+    if extract and reply and os.environ.get("MANIFEST_TURN_EXTRACT") == "1":
         threading.Thread(target=_extract_bg, args=(store.uid, user_text, reply), daemon=True).start()
 
 

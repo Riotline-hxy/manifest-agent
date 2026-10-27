@@ -44,7 +44,7 @@ export const api = {
   sceneAnswer: (run_id, text) => post("/api/scene/answer", { run_id, text }),
   sceneCancel: () => post("/api/scene/cancel"),
   growth: () => get("/api/growth"),
-  branch: (branch) => post("/api/growth/branch", { branch }),
+  digest: () => post("/api/memory/digest"),
   academy: () => get("/api/academy"),
   article: (id) => get(`/api/academy/article?id=${encodeURIComponent(id)}`),
   report: (days, fast = false) => get(`/api/report?days=${days}${fast ? "&fast=1" : ""}`),

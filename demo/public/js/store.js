@@ -1,23 +1,23 @@
-// 前端共享状态。服务端返回的 bootstrap 就是唯一事实来源；
-// 每个动作都用服务端返回的新状态整体替换，避免前后端各算一套。
+// 前端共享状态。服务端的 bootstrap 是唯一事实来源：每个动作都用服务端
+// 返回的状态整体替换，前端不自己算经验、不自己判断进化。
 
 import { api } from "./api.js";
+import { celebrate } from "./fx.js";
 
 const listeners = new Set();
 
 export const state = {
   ready: false,
   user: null,
-  me: null,
   route: "chat",
   data: null,
-  busy: false,
-  theme: localStorage.getItem("xg-theme") || "paper",
-  railCollapsed: localStorage.getItem("xg-rail") === "1",
+  onboarding: null,
   composerDraft: "",
   articleId: "",
   reportDays: 14,
-  sceneStep: null,
+  ideaFilter: "全部",
+  badgeFilter: "全部",
+  spaceTab: "memory",
 };
 
 export function subscribe(fn) {
@@ -29,14 +29,25 @@ export function emit() {
   for (const fn of listeners) fn(state);
 }
 
-export function setData(data) {
+let prevQuests = null;
+
+export function setData(data, { silent = false } = {}) {
   if (!data) return;
-  // bootstrap 与增量接口结构一致；用户信息另存
   const { user, onboarding, ...rest } = data;
   if (user) state.user = user;
   if (onboarding) state.onboarding = onboarding;
   state.data = { ...(state.data || {}), ...rest };
-  emit();
+  const g = rest.growth;
+  if (g) {
+    // 一次性标记：服务端只会在真实发生时给一次
+    if (g.evolved) celebrate("evolve", g.evolved, "evo:" + g.evolved.to);
+    for (const b of g.badges_new || []) celebrate("badge", b, "badge:" + b.id);
+    if (prevQuests !== null && prevQuests < 4 && g.quests_done === 4) {
+      celebrate("chest", {}, "chest:" + new Date().toDateString());
+    }
+    prevQuests = g.quests_done;
+  }
+  if (!silent) emit();
 }
 
 export async function refresh() {
@@ -45,26 +56,11 @@ export async function refresh() {
   return data;
 }
 
-export function setTheme(t) {
-  state.theme = t;
-  localStorage.setItem("xg-theme", t);
-  document.documentElement.dataset.theme = t === "dusk" ? "dusk" : "paper";
-  emit();
-}
-
 export function go(route, opts = {}) {
-  if (route === "article") {
-    state.articleId = opts.id || state.articleId;
-  }
+  if (opts.id) state.articleId = opts.id;
   state.route = route;
   if (location.hash.slice(1) !== route) history.replaceState(null, "", `#${route}`);
   emit();
-}
-
-// 完成动作后的统一收尾：用返回状态替换 + 轻提示
-export function applyResult(data, msg) {
-  setData(data);
-  if (msg) import("./ui.js").then((m) => m.toast(msg));
 }
 
 export function xpNote(xp) {

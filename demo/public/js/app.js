@@ -1,7 +1,8 @@
-// 应用外壳：路由、左轨、右栏「此刻」、主题与可见性同步。
+// 应用外壳：路由、左侧导航、顶部状态、右侧「小窝」。
 import { api } from "./api.js";
-import { state, setData, setTheme, go, emit, subscribe } from "./store.js";
-import { esc, icon, toast, h, fmtDay, fmtTime } from "./ui.js";
+import { state, setData, go, subscribe } from "./store.js";
+import { esc, toast } from "./ui.js";
+import { art, buildScene, countUp } from "./fx.js";
 import { renderGate } from "./views/gate.js";
 import { renderOnboarding } from "./views/onboarding.js";
 import { renderChat } from "./views/chat.js";
@@ -14,377 +15,262 @@ import { renderReport } from "./views/report.js";
 import { renderSpace } from "./views/space.js";
 
 const NAV = [
-  { group: "陪你", items: [
-    { id: "chat", label: "对话", icon: "chat" },
-    { id: "plan", label: "蜕变计划", icon: "plan" },
-    { id: "goodnews", label: "好消息", icon: "good" },
-  ]},
-  { group: "养成的", items: [
-    { id: "growth", label: "成长进化", icon: "pet" },
-  ]},
-  { group: "探索", items: [
-    { id: "ideas", label: "点子", icon: "spark" },
-    { id: "academy", label: "心灵学堂", icon: "book" },
-    { id: "report", label: "蜕变报告", icon: "report" },
-    { id: "space", label: "我的空间", icon: "space" },
-  ]},
+  [
+    { id: "chat", label: "对话", art: "" },
+    { id: "plan", label: "蜕变计划", art: "st-flag" },
+    { id: "goodnews", label: "好消息", art: "st-jar" },
+    { id: "growth", label: "成长进化", art: "@pet" },
+  ],
+  [
+    { id: "ideas", label: "点子", art: "st-compass" },
+    { id: "academy", label: "心灵学堂", art: "st-book" },
+    { id: "report", label: "蜕变报告", art: "st-letter" },
+    { id: "space", label: "我的空间", art: "st-mirror" },
+  ],
 ];
 
 const TITLES = {
-  chat: "小光", plan: "蜕变计划", goodnews: "好消息", growth: "成长进化",
-  ideas: "点子", academy: "心灵学堂", article: "心灵学堂", report: "蜕变报告", space: "我的空间",
+  chat: "和小光聊聊", plan: "蜕变计划", goodnews: "好消息", growth: "成长进化", ideas: "点子",
+  academy: "心灵学堂", article: "心灵学堂", report: "蜕变报告", space: "我的空间",
 };
 
-let appEl;
-let viewRoot;
-let lastRendered = {};
+const VIEWS = {
+  chat: renderChat, plan: renderPlan, goodnews: renderNews, growth: renderGrowth, ideas: renderIdeas,
+  academy: renderAcademy, article: renderArticle, report: renderReport, space: renderSpace,
+};
+
+let root;
+let drawnRoute = "";
 
 export function mount(el) {
-  appEl = el;
-  document.documentElement.dataset.theme = state.theme === "dusk" ? "dusk" : "paper";
-  window.addEventListener("hashchange", onRoute);
-  // 任何视图只要改了 state.route / state.data，外壳都跟着重绘
-  let pending = false;
-  subscribe(() => {
-    if (pending || !state.ready) return;
-    pending = true;
-    requestAnimationFrame(() => {
-      pending = false;
-      if (!state.ready) return;
-      const routeNow = state.route;
-      const titleEl = appEl.querySelector(".topbar h1");
-      if (!titleEl) { rerender(); return; }
-      const want = TITLES[routeNow] || "显伴";
-      if (titleEl.textContent !== want) { rerender(); return; }
-      drawRail();
-      drawCtx();
-    });
+  root = el;
+  buildScene();
+  window.addEventListener("hashchange", () => {
+    const r = location.hash.slice(1) || "chat";
+    if (VIEWS[r] && r !== state.route) go(r);
   });
   window.addEventListener("xg:enter", boot);
-  window.addEventListener("resize", scheduleCtx);
-  // 回到标签页时同步一次，主动消息可能在这期间到达
   document.addEventListener("visibilitychange", async () => {
-    if (document.visibilityState === "visible" && state.user && state.data) {
-      try {
-        const data = await api.bootstrap();
-        const unseen = data.inbox?.length || 0;
-        setData(data);
-        if (unseen) toast(`小光给你留了 ${unseen} 条消息`);
-      } catch {}
-    }
+    if (document.visibilityState !== "visible" || !state.ready) return;
+    try {
+      const before = state.data?.inbox?.length || 0;
+      const data = await api.bootstrap();
+      setData(data);
+      if ((data.inbox?.length || 0) > before) toast("小光给你留了一句话", "", "st-letter");
+    } catch {}
+  });
+  subscribe(() => {
+    if (!state.ready || !root.querySelector(".app")) return;
+    if (state.route !== drawnRoute) drawView();
+    else { drawRail(); drawTop(); drawSide(); }
   });
   boot();
 }
 
 async function boot() {
   state.ready = false;
-  const route = location.hash.slice(1) || "chat";
-  state.route = route === "article" ? "academy" : route;
+  const r = location.hash.slice(1);
+  state.route = VIEWS[r] && r !== "article" ? r : "chat";
   try {
     const me = await api.me();
     if (!me.user) {
-      state.user = null;
-      drawGate();
+      root.innerHTML = "";
+      renderGate(root);
       return;
     }
     state.user = me.user;
     const data = await api.bootstrap();
-    setData(data);
-    state.onboarding = data.onboarding;
-    state.ready = true;
+    setData(data, { silent: true });
     if (!data.profile?.onboarded) {
-      drawOnboarding();
+      root.innerHTML = "";
+      renderOnboarding(root);
       return;
     }
-    drawApp();
-    onRoute();
+    state.ready = true;
+    drawShell();
   } catch (e) {
-    drawFatal(e);
+    root.innerHTML = `<div class="empty" style="padding-top:20vh"><img src="${art("st-moon")}" alt="">
+      <h3>没连上</h3><p>${esc(e?.message || "加载失败")}</p><button class="btn btn-lamp" onclick="location.reload()">再试一次</button></div>`;
   }
 }
 
-function drawFatal(e) {
-  appEl.innerHTML = `<div class="page-inner"><div class="empty"><div class="glyph">…</div>
-    <p>${esc(e?.message || "加载失败")}</p><button class="btn btn-ghost" onclick="location.reload()">重试</button></div></div>`;
+function drawShell() {
+  root.innerHTML = `
+    <div class="app">
+      <nav class="rail" aria-label="主导航"></nav>
+      <main class="main">
+        <header class="topbar"></header>
+        <div class="view"></div>
+      </main>
+      <aside class="side" aria-label="小窝"></aside>
+    </div>`;
+  drawView();
 }
 
-function drawGate() {
-  appEl.className = "";
-  appEl.innerHTML = "";
-  renderGate(appEl);
-}
-
-function drawOnboarding() {
-  appEl.className = "";
-  appEl.innerHTML = "";
-  renderOnboarding(appEl);
-}
-
-function drawApp() {
-  appEl.className = "app";
-  appEl.innerHTML = `
-    <nav class="rail" id="rail" aria-label="主导航"></nav>
-    <main class="canvas" id="canvas"></main>
-    <aside class="context" id="context" aria-label="此刻"></aside>`;
-  viewRoot = appEl.querySelector("#canvas");
-  drawRail();
-  drawCtx();
+function petArt() {
+  return state.data?.growth?.stage?.art || "pet-egg";
 }
 
 function drawRail() {
-  const rail = appEl.querySelector("#rail");
+  const rail = root.querySelector(".rail");
   if (!rail) return;
   const d = state.data || {};
   const g = d.growth || {};
-  const guesses = (d.memories || []).filter((m) => m.status === "guess").length;
   const todo = (d.steps || []).filter((s) => s.status === "todo").length;
+  const guesses = (d.memories || []).filter((m) => m.status === "guess").length;
   const unseen = (d.inbox || []).length;
-
+  const dot = { chat: unseen, plan: todo, space: guesses };
   rail.innerHTML = `
-    <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-        <circle cx="16" cy="16" r="9" fill="var(--jade)"/>
-        <circle cx="13" cy="14" r="3" fill="#fff" opacity=".38"/>
-        <circle cx="16" cy="16" r="14" stroke="var(--jade)" stroke-opacity=".28"/>
-      </svg>
-      <div>
-        <div class="brand-name">显伴</div>
-        <div class="brand-sub">MANIFEST</div>
+    <div class="logo"><img src="${art("st-seed")}" alt=""><b>显<em>伴</em></b></div>
+    ${NAV.map((grp, gi) => `${gi ? '<div class="nav-sep"></div>' : ""}${grp.map((it) => {
+      const on = state.route === it.id || (it.id === "academy" && state.route === "article");
+      const ic = it.art === "" ? '<span class="mini-orb"></span>' : `<img src="${art(it.art === "@pet" ? petArt() : it.art)}" alt="">`;
+      const badge = dot[it.id] ? `<span class="badge-dot">${dot[it.id]}</span>`
+        : it.id === "growth" && g.to_next && g.to_next <= 20 ? `<span class="badge-dot lamp">快了</span>` : "";
+      return `<button class="nav-item ${on ? "active" : ""}" data-nav="${it.id}"><span class="ic">${ic}</span><span>${it.label}</span>${badge}</button>`;
+    }).join("")}`).join("")}
+    <div class="rail-foot">
+      <div class="me">
+        <span class="av">${esc((d.profile?.nickname || state.user?.username || "我").slice(0, 1))}</span>
+        <span class="grow"><div class="nm">${esc(d.profile?.nickname || state.user?.username || "体验账号")}</div>
+          <div class="sub">${state.user?.kind === "guest" ? "体验账号" : "已登录"}</div></span>
+        ${state.user?.kind === "guest" ? `<button data-act="claim">保存</button>` : `<button data-act="logout">退出</button>`}
       </div>
-    </div>
-    ${NAV.map((sec) => `
-      <div class="nav-group">
-        <div class="nav-label">${sec.group}</div>
-        ${sec.items.map((it) => {
-          const active = state.route === it.id || (it.id === "academy" && state.route === "article");
-          let badge = "";
-          if (it.id === "growth" && g.needs_branch) badge = `<span class="dot gold">!</span>`;
-          if (it.id === "plan" && todo) badge = `<span class="dot">${todo}</span>`;
-          if (it.id === "space" && guesses) badge = `<span class="dot gold">${guesses}</span>`;
-          if (it.id === "chat" && unseen) badge = `<span class="dot">${unseen}</span>`;
-          return `<button class="nav-item ${active ? "active" : ""}" data-nav="${it.id}">${icon(it.icon)}<span>${it.label}</span>${badge}</button>`;
-        }).join("")}
-      </div>`).join("")}
-    <div class="rail-spacer"></div>
-    <button class="rail-pet" data-nav="growth">
-      <img src="assets/pets/${esc(g.stage?.art || "stage0")}.webp" alt="">
-      <span>
-        <span class="name">${esc(g.pet_name || "小芽")}</span><br>
-        <span class="stage">${esc(g.stage?.name || "")} · ${g.total ?? 0} 经验</span>
-      </span>
-    </button>
-    <div class="rail-user">
-      <span class="avatar">${esc((d.profile?.nickname || state.user?.username || "我").slice(0, 1))}</span>
-      <span class="grow">${esc(d.profile?.nickname || state.user?.username || "体验账号")}</span>
-      ${state.user?.kind === "guest"
-        ? `<button data-act="claim">保存账号</button>`
-        : `<button data-act="logout">退出</button>`}
+      <div class="credit">小光形象：Emotion Ball（非商业演示授权）</div>
     </div>`;
-
-  rail.querySelectorAll("[data-nav]").forEach((b) =>
-    b.addEventListener("click", () => {
-      state.sceneStep = state.route === "chat" ? state.sceneStep : state.sceneStep;
-      go(b.dataset.nav);
-    }));
+  rail.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => go(b.dataset.nav)));
   rail.querySelector("[data-act=logout]")?.addEventListener("click", async () => {
     await api.logout();
+    location.hash = "";
     location.reload();
   });
-  rail.querySelector("[data-act=claim]")?.addEventListener("click", async () => {
-    const u = prompt("起一个用户名（2–20 位）")?.trim();
-    if (!u) return;
-    const p = prompt("设一个密码（至少 6 位）");
-    if (!p) return;
-    try {
-      const out = await api.register(u, p);
-      state.user = out.user;
-      toast("账号已保存，之前的记录都在");
-      drawRail();
-    } catch (e) {
-      toast(e.message, "err");
-    }
+  rail.querySelector("[data-act=claim]")?.addEventListener("click", claimSheet);
+}
+
+async function claimSheet() {
+  const { sheet, h } = await import("./ui.js");
+  const u = h("input", { class: "field", placeholder: "用户名（2–20 位）", maxlength: "20" });
+  const p = h("input", { class: "field", type: "password", placeholder: "密码（至少 6 位）", style: "margin-top:10px" });
+  const err = h("p", { style: "color:var(--danger);font-size:13px;min-height:18px;margin:8px 0 0" });
+  const s = sheet({
+    title: "把体验账号保存下来", sticker: "st-chest",
+    body: h("div", {}, h("p", { style: "color:var(--text-2);margin:0 0 14px;font-size:14px" }, "之前的记录、宠物和徽章都会留着。"), u, p, err),
+    footer: [h("button", {
+      class: "btn btn-lamp", onclick: async () => {
+        try {
+          const out = await api.register(u.value.trim(), p.value);
+          state.user = out.user;
+          s.close();
+          toast("账号保存好了", "", "st-chest-open");
+          drawRail();
+        } catch (e) { err.textContent = e.message; }
+      },
+    }, "保存")],
   });
 }
 
-function drawCtx() {
-  const ctx = appEl.querySelector("#context");
-  if (!ctx) return;
+function drawTop() {
+  const top = root.querySelector(".topbar");
+  if (!top) return;
   const d = state.data || {};
   const g = d.growth || {};
-  const steps = (d.steps || []).filter((s) => s.status === "todo").slice(0, 4);
+  const lv = g.level || { lv: 1, pct: 0, into: 0, need: 40 };
+  const days = d.counts?.days || 1;
+  const prev = top.querySelector("[data-xp-num]")?.dataset.v;
+  const shown = prev ?? g.today?.total ?? 0;
+  top.innerHTML = `
+    <span class="title">${esc(TITLES[state.route] || "显伴")}</span>
+    <span class="spacer"></span>
+    <button class="stat"><img src="${art("st-seed")}" alt=""><span class="num">${days}</span>
+      <span class="tip"><b>陪伴第 ${days} 天</b>偷懒日不会清零任何东西，这里只会往上加。</span></button>
+    <button class="stat" data-xp-target><img src="${art("st-jar")}" alt="">
+      <span class="num" data-xp-num data-v="${shown}">${shown}</span><span class="muted" style="font-size:12px">/120</span>
+      <span class="tip"><b>今天的经验</b>行动、好消息、练习、陪伴四类各 30，一天最多 120。同一件事不会重复计分。</span></button>
+    <button class="stat" data-nav="growth"><span class="lvl" style="--p:${Math.round(lv.pct * 100)}"><span>${lv.lv}</span></span>
+      <span class="num">Lv${lv.lv}</span>
+      <span class="tip"><b>等级 ${lv.lv}</b>每 40 经验升一级，这一级还差 ${lv.need - lv.into}。</span></button>
+    <button class="btn btn-sm btn-ghost only-narrow" data-act="side"><img src="${art(petArt())}" alt="" style="width:22px;height:22px">小窝</button>`;
+  // 经验飞入动画结束时再滚动数字，避免数字先变
+  setTimeout(() => countUp(top.querySelector("[data-xp-num]"), g.today?.total ?? 0), prev != null && Number(prev) !== g.today?.total ? 950 : 0);
+  top.querySelector("[data-nav]")?.addEventListener("click", () => go("growth"));
+  top.querySelector("[data-act=side]")?.addEventListener("click", () => root.querySelector(".app").classList.toggle("side-open"));
+}
+
+const QUEST_ART = { action: "st-flag", good: "st-jar", practice: "st-lotus", checkin: "st-letter" };
+
+function drawSide() {
+  const side = root.querySelector(".side");
+  if (!side) return;
+  const d = state.data || {};
+  const g = d.growth || {};
+  if (!g.stage) return;
+  const span = g.next ? g.next.at - g.prev_at : 1;
+  const pct = g.next ? Math.round(((g.total - g.prev_at) / span) * 100) : 100;
   const guesses = (d.memories || []).filter((m) => m.status === "guess").slice(0, 2);
   const inbox = (d.inbox || [])[0];
-
-  ctx.innerHTML = `
-    <div class="c-card pet-card">
-      <div class="c-head">此刻 <span class="more" data-nav="growth">成长 →</span></div>
-      <div class="pet-frame">
-        <img src="assets/pets/${esc(g.stage?.art || "stage0")}.webp" alt="">
-        <div class="whisper">${esc(g.stage?.line || "还在等第一件事发生")}</div>
-      </div>
-      <div class="pet-meta">
-        <span class="nm">${esc(g.pet_name || "小芽")}</span>
-        <span class="st">${esc(g.stage?.name || "")}</span>
-      </div>
-      ${g.next ? `<div class="growth-next">再 <b>${g.to_next}</b> 到${esc(g.next.name)}</div>` : `<div class="growth-next">${g.needs_branch ? "<b>可以化形了</b>" : "当前最高形态"}</div>`}
+  const lastDigest = (d.digests || [])[0];
+  side.innerHTML = `
+    <div class="nook" data-nav="growth" title="去看成长">
+      <div class="head"><span class="pill lamp">Lv ${g.level.lv}</span><span class="pill">${esc(g.branch_info?.name || "还没分化")}</span></div>
+      <div class="stage-art"><span class="pedestal"></span><img src="${art(g.stage.art)}" alt=""></div>
+      <div class="nm">${esc(g.pet_name)} · ${esc(g.stage.name)}</div>
+      <div class="ln">${esc(g.stage.line)}</div>
+      <div class="bar lamp"><i style="width:${pct}%"></i></div>
+      <div class="to">${g.next ? `再 <b>${g.to_next}</b> 经验到「${esc(g.next.name)}」` : "已经是成年形态了"}</div>
     </div>
 
-    ${inbox ? `<div class="c-card">
-      <div class="c-head">小光留了话</div>
-      <p style="font-size:13px;line-height:1.75;margin:0">${esc(inbox.text)}</p>
-    </div>` : ""}
-
-    <div class="c-card">
-      <div class="c-head">今天的小步 <span class="more" data-nav="plan">全部 →</span></div>
-      ${steps.length ? steps.map((s) => `
-        <div class="today-step">
-          <button class="box" data-done="${esc(s.id)}" aria-label="完成">${icon("check")}</button>
-          <div><div class="t">${esc(s.title)}</div></div>
-        </div>`).join("") : `<p style="font-size:12px;color:var(--ink-3);margin:0">还没有待做的小步。</p>`}
+    <div class="card quests">
+      <div class="sec-title" style="margin-bottom:4px">今日任务 <span class="more">${g.quests_done}/4</span></div>
+      ${g.quests.map((q) => `
+        <div class="q ${q.done ? "done" : ""}">
+          <img src="${art(QUEST_ART[q.id])}" alt="">
+          <div><div class="t">${q.done ? "✓ " : ""}${esc(q.label)}<span>${Math.min(q.got, q.need)}/${q.need}</span></div>
+          <div class="bar sm ${q.done ? "" : "lamp"}"><i style="width:${Math.min(100, (q.got / q.need) * 100)}%"></i></div></div>
+        </div>`).join("")}
+      <div class="chest ${g.quests_done === 4 ? "open" : ""}"><img src="${art(g.quests_done === 4 ? "st-chest-open" : "st-chest")}" alt="">
+        ${g.quests_done === 4 ? "今天四件小事都做到了。" : `再完成 ${4 - g.quests_done} 件，宝箱就开了。`}</div>
     </div>
 
-    ${guesses.length ? `<div class="c-card">
-      <div class="c-head">等你确认</div>
-      ${guesses.map((m) => `<div class="guess-card" style="margin-bottom:8px">
-        <div class="q">${esc(m.text)}</div>
-        <div class="acts"><button class="yes" data-confirm="${esc(m.id)}">对</button>
-        <button data-reject="${esc(m.id)}">不太对</button></div>
-      </div>`).join("")}
-    </div>` : ""}
+    ${inbox ? `<div class="card"><div class="sec-title">小光留了话</div><div class="note">${esc(inbox.text)}</div></div>` : ""}
 
-    <div class="c-card">
-      <div class="c-head">快捷</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">
-        <button class="chip" data-quick="good">记一件好事</button>
-        <button class="chip" data-quick="rest">今天偷懒日</button>
-        <button class="chip" data-quick="relearn">重新认识我</button>
-      </div>
-    </div>`;
+    ${guesses.length ? `<div class="card"><div class="sec-title">小光猜的，对吗？</div>
+      ${guesses.map((m) => `<div class="guess" style="margin-bottom:8px">${esc(m.text)}
+        <div class="acts"><button class="btn btn-sm btn-leaf" data-confirm="${esc(m.id)}">对</button>
+        <button class="btn btn-sm btn-ghost" data-reject="${esc(m.id)}">不太对</button></div></div>`).join("")}</div>` : ""}
 
-  ctx.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => go(b.dataset.nav)));
-  ctx.querySelectorAll("[data-done]").forEach((b) =>
-    b.addEventListener("click", async () => {
-      try {
-        const out = await api.step("done", { id: b.dataset.done });
-        setData(out);
-        if (out.xp?.amount) toast(`+${out.xp.amount} 经验`);
-        drawCtx();
-        drawRail();
-        rerender();
-      } catch (e) {
-        toast(e.message, "err");
-      }
-    }));
-  ctx.querySelectorAll("[data-confirm]").forEach((b) =>
-    b.addEventListener("click", () => memAct("confirm", b.dataset.confirm)));
-  ctx.querySelectorAll("[data-reject]").forEach((b) =>
-    b.addEventListener("click", () => memAct("reject", b.dataset.reject)));
-  ctx.querySelectorAll("[data-quick]").forEach((b) =>
-    b.addEventListener("click", async () => {
-      if (b.dataset.quick === "good") {
-        const text = prompt("记一件好事（再小也算）")?.trim();
-        if (!text) return;
-        const out = await api.record("good", text);
-        setData(out);
-        toast(out.xp?.amount ? `+${out.xp.amount} 经验` : "记住了");
-        rerender();
-      } else if (b.dataset.quick === "rest") {
-        const out = await api.record("rest", "今天想休息");
-        setData(out);
-        toast("今天是偷懒日，什么都不会清零");
-        rerender();
-      } else {
-        const out = await api.sceneStart("relearn");
-        state.sceneStep = { ...out.step, title: out.scene.title };
-        state.sceneRunId = out.run?.id;
-        setData({ scene: out.run });
-        go("chat");
-      }
-    }));
+    ${lastDigest ? `<div class="card" data-nav="space" data-tab="digest" style="cursor:pointer">
+      <div class="sec-title"><img src="${art("st-moon")}" alt="" style="width:26px;height:26px">夜里整理了 <span class="more">${esc(lastDigest.day.slice(5))}</span></div>
+      <div class="note">${esc(lastDigest.summary)}</div></div>` : ""}`;
+
+  side.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => {
+    root.querySelector(".app").classList.remove("side-open");
+    if (b.dataset.tab) state.spaceTab = b.dataset.tab;
+    if (state.route === b.dataset.nav) drawView();
+    else go(b.dataset.nav);
+  }));
+  side.querySelectorAll("[data-confirm],[data-reject]").forEach((b) => b.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const action = b.dataset.confirm ? "confirm" : "reject";
+    try {
+      setData(await api.memory(action, { id: b.dataset.confirm || b.dataset.reject }));
+      toast(action === "confirm" ? "记下了，以后会用它理解你" : "删掉了，谢谢你纠正我", "", "st-mirror");
+    } catch (err) { toast(err.message, "err"); }
+  }));
 }
 
-async function memAct(action, id) {
-  try {
-    await api.memory(action, { id });
-    const data = await api.bootstrap();
-    setData(data);
-    drawCtx();
-    drawRail();
-    rerender();
-  } catch (e) {
-    toast(e.message, "err");
-  }
-}
-
-function scheduleCtx() {
-  // 窄屏时右栏是抽屉；这里只处理移动端顶部按钮的显隐
-  const btn = appEl?.querySelector("#ctxToggle");
-  if (btn) btn.style.display = window.innerWidth <= 1200 ? "inline-flex" : "none";
-}
-
-function onRoute() {
-  if (!state.ready || !viewRoot) return;
-  const raw = location.hash.slice(1) || "chat";
-  if (raw === "article" || state.route === "article") {
-    state.route = "article";
-  } else {
-    state.route = raw;
-  }
-  rerender();
-}
-
-function rerender() {
-  if (!state.ready || !viewRoot) return;
-  const route = state.route;
-  const d = state.data || {};
-  const title = TITLES[route] || "显伴";
-
-  viewRoot.innerHTML = `
-    <header class="topbar">
-      <h1>${esc(title)}</h1>
-      <span class="crumb" id="crumb"></span>
-      <span class="spacer"></span>
-      <button class="tbtn" id="ctxToggle">${icon("menu")}此刻</button>
-      <button class="tbtn" id="themeBtn">${icon(state.theme === "dusk" ? "sun" : "moon")}</button>
-      ${route !== "chat" ? `<button class="tbtn" data-gochat>${icon("chat")}回到对话</button>` : ""}
-    </header>
-    <div class="page" id="page"></div>`;
-
-  const page = viewRoot.querySelector("#page");
-  const crumb = viewRoot.querySelector("#crumb");
-  if (route === "article") {
-    crumb.textContent = "心灵学堂";
-  } else if (route === "growth") {
-    crumb.textContent = `${d.growth?.stage?.name || ""} · ${d.growth?.total ?? 0} 经验`;
-  } else if (route === "plan") {
-    crumb.textContent = `${(d.steps || []).filter((s) => s.status === "todo").length} 件待做`;
-  }
-
-  viewRoot.querySelector("#themeBtn")?.addEventListener("click", () => {
-    setTheme(state.theme === "dusk" ? "paper" : "dusk");
-    rerender();
-  });
-  viewRoot.querySelector("#ctxToggle")?.addEventListener("click", () => {
-    appEl.classList.toggle("ctx-open");
-  });
-  viewRoot.querySelector("[data-gochat]")?.addEventListener("click", () => go("chat"));
-
-  switch (route) {
-    case "chat": renderChat(page); break;
-    case "plan": renderPlan(page); break;
-    case "goodnews": renderNews(page); break;
-    case "growth": renderGrowth(page); break;
-    case "ideas": renderIdeas(page); break;
-    case "academy": renderAcademy(page); break;
-    case "article": renderArticle(page); break;
-    case "report": renderReport(page); break;
-    case "space": renderSpace(page); break;
-    default: renderChat(page);
-  }
+function drawView() {
+  const view = root.querySelector(".view");
+  if (!view) return;
+  drawnRoute = state.route;
+  root.querySelector(".app")?.classList.remove("side-open");
+  view.scrollTop = 0;
+  view.innerHTML = "";
+  (VIEWS[state.route] || renderChat)(view);
   drawRail();
-  drawCtx();
-  scheduleCtx();
+  drawTop();
+  drawSide();
 }
 
-// 供其他模块在动作后刷新外壳
-export { rerender, drawRail, drawCtx, drawApp };
+export function redrawView() {
+  drawView();
+}

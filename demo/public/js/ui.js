@@ -67,27 +67,27 @@ export function dayKey(iso) {
   return (iso || "").slice(0, 10);
 }
 
-export function toast(msg, kind = "") {
+export function toast(msg, kind = "", sticker = "") {
   let wrap = $(".toast-wrap");
   if (!wrap) {
     wrap = h("div", { class: "toast-wrap" });
     document.body.append(wrap);
   }
-  const el = h("div", { class: `toast ${kind}` }, msg);
+  const img = sticker || (kind === "err" ? "st-moon" : "st-seed");
+  const el = h("div", { class: `toast ${kind}` }, h("img", { src: `assets/art/${img}.webp`, alt: "" }), msg);
   wrap.append(el);
   setTimeout(() => {
-    el.style.transition = "opacity .3s, transform .3s";
-    el.style.opacity = "0";
-    el.style.transform = "translateY(6px)";
+    el.classList.add("out");
     setTimeout(() => el.remove(), 320);
   }, 2600);
 }
 
 // 通用弹层：返回一个可以 close() 的句柄
-export function sheet({ title, body, footer, onClose }) {
+export function sheet({ title, body, footer, onClose, sticker }) {
   const scrim = h("div", { class: "scrim" });
   const panel = h("section", { class: "sheet", role: "dialog", "aria-modal": "true" },
-    h("header", {}, h("h3", {}, title || ""), h("button", { class: "x", "aria-label": "关闭", onclick: close }, "×")),
+    h("header", {}, sticker ? h("img", { src: `assets/art/${sticker}.webp`, alt: "" }) : null,
+      h("h3", {}, title || ""), h("button", { class: "x", "aria-label": "关闭", onclick: close }, "×")),
     h("div", { class: "body" }, body),
     footer ? h("footer", {}, footer) : null,
   );
@@ -106,14 +106,14 @@ export function sheet({ title, body, footer, onClose }) {
   return { close, panel };
 }
 
-export function confirmSheet(title, text, okLabel = "确认") {
+export function confirmSheet(title, text, okLabel = "确认", sticker = "st-moon") {
   return new Promise((resolve) => {
     const s = sheet({
-      title,
-      body: h("p", { style: "font-size:14px;line-height:1.8;color:var(--ink-2);margin:4px 0 10px" }, text),
+      title, sticker,
+      body: h("p", { style: "font-size:15px;line-height:1.8;color:var(--text-2);margin:4px 0 6px" }, text),
       footer: [
         h("button", { class: "btn btn-ghost", onclick: () => { s.close(); resolve(false); } }, "先不要"),
-        h("button", { class: "btn btn-ink", onclick: () => { s.close(); resolve(true); } }, okLabel),
+        h("button", { class: "btn btn-lamp", onclick: () => { s.close(); resolve(true); } }, okLabel),
       ],
       onClose: () => resolve(false),
     });

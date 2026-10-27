@@ -2,7 +2,7 @@
 
 显化陪伴 agent 的网页 demo。线上：https://manifest.noryx.cn
 
-- 方案说明 v2（创意 / 技术 / UI，对应线上 2.0.0）：[docs/三方向方案-v2.md](docs/三方向方案-v2.md)
+- 方案说明（创意 / 技术 / UI，对应线上 2.1.0）：[docs/三方向方案-v2.md](docs/三方向方案-v2.md)
 - v0.3 讨论稿原文：[docs/xiaoguang_v03.txt](docs/xiaoguang_v03.txt) · 旧方案：[docs/三方向方案.md](docs/三方向方案.md)
 - 会议纪要：[meeting.txt](meeting.txt) · 创意稿：[creative/](creative/)
 - 旧版 demo 归档：[_archive/demo-v0/](_archive/demo-v0/)
@@ -37,20 +37,26 @@ demo/
   routes.py          接口
   core/
     auth.py          账号与会话（PBKDF2、HttpOnly cookie）
-    store.py         每用户一个 SQLite：画像、记忆(FTS5)、小步、记录、对话、活动
-    agent.py         人设、工具、流式工具循环
-    memory.py        记忆写入管线（ADD/UPDATE/DELETE，推测待确认）
-    scenes.py        灵感四场景的步骤状态机
-    scheduler.py     主动消息定时任务
-    report.py        蜕变报告与惊喜句
-    onboarding.py    8 题建档、体验账号示例数据
+    store.py         每用户一个 SQLite：画像、记忆(FTS5)+修订记录、小步、记录、对话、经验账本、徽章、夜间整理
+    agent.py         人设、11 个工具、流式工具循环（remember 需要用户明确要求）
+    digest.py        夜里的记忆整理（增量、受保护记忆需原话依据）
+    growth.py        经验账本、每日上限、宠物分化、27 枚徽章、今日任务
+    academy.py       心灵学堂（只读）
+    scenes.py        引导场景的步骤状态机（含「重新认识我」）
+    scheduler.py     后台线程：03:00 后整理昨天、主动消息
+    report.py        14/30 天蜕变报告
+    onboarding.py    建档、体验账号示例数据
   public/
     index.html
-    css/             tokens / shell / components / chat / pages
-    js/              api, store, ui, orb, app + views/（12 个 ES 模块）
-    assets/pets/     宠物九形态 + 报告封面（gpt-image-2 生成，WebP）
-tools/gen_pets.py    重新生成宠物素材
-  tests/
+    css/             base · components · shell · chat · pages · lesson · gate · fonts(生成)
+    js/              app · store · api · ui · fx(动效/庆祝) · ball(Emotion Ball 适配) · lesson(「一课」) · scene · views/
+    assets/art/      宠物、浮岛、植物、贴纸（gpt-image-1.5 透明底，WebP）
+    fonts/           源流圆体 CN + Nunito 的按需切片（生成）
+    vendor/emotion-ball/
+tools/
+  gen_assets.py      重新生成 assets/art（需要 OPENLUX_API_KEY）
+  build_fonts.py     重新切字体（需要源字体与 jieba 词频表，见文件头）
+  shoot.py           本地桌面截图（开发用，依赖仓库外的 Playwright）
 deploy/              systemd 与部署脚本
 ```
 
@@ -60,6 +66,6 @@ deploy/              systemd 与部署脚本
 
 ## 形象与素材
 
-- 聊天中的小光是一枚自绘 SVG 光球（`public/js/orb.js`），原创、无第三方授权限制。
-- 宠物素材由 `tools/gen_pets.py` 调用 `gpt-image-2` 生成（需要 `OPENLUX_API_KEY`），统一风格提示词后压缩为 WebP。
-- `public/vendor/emotion-ball` 是上一版遗留素材，当前页面已不再引用；如确认不再使用，可以整目录删除。
+- 小光的形象是 Emotion Ball（[sam70361/emotion-ball](https://github.com/sam70361/emotion-ball)）：引擎非商业免费，**球形角色外观永不商用**。本仓库用于竞赛 demo，页面有署名并保留其 LICENSE / NOTICE；商用前需换成自研形象，只改 `public/js/ball.js`。
+- 宠物与贴纸由 `tools/gen_assets.py` 生成（openlux `gpt-image-1.5`，原生透明背景）。
+- 字体：源流圆体 CN（Resource Han Rounded，SIL OFL 1.1）与 Nunito（SIL OFL 1.1）。

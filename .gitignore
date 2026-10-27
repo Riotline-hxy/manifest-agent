@@ -39,3 +39,4 @@ __MACOSX/
 .mypy_cache/
 .ruff_cache/
 node_modules/
+tools/.raw/

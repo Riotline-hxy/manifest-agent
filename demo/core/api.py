@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import academy, growth, scenes, scheduler
 from .store import Store
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
@@ -56,11 +56,12 @@ def preferences(p: dict) -> dict:
 
 def bootstrap(st: Store) -> dict:
     """Everything the client needs to render the whole shell in one request."""
+    g = growth.state(st)          # may persist one-shot flags, so read profile after it
     p = st.profile()
     read = st.read_ids()
     return {
         "profile": {k: v for k, v in p.items() if k not in ("last_proactive_at",)},
-        "growth": growth.state(st),
+        "growth": g,
         "counts": st.counts(),
         "memories": st.memories(limit=120),
         "steps": st.steps(),
@@ -73,5 +74,9 @@ def bootstrap(st: Store) -> dict:
         "ideas": IDEAS,
         "academy": [{**a, "read": a["id"] in read} for a in academy.catalog()],
         "prefs": preferences(p),
+        "digests": st.digests(7),
+        "scene_counts": {r[0]: r[1] for r in st.c.execute(
+            "SELECT scene, COUNT(*) FROM scene_run WHERE status='done' GROUP BY scene")},
+        "revisions": st.revisions(20),
         "proactive": dict(zip(("ok", "reason"), scheduler.should_reach_out(p, bool(st.unseen_inbox())))),
     }
