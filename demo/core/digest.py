@@ -59,17 +59,21 @@ def material(st: Store, day: str) -> dict:
     added = [s for s in st.steps(300) if (s.get("created_at") or "")[:10] == day]
     scenes = [dict(r) for r in st.c.execute(
         "SELECT scene FROM scene_run WHERE status='done' AND substr(created_at,1,10)=?", (day,))]
+    moments = [dict(r) for r in st.c.execute(
+        "SELECT m.text, m.feeling, w.title FROM moment m JOIN wish w ON w.id=m.wish_id WHERE m.day=?", (day,))]
+    for m in moments:   # 用户亲手写下的瞬间，也是 TA 的原话
+        user_lines.append(m["text"] + (" " + m["feeling"] if m["feeling"] else ""))
     return {"day": day, "convo": convo, "user_lines": user_lines, "long_pastes": long_pastes,
-            "records": recs, "done": done, "added": added, "scenes": scenes}
+            "records": recs, "done": done, "added": added, "scenes": scenes, "moments": moments}
 
 
 def has_material(mat: dict) -> bool:
-    return bool(mat["convo"] or mat["records"] or mat["done"] or mat["scenes"])
+    return bool(mat["convo"] or mat["records"] or mat["done"] or mat["scenes"] or mat.get("moments"))
 
 
 def fallback_summary(mat: dict) -> tuple[str, list[str]]:
     parts = []
-    n_user = len(mat["user_lines"])
+    n_user = sum(1 for c in mat["convo"] if c.startswith("用户："))
     if n_user:
         parts.append(f"聊了 {n_user} 句")
     good = [r for r in mat["records"] if r["type"] == "good"]
@@ -81,6 +85,8 @@ def fallback_summary(mat: dict) -> tuple[str, list[str]]:
         parts.append("给自己放了一天假")
     if mat["scenes"]:
         parts.append(f"做了 {len(mat['scenes'])} 次练习")
+    if mat.get("moments"):
+        parts.append(f"在轨迹上留下 {len(mat['moments'])} 个瞬间")
     summary = ("今天" + "，".join(parts) + "。") if parts else "今天很安静。"
     hl = [clip(r["text"], 20) for r in good[:2]] + [clip(s["title"], 20) for s in mat["done"][:1]]
     return summary, hl[:3]
@@ -107,6 +113,9 @@ def run(st: Store, day: str | None = None, use_model: bool = True) -> dict:
         lines += ["", "## 新加的小步"] + [f"- {s['title']}" for s in mat["added"]]
     if mat["scenes"]:
         lines += ["", "## 练习"] + [f"- {s['scene']}" for s in mat["scenes"]]
+    if mat.get("moments"):
+        lines += ["", "## 成长轨迹上的瞬间（用户亲手写的）"] + [f"- [{m['title']}] {m['text']}" + (f"（感受：{m['feeling']}）" if m["feeling"] else "")
+                                                     for m in mat["moments"]]
     lines += ["", "## 已有记忆", mem_txt]
 
     out = llm.complete_json([{"role": "system", "content": PROMPT},

@@ -5,7 +5,7 @@ the only source of the user id.
 """
 from __future__ import annotations
 
-from core import academy, auth, digest, growth, llm, onboarding, report, scenes, scheduler
+from core import academy, auth, digest, growth, journey, llm, onboarding, report, scenes, scheduler
 from core.store import Store
 from core.util import clip, iso
 from core.api import VERSION, ApiError, bootstrap, public_user
@@ -147,7 +147,8 @@ def step(h, u, b, q):
             title = clip(str(b.get("title") or ""), 40).strip()
             if not title:
                 raise ApiError(400, "写一下这一步是什么")
-            st.add_step(title, why=str(b.get("why") or ""), wish=st.profile().get("intent_primary") or "")
+            st.add_step(title, why=str(b.get("why") or ""), wish=st.profile().get("intent_primary") or "",
+                        wish_id=str(b.get("wish_id") or ""))
             st.log("plan", "你加了一小步：" + title)
         elif act == "done":
             s = st.complete_step(str(b.get("id") or ""))
@@ -261,6 +262,86 @@ def academy_get(h, u, b, q):
     return 200, {"article": article}
 
 
+def wish_api(h, u, b, q):
+    act = b.get("action")
+    with Store(u["id"]) as st:
+        try:
+            if act == "add":
+                journey.add_wish(st, str(b.get("title") or ""), str(b.get("category") or ""),
+                                 str(b.get("now_text") or ""), str(b.get("vision_text") or ""), scene=str(b.get("scene") or ""))
+            elif act == "edit":
+                if not journey.edit_wish(st, str(b.get("id") or ""), b):
+                    raise ApiError(404, "没有这个愿望")
+            elif act == "select":
+                if not journey.get_wish(st, str(b.get("id") or "")):
+                    raise ApiError(404, "没有这个愿望")
+                st.set_profile({"current_wish": b["id"]})
+            else:
+                raise ApiError(400, "未知操作")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, bootstrap(st)
+
+
+def moment_api(h, u, b, q):
+    act = b.get("action")
+    out = {}
+    with Store(u["id"]) as st:
+        try:
+            if act == "add":
+                m = journey.add_moment(st, str(b.get("wish_id") or ""), str(b.get("text") or ""),
+                                       str(b.get("feeling") or ""), str(b.get("mood") or ""), b.get("day"),
+                                       source="chat" if b.get("source") == "chat" else "user")
+                out["moment"] = m
+                out["xp"] = growth.award(st, "good", ref="moment:" + m["id"], note="留下一个瞬间")
+            elif act == "edit":
+                if not journey.edit_moment(st, str(b.get("id") or ""), b):
+                    raise ApiError(404, "没有这条记录")
+            elif act == "delete":
+                if not journey.delete_moment(st, str(b.get("id") or "")):
+                    raise ApiError(404, "没有这条记录")
+            else:
+                raise ApiError(400, "未知操作")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, {**out, **bootstrap(st)}
+
+
+def wish_review(h, u, b, q):
+    try:
+        days = int((q.get("days") or ["30"])[0])
+    except ValueError:
+        days = 30
+    with Store(u["id"]) as st:
+        try:
+            return 200, journey.review(st, str((q.get("id") or [""])[0]), days)
+        except ValueError as e:
+            raise ApiError(404, str(e))
+
+
+def wish_reflect(h, u, b, q):
+    with Store(u["id"]) as st:
+        if not journey.get_wish(st, str(b.get("id") or "")):
+            raise ApiError(404, "没有这个愿望")
+        try:
+            journey.reflect(st, b["id"], int(b.get("days") or 30), str(b.get("text") or ""))
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, journey.review(st, b["id"], int(b.get("days") or 30))
+
+
+def wish_insight(h, u, b, q):
+    with Store(u["id"]) as st:
+        try:
+            if b.get("answer"):
+                out = journey.answer_insight(st, str(b.get("insight_id") or ""), str(b["answer"]))
+            else:
+                out = journey.make_insight(st, str(b.get("id") or ""))
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, {**out, **bootstrap(st)}
+
+
 def report_get(h, u, b, q):
     try:
         days = int((q.get("days") or ["14"])[0])
@@ -302,6 +383,11 @@ ROUTES = {
     ("POST", "/api/inbox/seen"): (inbox_seen, True),
     ("GET", "/api/growth"): (growth_get, True),
     ("POST", "/api/memory/digest"): (digest_now, True),
+    ("POST", "/api/wish"): (wish_api, True),
+    ("POST", "/api/moment"): (moment_api, True),
+    ("GET", "/api/wish/review"): (wish_review, True),
+    ("POST", "/api/wish/reflect"): (wish_reflect, True),
+    ("POST", "/api/wish/insight"): (wish_insight, True),
     ("GET", "/api/academy"): (academy_list, True),
     ("GET", "/api/academy/article"): (academy_get, True),
     ("GET", "/api/report"): (report_get, True),

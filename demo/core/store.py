@@ -38,7 +38,7 @@ DEFAULT_PROFILE = {
     "care_style": "",       # nudge | analyze | quiet | ""
     "pace": "gentle",       # gentle | steady
     "pet_name": "小芽", "pet_branch": "", "pet_branch_at": "", "pet_stage_seen": "",
-    "last_digest_day": "",
+    "last_digest_day": "", "current_wish": "",
     "xp": 0, "badges": [], "last_chat_at": "", "last_proactive_at": "", "created_at": "",
 }
 
@@ -102,11 +102,25 @@ class Store:
             CREATE TABLE IF NOT EXISTS digest(
               day TEXT PRIMARY KEY, summary TEXT, highlights TEXT, stats TEXT, ops TEXT,
               by_model INTEGER DEFAULT 0, created_at TEXT);
+            CREATE TABLE IF NOT EXISTS wish(
+              id TEXT PRIMARY KEY, title TEXT, category TEXT, now_text TEXT, vision_text TEXT, scene TEXT,
+              started TEXT, archived INTEGER DEFAULT 0, sort INTEGER DEFAULT 0, created_at TEXT);
+            CREATE TABLE IF NOT EXISTS moment(
+              id TEXT PRIMARY KEY, wish_id TEXT, day TEXT, text TEXT, feeling TEXT, mood TEXT, source TEXT,
+              created_at TEXT, updated_at TEXT);
+            CREATE INDEX IF NOT EXISTS moment_wish_day ON moment(wish_id, day);
+            CREATE TABLE IF NOT EXISTS insight(
+              id TEXT PRIMARY KEY, wish_id TEXT, text TEXT, claim TEXT, basis TEXT, status TEXT,
+              created_at TEXT, answered_at TEXT);
+            CREATE TABLE IF NOT EXISTS reflection(id TEXT PRIMARY KEY, wish_id TEXT, days INTEGER, text TEXT, created_at TEXT);
             CREATE TABLE IF NOT EXISTS memory_rev(
               id TEXT PRIMARY KEY, memory_id TEXT, old_text TEXT, new_text TEXT,
               reason TEXT, evidence TEXT, at TEXT);
             """
         )
+        cols = {r["name"] for r in self.c.execute("PRAGMA table_info(step)")}
+        if "wish_id" not in cols:
+            self.c.execute("ALTER TABLE step ADD COLUMN wish_id TEXT DEFAULT ''")
 
     # ---- profile (core memory) ---------------------------------------------
     def profile(self) -> dict:
@@ -244,11 +258,13 @@ class Store:
         return out
 
     # ---- plan steps ---------------------------------------------------------
-    def add_step(self, title: str, why: str = "", wish: str = "", due_day: str | None = None) -> dict:
+    def add_step(self, title: str, why: str = "", wish: str = "", due_day: str | None = None, wish_id: str = "") -> dict:
         sid = new_id("s")
+        if not wish_id:
+            wish_id = self.profile().get("current_wish") or ""
         with self.lock:
-            self.c.execute("INSERT INTO step(id, title, why, status, wish, due_day, created_at) VALUES(?,?,?,?,?,?,?)",
-                           (sid, clip(title, 80), clip(why, 160), "todo", clip(wish, 80), due_day or day_key(), iso()))
+            self.c.execute("INSERT INTO step(id, title, why, status, wish, due_day, created_at, wish_id) VALUES(?,?,?,?,?,?,?,?)",
+                           (sid, clip(title, 80), clip(why, 160), "todo", clip(wish, 80), due_day or day_key(), iso(), wish_id))
         return dict(self.c.execute("SELECT * FROM step WHERE id=?", (sid,)).fetchone())
 
     def steps(self, limit: int = 100) -> list[dict]:

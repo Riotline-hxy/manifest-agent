@@ -565,6 +565,109 @@ class ApiTest(unittest.TestCase):
         self.assertIsNone(d2["narrative"])
         self.assertFalse(d2["ready"])
 
+    # ---- 成长轨迹看板 ---------------------------------------------------------
+    def test_journey_board_from_onboarding_and_moment_crud(self):
+        c, uid = self.onboarded("journey")
+        _, d = c.req("GET", "/api/bootstrap")
+        j = d["journey"]
+        self.assertEqual([w["title"] for w in j["wishes"]], ["健康作息"])   # 建档答案直接变成第一张看板
+        self.assertEqual(j["wishes"][0]["category"], "body")
+        wid = j["current"]
+        s, d = c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": "十一点前关了灯", "feeling": "有点不习惯"})
+        self.assertEqual(s, 200, d)
+        mid = d["moment"]["id"]
+        self.assertEqual(d["moment"]["day"], d["journey"]["today"])
+        self.assertGreater(d["xp"]["amount"], 0)
+        # 同一天第二条：仍然是同一天，只是多一条
+        _, d = c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": "午饭后散步十分钟"})
+        self.assertEqual(len({m["day"] for m in d["journey"]["moments"]}), 1)
+        self.assertEqual(len(d["journey"]["moments"]), 2)
+        # 未来的日子、空内容都拒绝
+        today = d["journey"]["today"]
+        from datetime import date, timedelta
+        tomorrow = (date.fromisoformat(today) + timedelta(days=1)).isoformat()
+        self.assertEqual(c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": "x", "day": tomorrow})[0], 400)
+        self.assertEqual(c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": "  "})[0], 400)
+        # 补记以前的日子可以
+        past = (date.fromisoformat(today) - timedelta(days=40)).isoformat()
+        _, d = c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": "第一次早起跑步", "day": past})
+        self.assertIn(past, [m["day"] for m in d["journey"]["moments"]])
+        # 编辑 / 删除
+        _, d = c.req("POST", "/api/moment", {"action": "edit", "id": mid, "feeling": "其实挺舒服"})
+        self.assertEqual(next(m for m in d["journey"]["moments"] if m["id"] == mid)["feeling"], "其实挺舒服")
+        _, d = c.req("POST", "/api/moment", {"action": "delete", "id": mid})
+        self.assertNotIn(mid, [m["id"] for m in d["journey"]["moments"]])
+        # 别人看不到、也删不了
+        other, _ = self.member("journey_other")
+        self.assertEqual(other.req("POST", "/api/moment", {"action": "delete", "id": d["journey"]["moments"][0]["id"]})[0], 404)
+        self.assertEqual(other.req("GET", "/api/bootstrap")[1]["journey"]["moments"], [])
+
+    def test_journey_review_only_counts_range(self):
+        c, uid = self.member("journey_review")
+        s, d = c.req("POST", "/api/wish", {"action": "add", "title": "心里安静一点", "category": "calm", "now_text": "总是紧绷"})
+        self.assertEqual(s, 200, d)
+        wid = d["journey"]["current"]
+        today = d["journey"]["today"]
+        from datetime import date, timedelta
+        day = lambda n: (date.fromisoformat(today) - timedelta(days=n)).isoformat()
+        for n, t in ((1, "开完会给自己留了十分钟喝茶"), (3, "下午出去散步，安静地走了一圈"), (5, "睡前喝茶，放松下来"), (20, "周末去公园散步")):
+            c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": t, "day": day(n)})
+        _, r = c.req("GET", f"/api/wish/review?id={wid}&days=7")
+        self.assertEqual((r["count"], r["active_days"]), (3, 3))
+        self.assertEqual(r["top"]["word"], "喝茶")
+        self.assertIn("过去 7 天，你留下了 3 个瞬间，其中 2 次提到了「喝茶」", r["line"])
+        _, r30 = c.req("GET", f"/api/wish/review?id={wid}&days=30")
+        self.assertEqual(r30["count"], 4)
+        # 空区间：直说，不编
+        c2, _ = self.member("journey_empty")
+        _, d2 = c2.req("POST", "/api/wish", {"action": "add", "title": "", "category": "freedom"})
+        _, e = c2.req("GET", f"/api/wish/review?id={d2['journey']['current']}&days=15")
+        self.assertEqual(e["count"], 0)
+        self.assertTrue(e["line"].startswith("这段时间还没有留下记录"))
+        _, r = c.req("POST", "/api/wish/reflect", {"id": wid, "days": 7, "text": "好像没那么紧了"})
+        self.assertEqual(r["reflections"][0]["text"], "好像没那么紧了")
+
+    def test_journey_insight_needs_confirmation(self):
+        c, uid = self.member("journey_insight")
+        _, d = c.req("POST", "/api/wish", {"action": "add", "title": "敢开口", "category": "confidence"})
+        wid = d["journey"]["current"]
+        self.fake.json_out = {"text": "会不会…", "claim": "x", "basis": []}
+        _, out = c.req("POST", "/api/wish/insight", {"id": wid})
+        self.assertIsNone(out["insight"])           # 记录不足 4 条不生成
+        ids = []
+        for t in ("课上举手了", "主动问了老师问题", "和室友说出了不舒服", "投了稿"):
+            _, d = c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": t})
+            ids.append(d["moment"]["id"])
+        self.fake.json_out = {"text": "编出来的发现", "claim": "很勇敢", "basis": ["mo_fake"]}
+        _, out = c.req("POST", "/api/wish/insight", {"id": wid})
+        self.assertIsNone(out["insight"])           # 依据对不上真实记录就不要
+        self.fake.json_out = {"text": "你担心做得不够好，但还是投了稿。这算一次勇敢的尝试吗？",
+                              "claim": "害怕不够好时，仍然愿意尝试", "basis": [ids[3], "mo_fake"]}
+        _, out = c.req("POST", "/api/wish/insight", {"id": wid})
+        ins = out["insight"]
+        self.assertEqual(ins["basis"], [ids[3]])
+        with Store(uid) as st:
+            self.assertNotIn("害怕不够好时，仍然愿意尝试", [m["text"] for m in st.memories(statuses=("active", "guess"))])
+        _, out = c.req("POST", "/api/wish/insight", {"insight_id": ins["id"], "answer": "yes"})
+        self.assertEqual(out["memory"]["text"], "害怕不够好时，仍然愿意尝试")
+        self.assertIsNone(out["journey"]["insights"][wid])
+
+    def test_chat_only_proposes_moments(self):
+        c, uid = self.onboarded("journey_chat")
+        self.fake.turns = [
+            [("tool_calls", [{"id": "c1", "name": "propose_moment",
+                              "arguments": json.dumps({"text": "昨晚十一点就睡了", "feeling": "早上很清醒"})}])],
+            [("text", "真好。要不要把它留在轨迹上？")],
+        ]
+        s, ev = c.sse("昨晚十一点就睡了，早上很清醒")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "propose_moment")
+        self.assertTrue(tool["result"]["pending"])
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["journey"]["moments"], [])     # 没点「留下」就什么都没存
+        p = tool["result"]["proposal"]
+        _, d = c.req("POST", "/api/moment", {"action": "add", "wish_id": p["wish_id"], "text": p["text"], "feeling": p["feeling"], "source": "chat"})
+        self.assertEqual(d["moment"]["source"], "chat")
+
 
 if __name__ == "__main__":
     unittest.main()

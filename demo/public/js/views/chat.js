@@ -14,7 +14,38 @@ const TOOL = {
   search_memory: ["memory", "var(--c-violet)", "翻了翻记忆"], get_growth: ["sprout", "var(--c-mint)", "查了成长"],
   knowledge_search: ["book", "var(--c-coral)", "心灵学堂"], set_care_style: ["compass", "var(--c-sky)", "互动偏好"],
   start_scene: ["wind", "var(--c-mint)", "开始练习"], checkin: ["chat", "var(--c-sky)", "今天来聊了"],
+  propose_moment: ["sparkles", "var(--c-violet)", "要留在轨迹上吗"],
 };
+
+// 小光只能「提议」记录：卡片上由用户决定留不留、留在哪个愿望下（文档 3.2）
+function proposalFoot(el, result) {
+  const p = result.proposal || {};
+  const ws = result.wishes || [];
+  const foot = el.querySelector(".tool-f");
+  foot.innerHTML = `${ws.length > 1 ? `<select class="field field-sm" aria-label="留在哪个愿望下">${ws.map((w) =>
+      `<option value="${esc(w.id)}" ${w.id === p.wish_id ? "selected" : ""}>${esc(w.title)}</option>`).join("")}</select>` : ""}
+    <button class="btn btn-sm btn-main" data-keep>${icon("check")}留下</button>
+    <button class="btn btn-sm btn-quiet" data-skip>不用了</button>`;
+  foot.querySelector("[data-skip]").addEventListener("click", () => {
+    foot.innerHTML = `<span class="muted">好，这次不留。</span>`;
+    el.classList.add("dim");
+  });
+  foot.querySelector("[data-keep]").addEventListener("click", async (e) => {
+    const wid = foot.querySelector("select")?.value || p.wish_id;
+    e.currentTarget.disabled = true;
+    try {
+      const out = await api.moment("add", { wish_id: wid, text: p.text, feeling: p.feeling, source: "chat" });
+      setData(out);
+      const title = (ws.find((w) => w.id === wid) || {}).title || p.wish_title || "";
+      foot.innerHTML = `<span class="muted">留在「${esc(title)}」的轨迹上了</span>
+        <button class="btn btn-sm btn-ghost" data-go-plan>去看看</button>`;
+      foot.querySelector("[data-go-plan]").addEventListener("click", () => go("plan"));
+      el.querySelector(".tool-k").textContent = "留在轨迹上了";
+      burstAt(el.querySelector(".tile"), 22);
+      if (out.xp?.amount) flyXP(el.querySelector(".tile"), out.xp.amount);
+    } catch (err) { e.currentTarget.disabled = false; toast(err.message, "err"); }
+  });
+}
 
 const HINTS = [
   ["帮我记住我喜欢吃寿司", "memory"], ["我三天没健身了", "moon"], ["你对我了解多少？", "eye"],
@@ -52,6 +83,8 @@ function toolCard(name, args, result) {
     case "set_care_style": title = ok ? result.shown : "没有更新"; note = "以后按这个方式陪你"; break;
     case "start_scene": title = result.title || ""; note = "马上开始"; break;
     case "checkin": title = "今天的第一句话"; note = "陪伴任务完成"; break;
+    case "propose_moment": title = ok ? result.proposal?.text : "没能提议"; note = ok ? (result.proposal?.feeling ? `当时的感受：${result.proposal.feeling}` : "还没保存，你决定") : result.error;
+      foot = ok ? " " : ""; break;
     default: title = ok ? "完成" : "没有写成"; note = result?.error || "";
   }
   const amount = result?.xp?.amount || (name === "checkin" ? result?.amount : 0);
@@ -66,6 +99,7 @@ function toolCard(name, args, result) {
     ${xp ? `<span class="tool-xp ${amount ? "" : "zero"}">${esc(xp)}</span>` : ""}`;
   el.querySelectorAll("[data-article]").forEach((b) => b.addEventListener("click", () => go("article", { id: b.dataset.article })));
   el.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
+  if (ok && name === "propose_moment") proposalFoot(el, result);
   if (amount) setTimeout(() => flyXP(el.querySelector(".tool-xp"), amount), 250);
   if (ok && ["log_good_news", "complete_step"].includes(name)) setTimeout(() => burstAt(el.querySelector(".tile"), 26), 150);
   return el;

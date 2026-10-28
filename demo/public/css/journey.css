@@ -1,0 +1,204 @@
+/* ===================================================== 成长轨迹看板 =====
+   一个主色系：点、曲线用氛围的强调色；愿望类别色（--jc）只用在右上角的愿景图形、
+   背景纹理和点亮时的小动效上。 */
+
+.journey .page-head { margin-bottom: 14px; }
+
+/* ---- 愿望切换 ---- */
+.wish-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.wish-tab { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px 0 7px; border-radius: 14px; background: var(--surface); border: 1.5px solid var(--line); font-weight: 800; font-size: 14px; color: var(--text-2); transition: all .2s var(--spring); }
+.wish-tab .tile { border-radius: 9px; }
+.wish-tab .tile .ic-svg { width: 15px; height: 15px; }
+.wish-tab small { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: var(--surface-2); font-size: 11.5px; display: grid; place-items: center; color: var(--text-3); }
+.wish-tab:hover { color: var(--text); transform: translateY(-1px); }
+.wish-tab.on { color: var(--text); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.wish-tab.add { padding: 0 14px; border-style: dashed; color: var(--text-3); }
+.wish-tab.add .ic-svg { width: 16px; height: 16px; }
+
+/* ---- 看板 ---- */
+.j-board { padding: 16px 18px 14px; overflow: hidden; }
+.j-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 4px; }
+.j-sum { font-size: 13px; color: var(--text-3); font-weight: 700; }
+.j-sum b { color: var(--text); }
+.j-stage { position: relative; aspect-ratio: 1000 / 520; margin: 0 -6px; }
+.j-back { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.j-back .curve-base { fill: none; stroke: var(--accent-soft); stroke-width: 18; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.j-back .curve { fill: none; stroke: var(--line-2); stroke-width: 2.5; stroke-dasharray: 2 9; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.j-back .curve-lit { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; vector-effect: non-scaling-stroke; stroke-dasharray: 0 99999; opacity: 0; }
+.j-back .curve-lit.on { animation: lit 1.6s ease-out; }
+@keyframes lit { 0% { opacity: 0; } 25% { opacity: .9; } 100% { opacity: 0; } }
+
+/* 背景纹理：很淡，跟随类别色 */
+.bd { color: var(--jc); }
+.bd-calm path { fill: none; stroke: currentColor; stroke-width: 1.6; opacity: .22; vector-effect: non-scaling-stroke; animation: drift 9s ease-in-out infinite alternate; animation-delay: calc(var(--i) * -2s); }
+@keyframes drift { from { transform: translateX(0); } to { transform: translateX(-60px); } }
+.bd-stars circle, .bd-gold circle { fill: currentColor; opacity: .35; animation: twinkle 3.5s ease-in-out infinite; animation-delay: calc(var(--i) * -.6s); }
+@keyframes twinkle { 50% { opacity: .08; } }
+.bd-web path { fill: none; stroke: currentColor; stroke-width: 1.2; stroke-dasharray: 3 7; opacity: .25; vector-effect: non-scaling-stroke; }
+.bd-beam path { fill: currentColor; opacity: .07; }
+.bd-hill path { fill: currentColor; opacity: .08; }
+.bd-glow circle { fill: currentColor; opacity: .08; }
+
+.j-date { position: absolute; transform: translate(-50%, 16px); font-size: 11.5px; font-weight: 800; color: var(--text-4); white-space: nowrap; pointer-events: none; }
+.j-date.end { transform: translate(20px, -50%); }
+
+/* 现在的我 / 向往的我 */
+.j-cap { display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.j-cap small { font-size: 11px; font-weight: 900; letter-spacing: .06em; color: var(--text-3); }
+.j-cap b { font-size: 14px; line-height: 1.45; font-weight: 700; color: var(--text); }
+.j-now, .j-vision { position: absolute; z-index: 2; border-radius: 16px; transition: background .2s; }
+.j-now:hover, .j-vision:hover { background: var(--surface-2); }
+.j-now { left: 1%; bottom: 2%; display: flex; flex-direction: column; align-items: flex-start; padding: 8px 10px 4px; max-width: 30%; }
+.j-now .j-cap { padding: 8px 12px; border-radius: 14px 14px 14px 4px; background: var(--surface-2); max-width: 230px; }
+.j-fig { width: clamp(104px, 14vw, 150px); color: var(--text-3); overflow: visible; }
+.f-head, .f-body { fill: var(--text-2); }
+.f-arm { stroke: var(--surface); opacity: .55; }
+.figure .fig-body { transform-origin: 70px 84px; animation: breathe 4.5s ease-in-out infinite; }
+@keyframes breathe { 50% { transform: scale(1.025) translateY(-1px); } }
+.figure.stretch .fig-body { animation: stretch 1.1s var(--spring); }
+@keyframes stretch { 30% { transform: scaleY(1.12) translateY(-4px); } 60% { transform: scaleY(.97); } }
+
+.j-vision { right: 1%; top: 2%; display: flex; align-items: center; gap: 12px; padding: 8px; max-width: 46%; }
+.j-vision .j-cap { text-align: right; align-items: flex-end; max-width: 300px; text-wrap: balance; }
+.j-orb { flex: none; width: clamp(70px, 10vw, 104px); aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; color: var(--jc);
+  background: radial-gradient(circle, color-mix(in srgb, var(--jc) 22%, transparent), transparent 70%); }
+.j-orb .vision { width: 74%; height: 74%; overflow: visible; animation: float 6s ease-in-out infinite; }
+@keyframes float { 50% { transform: translateY(-4px); } }
+.vision .pane { transition: transform .9s var(--ease); transform-box: fill-box; }
+.vision .pane-l { transform-origin: left center; }
+.vision .pane-r { transform-origin: right center; }
+.j-vision.open .pane-l { transform: scaleX(.12); }
+.j-vision.open .pane-r { transform: scaleX(.12); }
+.j-vision.open .j-orb { animation: pop-in .6s var(--spring); }
+
+/* 亮点：点击范围 36px，看上去 14px */
+.j-dot { position: absolute; z-index: 3; width: 36px; height: 36px; transform: translate(-50%, -50%); display: grid; place-items: center; border-radius: 50%; animation: pop-in .5s var(--spring) backwards; }
+.j-dot i { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft), 0 0 14px var(--accent); transition: transform .2s var(--spring); }
+.j-dot.multi i { width: 17px; height: 17px; }
+.j-dot em { position: absolute; top: -2px; right: -4px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 99px; background: var(--solid); color: var(--text); font-size: 10.5px; font-style: normal; font-weight: 900; display: grid; place-items: center; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+.j-dot:hover i, .j-dot:focus-visible i { transform: scale(1.35); }
+.j-dot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.j-dot.hit i { animation: hit .5s var(--spring); }
+@keyframes hit { 40% { transform: scale(1.7); } }
+.j-dot.fresh i { animation: fresh 1.2s var(--spring) .2s backwards; }
+@keyframes fresh { 0% { transform: scale(0); } 50% { transform: scale(2); } }
+.j-today { position: absolute; z-index: 3; width: 30px; height: 30px; transform: translate(-50%, -50%); border-radius: 50%; border: 2px dashed var(--accent); color: var(--accent); display: grid; place-items: center; background: var(--surface); transition: transform .2s var(--spring); }
+.j-today .ic-svg { width: 15px; height: 15px; stroke-width: 2.6; }
+.j-today:hover { transform: translate(-50%, -50%) scale(1.15); background: var(--accent-soft); }
+
+.j-empty { position: absolute; z-index: 4; left: 50%; top: 52%; transform: translate(-50%, -50%); width: min(380px, 80%); text-align: center; padding: 16px 18px; border-radius: 18px; background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(6px); box-shadow: var(--shadow); }
+.j-empty p { margin: 0 0 12px; font-size: 14px; line-height: 1.7; color: var(--text-2); }
+.j-empty .row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+
+/* 点亮时的动效层 */
+.j-fx { position: absolute; inset: 0; z-index: 5; pointer-events: none; color: var(--jc); }
+.j-fx i { position: absolute; transform: translate(-50%, -50%); }
+.fx-ring { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--jc); animation: ring 1.2s ease-out backwards; }
+@keyframes ring { from { width: 14px; height: 14px; opacity: .9; } to { width: 150px; height: 150px; opacity: 0; border-width: 1px; } }
+.fx-coin { width: 9px; height: 9px; border-radius: 50%; background: var(--c-lemon); box-shadow: 0 0 8px var(--c-lemon); }
+.fx-star { width: 12px; height: 12px; background: var(--jc); clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
+.fx-heart { width: 22px; height: 22px; background: var(--jc); clip-path: path("M11 20 C3 14 0 10 0 6 A5.5 5.5 0 0 1 11 4 A5.5 5.5 0 0 1 22 6 C22 10 19 14 11 20Z"); animation: heart 1.2s var(--spring) backwards; }
+@keyframes heart { 0% { transform: translate(-50%, -50%) scale(0); } 40% { transform: translate(-50%, -150%) scale(1.1); opacity: 1; } 100% { transform: translate(-50%, -220%) scale(.9); opacity: 0; } }
+.fx-glow { width: 90px; height: 90px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--jc) 55%, transparent), transparent 70%); animation: glow 1.1s ease-out backwards; }
+@keyframes glow { 0% { transform: translate(-50%, -50%) scale(.2); opacity: 0; } 30% { opacity: 1; } 100% { transform: translate(-50%, -50%) scale(1.4); opacity: 0; } }
+.fx-links { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.fx-links path { fill: none; stroke: var(--jc); stroke-width: 2; stroke-linecap: round; stroke-dasharray: 400; stroke-dashoffset: 400; animation: draw 1.3s ease-out forwards; }
+@keyframes draw { 60% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+
+.j-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.j-legend { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); font-weight: 700; margin-right: auto; }
+.j-legend i { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.j-foot .row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---- 下方两栏 ---- */
+.j-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 16px; margin-top: 16px; }
+.j-cols > .card { padding: 18px; }
+.j-cols .sec-title .ic-svg { width: 16px; height: 16px; color: var(--accent); }
+.j-guess { font-size: 16px; line-height: 1.75; margin: 0 0 10px; padding: 12px 14px; border-radius: 14px; background: var(--accent-soft); color: var(--text); }
+.j-basis { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--text-3); font-weight: 700; margin-bottom: 12px; }
+.j-basis button { padding: 2px 8px; border-radius: 99px; background: var(--surface-2); color: var(--text-2); font-weight: 800; }
+.j-basis button:hover { color: var(--accent); }
+.j-answers { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.j-insight small { display: block; font-size: 12px; line-height: 1.6; }
+.j-steps .step { padding: 10px 12px; }
+.j-steps .step .check { width: 32px; height: 32px; }
+
+.j-list summary .ic-svg { width: 16px; height: 16px; }
+.j-li { display: flex; gap: 14px; padding: 10px 4px; border-bottom: 1px dashed var(--line); }
+.j-li:last-child { border-bottom: 0; }
+.j-li-day { flex: none; width: 64px; text-align: left; display: flex; flex-direction: column; }
+.j-li-day b { font-size: 14px; }
+.j-li-day small { font-size: 11.5px; color: var(--text-3); font-weight: 700; }
+.j-li-day:hover b { color: var(--accent); }
+.j-li p { margin: 0 0 4px; font-size: 14px; line-height: 1.65; }
+
+/* ---- 弹层 ---- */
+.j-sheet { width: min(560px, 100vw); }
+.j-sheet .lbl { display: block; font-size: 12.5px; font-weight: 800; color: var(--text-2); margin: 14px 0 6px; }
+.j-sheet .row { display: flex; gap: 8px; margin-top: 10px; }
+.j-sheet .row.end { justify-content: flex-end; }
+.j-sheet textarea.field { resize: vertical; line-height: 1.7; }
+.j-note { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 14px 0 0; }
+.j-note .ic-svg { width: 14px; height: 14px; }
+.j-prompts, .j-moods, .j-days { display: flex; flex-wrap: wrap; gap: 6px; }
+.j-prompts .chip { height: auto; min-height: 30px; padding: 5px 12px; text-align: left; white-space: normal; }
+.j-moods { margin-top: 8px; }
+.j-moods .chip, .j-days .chip { height: 30px; }
+.j-days { align-items: center; }
+.field-date { width: auto; height: 32px; padding: 0 10px; font-size: 13px; }
+.j-day-h { font-size: 12.5px; font-weight: 900; color: var(--text-3); margin: 6px 0 8px; }
+.j-m { padding: 14px 16px; border-radius: 16px; background: var(--surface-2); margin-bottom: 10px; animation: rise .4s var(--spring) backwards; }
+.j-m .field { margin-bottom: 8px; background: var(--surface); }
+.j-m-t { margin: 0; font-size: 15.5px; line-height: 1.75; }
+.j-m-f { margin: 6px 0 0; font-size: 14px; color: var(--text-2); }
+.j-m-meta { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.j-m-meta .sp { flex: 1; }
+.j-m-meta .btn { height: 30px; padding: 0 8px; font-size: 12.5px; }
+.j-m-meta .btn .ic-svg { width: 14px; height: 14px; }
+
+.j-r-line { font-size: 17px; line-height: 1.7; font-weight: 700; margin: 2px 0 14px; }
+.j-r-stats { display: flex; gap: 8px; margin-bottom: 14px; }
+.j-r-stats div { flex: 1; padding: 10px; border-radius: 14px; background: var(--surface-2); text-align: center; }
+.j-r-stats .num { display: block; font-size: 24px; line-height: 1.15; color: var(--accent); }
+.j-r-stats small { font-size: 11.5px; color: var(--text-3); font-weight: 800; }
+.j-r-quotes { position: relative; padding-left: 16px; border-left: 2px dashed var(--line-2); display: grid; gap: 10px; }
+.j-r-q { position: relative; }
+.j-r-q::before { content: ""; position: absolute; left: -22px; top: 5px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.j-r-q small { font-size: 11.5px; font-weight: 900; color: var(--text-3); }
+.j-r-q p { margin: 2px 0 0; font-size: 14px; line-height: 1.65; }
+.j-r-past { margin-top: 16px; }
+.j-r-past p { margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-size: 14px; line-height: 1.6; }
+.j-r-past small { display: block; font-size: 11.5px; color: var(--text-3); font-weight: 800; }
+
+.j-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin: 10px 0 4px; }
+.j-cat { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px 9px; border-radius: 16px; border: 1.5px solid var(--line); background: var(--surface); transition: all .2s var(--spring); }
+.j-cat b { font-size: 12.5px; font-weight: 800; color: var(--text-2); }
+.j-cat-v { width: 46px; height: 46px; color: var(--jc); }
+.j-cat-v .vision { width: 100%; height: 100%; }
+.j-cat:hover { transform: translateY(-2px); border-color: var(--jc); }
+.j-cat.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.j-cat.on b { color: var(--text); }
+.j-archive { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+
+.j-start { padding: 26px; text-align: center; }
+.j-start h2 { font-size: 24px; margin: 8px 0 6px; }
+.j-start > p { max-width: 34em; margin: 0 auto 14px; }
+.j-start-art { position: relative; height: 150px; margin: 0 auto; max-width: 520px; }
+.j-start-art svg:first-child { position: absolute; inset: 0; width: 100%; height: 100%; }
+.j-start-art .curve { fill: none; stroke: var(--line-2); stroke-width: 2.5; stroke-dasharray: 2 9; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.j-start-art .j-fig { position: absolute; left: 0; bottom: 0; width: 90px; }
+
+@media (max-width: 960px) {
+  .j-cols { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .j-board { padding: 12px 10px; }
+  .j-stage { aspect-ratio: 1000 / 860; }
+  .j-now { max-width: 50%; }
+  .j-now .j-cap { max-width: 170px; }
+  .j-cap b { font-size: 12.5px; }
+  .j-vision { max-width: 70%; }
+  .j-foot .row { width: 100%; }
+  .j-foot .btn-main { flex: 1; }
+  .j-range button { padding: 0 9px; }
+}

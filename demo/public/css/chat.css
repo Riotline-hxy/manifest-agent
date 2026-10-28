@@ -80,3 +80,5 @@
   .composer { padding: 0 12px calc(76px + env(safe-area-inset-bottom)); }
   .msg .col { max-width: 92%; }
 }
+.tool.dim { opacity: .6; }
+.tool-f .field-sm { width: auto; height: 32px; padding: 0 10px; font-size: 13px; border-radius: 10px; }

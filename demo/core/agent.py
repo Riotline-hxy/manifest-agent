@@ -17,7 +17,7 @@ import os
 import re
 import threading
 
-from . import academy, growth, llm, memory
+from . import academy, growth, journey, llm, memory
 from .scenes import SCENES
 from .store import Store
 from .util import clip, now
@@ -57,6 +57,8 @@ PERSONA = """你是「{name}」，一个显化陪伴 agent。你只做一件事�
 - 你们一起定下一个小行动 → add_step；用户说做完了某一步 → complete_step。
 - 用户想冥想、感恩、理清目标、走一遍七步、或想「重新认识我」→ start_scene。
 - 需要回忆以前的事、而下面没提供时 → search_memory。
+- 用户讲到一个和 TA 的愿望有关的具体瞬间（做了什么、当时什么感受）→ propose_moment，提议把它留在成长轨迹上。这只是提议，用户点「留下」才会保存；回复里要说「要不要把它留在轨迹上？」，不能说「已经记下了」。
+  同一件事只用一个：和愿望有关的具体瞬间用 propose_moment，就不要再 log_good_news；和愿望无关的小确幸才用 log_good_news。
 - 用户明确让你记住某事 → remember（说「帮我记住」这类明确请求才用）。
 - 用户明确更正或否定以前记住的事（「我现在不喜欢寿司了」「那条不对」）→ correct_memory，写清新的说法；
   只是随口提到、没有明确更正时不要改。普通聊天里的其他信息不用你记，夜里会统一整理。
@@ -86,6 +88,13 @@ TOOLS = [
             "new_text": {"type": "string", "description": "更正后的说法，第三人称一句话；如果用户是要删掉就留空"},
             "quote": {"type": "string", "description": "用户这句话的原文"}},
             "required": ["about", "quote"]}}},
+    {"type": "function", "function": {
+        "name": "propose_moment", "description": "提议把用户刚说的一个具体瞬间留在 TA 某个愿望的成长轨迹上（需要用户确认后才保存）",
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "发生了什么，用用户的口吻，一两句"},
+            "feeling": {"type": "string", "description": "当时的感受，用户说了才填"},
+            "wish": {"type": "string", "description": "和哪个愿望有关，写愿望名称；不确定就留空"}},
+            "required": ["text"]}}},
     {"type": "function", "function": {
         "name": "add_step", "description": "把一个今天就能开始的小行动加入计划",
         "parameters": {"type": "object", "properties": {
@@ -119,7 +128,7 @@ TOOLS = [
             "note": {"type": "string"}}, "required": ["care_style"]}}},
 ]
 
-TOOL_MOOD = {"correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
+TOOL_MOOD = {"propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
              "add_step": "satisfied", "remember": "recall", "start_scene": "curious",
              "get_growth": "focused", "knowledge_search": "searching", "set_care_style": "shy"}
 
@@ -144,6 +153,14 @@ def core_block(p: dict, store: Store) -> str:
     done = [s for s in store.steps() if s["status"] == "done"][:3]
     if done:
         lines.append("最近完成：" + "；".join(s["title"] for s in done))
+    cur = journey.current(store)
+    if cur:
+        recent = journey.moments(store, cur["id"], limit=3)
+        lines.append(f"正在看的愿望看板：「{cur['title']}」（{journey.CATEGORIES.get(cur['category'], {}).get('label', '')}）"
+                     + (f"；TA 说现在的自己：{cur['now_text']}" if cur["now_text"] else "")
+                     + (f"；向往：{cur['vision_text']}" if cur["vision_text"] else ""))
+        if recent:
+            lines.append("轨迹上最近的瞬间：" + "；".join(f"{m['day'][5:]} {clip(m['text'], 30)}" for m in recent))
     total = growth.total_xp(store)
     stg = growth.stage_of(total, p.get("pet_branch") or "")
     lines.append(f"陪伴第 {store.counts()['days']} 天；累计经验 {total}（Lv{growth.level_of(total)['lv']}）；"
@@ -215,6 +232,20 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         store.bump("memory_fix")
         store.log("memory", ("按你说的改了：" if new_text else "按你说的删掉了：") + m["text"])
         return {"ok": True, "old": m["text"], "new": new_text, "deleted": not new_text}
+    if name == "propose_moment":
+        text = clip(str(args.get("text") or ""), 300).strip()
+        if not text:
+            return {"ok": False, "error": "内容为空"}
+        ws = journey.wishes(store)
+        if not ws:
+            return {"ok": False, "error": "还没有开启任何愿望的轨迹"}
+        hint = str(args.get("wish") or "")
+        w = (next((x for x in ws if hint and (hint in x["title"] or x["title"] in hint or hint in x["label"])), None)
+             or journey.current(store) or ws[0])
+        return {"ok": True, "pending": True, "note": "只是提议，等用户在界面上点「留下」才会保存",
+                "proposal": {"text": text, "feeling": clip(str(args.get("feeling") or ""), 80),
+                             "wish_id": w["id"], "wish_title": w["title"]},
+                "wishes": [{"id": x["id"], "title": x["title"]} for x in ws]}
     if name == "add_step":
         title = clip(str(args.get("title") or ""), 40)
         if not title:

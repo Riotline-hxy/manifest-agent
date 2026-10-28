@@ -20,7 +20,7 @@ LEVEL_XP = 40
 
 SOURCES = {
     "action": {"label": "行动", "cap": SOURCE_CAP, "amount": 10, "hint": "完成一小步", "quest": "完成 1 个小步"},
-    "good": {"label": "好消息", "cap": SOURCE_CAP, "amount": 6, "hint": "记下一件好事", "quest": "记下 1 条好消息"},
+    "good": {"label": "记录", "cap": SOURCE_CAP, "amount": 6, "hint": "好消息或轨迹上的瞬间", "quest": "记下 1 个瞬间或好消息"},
     "practice": {"label": "练习", "cap": SOURCE_CAP, "amount": 12, "hint": "场景 / 冥想 / 感恩", "quest": "做 1 次显化练习"},
     "checkin": {"label": "陪伴", "cap": SOURCE_CAP, "amount": 8, "hint": "每天来聊一次", "quest": "和小光聊一句"},
 }
@@ -314,7 +314,7 @@ def badges(st, total: int | None = None, stage: dict | None = None, persist: boo
 
 
 def rules_text() -> str:
-    return ("经验规则：完成一小步 +10（行动），记一条好消息 +6，完成一次显化练习 +12，"
+    return ("经验规则：完成一小步 +10（行动），记一条好消息或在成长轨迹上留下一个瞬间 +6，完成一次显化练习 +12，"
             "每天第一次来聊 +8（陪伴）。四类每类每天最多 30，每天总共最多 120；同一件事不重复计分。"
             f"每 {LEVEL_XP} 经验升一级。宠物小芽：100 经验孵化成团子，310 经验分化——"
             "行动最多长成焰尾狐，好消息最多长成花角鹿，练习最多长成云鲸，三样都不偏科会遇见一个隐藏形态；"

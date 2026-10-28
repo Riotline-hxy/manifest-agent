@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from . import growth
+from . import growth, journey
 from .store import Store
 from .util import clip, iso, now
 
@@ -226,6 +226,41 @@ def seed_guest(store: Store) -> None:
         store.c.execute("UPDATE digest SET created_at=? WHERE day=?", (at(d + 1, 3, 10), at(d, 3)[:10]))
     store.set_profile({"last_digest_day": at(13, 3)[:10]})
     store.bump("report_open", 0)
+
+    # 两张成长轨迹看板：主线「自信与表达」，加一张「心灵平静」（文档里的首个主题示例）
+    def seed_wish(title, cat, now_t, vision_t, start_d, items):
+        w = journey.add_wish(store, title, cat, now_t, vision_t, started=at(start_d, 9)[:10])
+        store.c.execute("UPDATE wish SET created_at=? WHERE id=?", (at(start_d, 9), w["id"]))
+        ids = []
+        for d, h, text, feeling in items:
+            m = journey.add_moment(store, w["id"], text, feeling, day=at(d, h)[:10])
+            store.c.execute("UPDATE moment SET created_at=?, updated_at=? WHERE id=?", (at(d, h), at(d, h), m["id"]))
+            ids.append(m["id"])
+        return w, ids
+
+    conf, cids = seed_wish("自信与表达", "confidence", "想好了却不敢开口，怕说错，怕别人觉得我笨。",
+                           "在小组里、在面试里，都能自然地说出自己的想法", 0, [
+        (1, 21, "跟着播客跟读了三分钟，声音很小，但读完了。", "有点不好意思，但还行"),
+        (3, 15, "在课上开口说了一次自己的想法，声音在抖。", "说完心跳很快，但没有人笑"),
+        (5, 20, "和 Mia 用英语聊了十分钟，比想象中顺。", "原来我可以"),
+        (6, 22, "录了 30 秒自我介绍，听了三遍才敢删掉重录。", "第二遍好多了"),
+        (8, 16, "周末和 Mia 练口语，她说我口音比上次自然。", "被看见的感觉很好"),
+        (10, 14, "小组讨论里第一次主动开口提问，大家都在认真听。", "紧张还在，但它没拦住我"),
+        (12, 10, "面试开场前对着镜子练了一次，面试官笑了一下。", "没那么紧张了"),
+        (14, 20, "把自我介绍发给 Mia 听，她说听起来像我。", "想继续练"),
+    ])
+    calm, _ = seed_wish("心灵平静", "calm", "睡前总在想白天没做好的事，脑子停不下来。", "在忙碌中也能找到平静的片刻", 5, [
+        (5, 22, "睡前做了六轮四拍呼吸，第三轮开始肩膀松下来了。", "比平时早一点睡着"),
+        (8, 18, "今天开完会有些紧张，我给自己留了十分钟，安静地喝了一杯茶。", "慢慢放松了一些"),
+        (10, 21, "绕操场慢慢走了两圈，没戴耳机。", "脑子里的声音小了一点"),
+        (13, 23, "又开始想白天说错的话，这次没跟着想下去，写在纸上就去睡了。", "有点意外，原来可以放下"),
+        (14, 12, "午饭后在楼下晒了十分钟太阳。", "暖暖的"),
+    ])
+    store.c.execute("UPDATE step SET wish_id=? WHERE wish_id='' OR wish_id IS NULL", (conf["id"],))
+    store.c.execute("INSERT INTO insight(id, wish_id, text, claim, basis, status, created_at) VALUES(?,?,?,?,?,?,?)",
+                    ("in_seed", conf["id"], "你说过常常想好了却说不出口，但这两周你有三次是自己先开口的。你觉得，这算是更相信自己的开始吗？",
+                     "这两周有三次主动开口，开始更相信自己了", journey.dumps([cids[1], cids[5], cids[6]]), "open", at(14, 21)))
+    store.set_profile({"current_wish": conf["id"]})
 
     # 示例账号里已经发生的进化与徽章算作「看过」，免得第一次打开就弹一串庆祝
     total = growth.total_xp(store)

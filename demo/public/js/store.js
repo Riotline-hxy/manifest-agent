@@ -18,6 +18,8 @@ export const state = {
   ideaFilter: "全部",
   badgeFilter: "全部",
   spaceTab: "memory",
+  planRange: 30,
+  planListOpen: false,
 };
 
 export function subscribe(fn) {

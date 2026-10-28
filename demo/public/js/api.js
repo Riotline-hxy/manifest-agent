@@ -51,6 +51,11 @@ export const api = {
   proactiveNow: () => post("/api/proactive/now"),
   inboxSeen: () => post("/api/inbox/seen"),
   exportAll: () => get("/api/export"),
+  wish: (action, payload = {}) => post("/api/wish", { action, ...payload }),
+  moment: (action, payload = {}) => post("/api/moment", { action, ...payload }),
+  wishReview: (id, days) => get(`/api/wish/review?id=${encodeURIComponent(id)}&days=${days}`),
+  wishReflect: (id, days, text) => post("/api/wish/reflect", { id, days, text }),
+  insight: (payload) => post("/api/wish/insight", payload),
 };
 
 // 真流式对话：服务端通过 SSE 逐段推送。
