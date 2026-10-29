@@ -946,6 +946,57 @@ class ApiTest(unittest.TestCase):
         g.req("POST", "/api/auth/guest", {"seed": False})
         self.assertEqual(g.req("POST", "/api/auth/rename", {"username": "guest_x"})[0], 400)
 
+    def test_memory_requests_follow_the_conversation(self):
+        c, uid = self.onboarded("notebook_user")
+        with Store(uid) as st:
+            st.set_profile({"notebook": {"text": "最近的生活：在准备考试。\n相处时的偏好：不喜欢被催。", "by": "digest"}})
+        # 1) 直接让小光往笔记本里加
+        self.fake.turns = [[("tool_calls", [{"id": "n1", "name": "update_notebook", "arguments": json.dumps(
+            {"action": "add", "text": "爱看动漫", "section": "相处时的偏好"})}])], [("text", "加好啦。")]]
+        s, ev = c.sse("我看到你的笔记本了，好好笑，帮我加一个“我爱看动漫”吧")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "update_notebook")
+        self.assertTrue(tool["result"]["ok"])
+        with Store(uid) as st:
+            nb = st.profile()["notebook"]["text"]
+            self.assertIn("相处时的偏好：不喜欢被催；爱看动漫", nb)
+            self.assertIn("爱看动漫", [m["text"] for m in st.memories(limit=50)])
+        # 2) 前面提了一句、小光问要不要记，这一句只说「那你加进去吧」也算同意
+        self.fake.turns = [[("text", "要我帮你记住你喜欢猫吗？")]]
+        c.sse("我好喜欢猫")
+        self.fake.turns = [[("tool_calls", [{"id": "n2", "name": "remember", "arguments": json.dumps({"text": "喜欢猫", "kind": "preference"})}])],
+                           [("text", "记下啦。")]]
+        s, ev = c.sse("那你加进去吧")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "remember")
+        self.assertTrue(tool["result"]["ok"], tool["result"])
+        # 2b)「对了……」开头的新话题不是同意
+        self.fake.turns = [[("tool_calls", [{"id": "n4", "name": "remember", "arguments": json.dumps({"text": "养了一只叫团团的猫"})}])],
+                           [("text", "团团！听起来软乎乎的。")]]
+        c.sse("对了我养了一只叫团团的猫")
+        with Store(uid) as st:
+            self.assertNotIn("养了一只叫团团的猫", [m["text"] for m in st.memories(limit=50)])
+        # 2c) 「记着点」「那条删了吧」这种说法也算
+        self.fake.turns = [[("tool_calls", [{"id": "n5", "name": "remember", "arguments": json.dumps({"text": "特别怕打雷"})}])], [("text", "好，记着呢。")]]
+        c.sse("我其实特别怕打雷，你能记着点吗")
+        with Store(uid) as st:
+            self.assertIn("特别怕打雷", [m["text"] for m in st.memories(limit=50)])
+        # 3) 和记忆无关的一句话，小光自己想写也写不进去
+        self.fake.turns = [[("tool_calls", [{"id": "n3", "name": "remember", "arguments": json.dumps({"text": "今天下雨"})}])],
+                           [("text", "下雨天适合窝着。")]]
+        s, ev = c.sse("今天下雨了")
+        self.assertFalse([d for e, d in ev if e == "tool" and d["name"] == "remember"])   # 被拦下的写入不显示卡片
+        with Store(uid) as st:
+            self.assertNotIn("今天下雨", [m["text"] for m in st.memories(limit=50)])
+        # 4) 改和删
+        with Store(uid) as st:
+            from core import agent
+            self.assertTrue(agent.notebook_edit(st, "replace", "在准备期末考试", old="在准备考试")["ok"])
+            self.assertTrue(agent.notebook_edit(st, "remove", "", old="爱看动漫")["ok"])
+            nb = st.profile()["notebook"]["text"]
+            self.assertIn("在准备期末考试", nb)
+            self.assertNotIn("动漫", nb)
+            self.assertTrue(nb.split("\n")[1].endswith("不喜欢被催"))
+            self.assertFalse(agent.notebook_edit(st, "remove", "", old="不存在的话")["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

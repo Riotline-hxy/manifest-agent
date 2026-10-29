@@ -14,7 +14,8 @@ const TOOL = {
   log_good_news: ["star", "var(--c-lemon)", "收下小确幸"], log_lazy_day: ["moon", "var(--c-violet)", "今天偷个懒"], adjust_habit: ["leaf", "var(--c-mint)", "调整了习惯"],
   propose_plan: ["flag", "var(--c-orange)", "小光提议的计划"], schedule_task: ["clock", "var(--c-sky)", "安排好了"],
   cancel_task: ["clock", "var(--c-sky)", "关掉了提醒"], list_tasks: ["list", "var(--c-sky)", "看了看例行任务"],
-  search_chats: ["chat", "var(--c-violet)", "翻了翻以前的聊天"], add_habit: ["clock", "var(--c-mint)", "加了一个习惯"],
+  search_chats: ["chat", "var(--c-violet)", "翻了翻以前的聊天"],
+  update_notebook: ["book", "var(--c-violet)", "改了笔记本"], add_habit: ["clock", "var(--c-mint)", "加了一个习惯"],
   checkin_habit: ["checkc", "var(--c-mint)", "习惯打卡"],
   remember: ["memory", "var(--c-violet)", "记住了"], correct_memory: ["edit", "var(--c-violet)", "改掉旧记忆"],
   search_memory: ["memory", "var(--c-violet)", "翻了翻记忆"], get_growth: ["sprout", "var(--c-mint)", "查了成长"],
@@ -111,6 +112,8 @@ function toolCard(name, args, result) {
     case "cancel_task": title = ok ? result.task : "没找到这个提醒"; note = ok ? "以后不会再响了" : result.error; break;
     case "list_tasks": title = `${(result.tasks || []).filter((x) => x.on).length} 个开着的例行任务`; note = (result.tasks || []).filter((x) => x.on).map((x) => `${x.title}（${x.when}）`).join("；"); break;
     case "search_chats": title = (result.hits || []).length ? `找到 ${(result.hits || []).length} 段` : "没翻到"; note = (result.hits || []).slice(0, 2).map((x) => `${x.date.slice(5, 10)} ${x.text}`).join(" / "); break;
+    case "update_notebook": title = ok ? ({ add: "加进笔记本了", replace: "改好了", remove: "删掉了" }[args.action || "add"]) : "这次没改成";
+      note = ok ? (args.text || args.old || "") : result.error; foot = ok ? `<button class="btn btn-sm btn-ghost" data-go-notebook>看看笔记本</button>` : ""; break;
     case "add_habit": title = ok ? result.habit.title : "没有加上"; note = ok ? `${result.habit.freq_text} · 放进「${result.wish_title}」了` : result.error; break;
     case "checkin_habit": title = ok ? result.habit.title : "没找到这个习惯"; note = ok ? (result.already ? "今天已经打过卡了" : `本周 ${result.habit.week}/${result.habit.need}`) : "没有写入打卡"; break;
     case "remember": title = ok ? result.memory?.text : "没有写入"; note = ok ? "长期记住了，在「我的空间」可以改" : result.error; break;
@@ -154,6 +157,7 @@ function toolCard(name, args, result) {
   el.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
   if (ok && name === "propose_moment") proposalFoot(el, result);
   if (ok && name === "propose_plan") planFoot(el, result);
+  el.querySelector("[data-go-notebook]")?.addEventListener("click", () => { state.spaceTab = "digest"; go("space"); });
   el.querySelector("[data-notify]")?.addEventListener("click", (e) => { askNotify(); e.currentTarget.remove(); });
   el.querySelectorAll("[data-lazy-pick]").forEach((b) => b.addEventListener("click", () => {
     const pick = b.dataset.lazyPick;

@@ -274,9 +274,10 @@ function drawPanelBody(panel) {
     const li = Math.min(sayIndex, Math.max(0, lines.length - 1));
     const L = lines[li];
     body.innerHTML = `
-      ${L ? `<div class="cheer ${L.kind}" ${L.go ? `data-say-go="${L.go}"` : ""}>
-        <div class="k">${icon(L.icon)}${esc(L.label)}${lines.length > 1 ? `<span class="say-dots">${lines.map((x, i) => `<button class="${i === li ? "on" : ""}" data-say="${i}" aria-label="${esc(x.label)}"></button>`).join("")}</span>` : ""}</div>
-        <div class="t">${esc(L.text)}</div>${L.source ? `<div class="src">${esc(L.source)}</div>` : ""}</div>` : ""}
+      ${L ? `<div class="cheer ${L.kind} ${lines.length > 1 ? "flip" : ""}" ${lines.length > 1 ? `data-say-next role="button" tabindex="0" aria-label="换一句（${li + 1}/${lines.length}）"` : ""}>
+        <div class="k">${icon(L.icon)}${esc(L.label)}${lines.length > 1 ? `<span class="say-dots" aria-hidden="true">${lines.map((x, i) => `<i class="${i === li ? "on" : ""}"></i>`).join("")}</span>` : ""}</div>
+        <div class="t">${esc(L.text)}</div>${L.source ? `<div class="src">${esc(L.source)}</div>` : ""}
+        ${L.go ? `<button class="say-go" data-say-go="${L.go}">${L.go === "chat" ? "去回一句" : "看看整理了什么"}${icon("arrow")}</button>` : ""}</div>` : ""}
       <div class="sec-title" style="margin-bottom:2px">今日任务 <span class="more">${g.quests_done}/4</span></div>
       ${isResting() ? `<button class="p-rest" data-rest-panel>${petSVG(g.stage.art, { sleep: true, cls: "alive" })}<span><b>今天是偷懒日</b>${esc(g.pet_name)}陪你一起睡，任务不着急</span></button>` : ""}
       ${g.quests.map((q) => `<div class="quest ${q.done ? "done" : ""} ${q.rest ? "rest" : ""}">${q.rest ? tile("moon", "var(--c-violet)", 34) : tile(QUEST_TILE[q.id][0], QUEST_TILE[q.id][1], 34)}
@@ -312,8 +313,18 @@ function drawPanelBody(panel) {
   body.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
   body.querySelector("[data-rest-panel]")?.addEventListener("click", () => openLazy({ onDone: drawView }));
   bindRoutines(body);
-  body.querySelectorAll("[data-say]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); sayIndex = +b.dataset.say; drawPanelBody(panel); }));
+  // 点一下卡片就换下一句；「去看看」按钮单独跳转
+  const next = () => {
+    sayIndex = (Math.min(sayIndex, lines0.length - 1) + 1) % lines0.length;
+    drawPanelBody(panel);
+    body.querySelector(".cheer")?.classList.add("swap");
+  };
+  const lines0 = sayLines(d);
+  const card = body.querySelector("[data-say-next]");
+  card?.addEventListener("click", next);
+  card?.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); next(); } });
   body.querySelector("[data-say-go]")?.addEventListener("click", (e) => {
+    e.stopPropagation();
     const t = e.currentTarget.dataset.sayGo;
     if (t === "digest") { state.spaceTab = "digest"; state.route === "space" ? drawView() : go("space"); } else go(t);
   });

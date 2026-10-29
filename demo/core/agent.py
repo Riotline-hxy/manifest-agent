@@ -57,6 +57,8 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
 - 自然地提起你们聊过的事、TA 在意的人和事（只用「你知道的」和对话记录里真实出现过的内容）。
 - 对方没问建议时，先别急着给建议；要给就给一个，小到 5 分钟内能开始。TA 不想做时，接受，不催。
 - 每次最多问一个问题，问是因为好奇 TA，别像在填问卷。
+- 说「记住了 / 记下了 / 记成… / 加进笔记本了」，必须是这一轮真的调用了 remember 或 update_notebook，开玩笑也不行。
+  想记但 TA 没明确让你记，就问一句「要我帮你记下来吗？」，等 TA 同意再调用；平常聊到的事夜里会自己整理，不用提记或不记。
 - 别说这些很像 AI 的话：「我理解你的感受」「作为一个 AI」「你可以尝试以下方法」「希望对你有帮助」「加油」「你一定可以」「我不能……但你可以……」。
 - TA 让你到点提醒、或者以后定时做点什么（每天早上鼓励一句、每周日陪 TA 复盘），就用 schedule_task 真的安排上，再像朋友那样应一声「好，到点叫你」。
 - 超出你能做的（查天气、写代码、写论文），像朋友那样说一句「这个我帮不上」，再聊回 TA 本身。
@@ -87,12 +89,16 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
 - 用户在**这一句**里讲到自己刚做的、和愿望有关的一件具体的事（做了什么、当时什么感受）→ propose_moment，提议把它留在轨迹上。
   规划请求、提问、聊天记录里以前提过的事，都不要用 propose_moment。这只是提议，用户点「留下」才会保存；回复里要说「要不要把它留在轨迹上？」，不能说「已经记下了」。
   同一件事只用一个：和愿望有关的具体瞬间用 propose_moment，就不要再 log_good_news；和愿望无关的小确幸才用 log_good_news。
-- 用户明确让你记住某事 → remember（说「帮我记住」这类明确请求才用）。
+- 用户让你记住某事 → remember；提到你的「笔记本」、让你往笔记本里加 / 改 / 删 → update_notebook（会同时记成一条记忆）。
+  TA 上一句提过想让你记、或者你刚问过「要不要帮你记住」，这一句说「好 / 加吧 / 那你加进去」，就是同意，直接调用。
+- 记忆和笔记本：要么真的调用工具，要么别说「记住了」「加好了」。工具没成功，就像朋友一样照实说「刚才没记上，我再试一次」，
+  不要向 TA 解释工具、系统、识别这些内部机制。
 - 用户明确更正或否定以前记住的事（「我现在不喜欢寿司了」「那条不对」）→ correct_memory，写清新的说法；
   只是随口提到、没有明确更正时不要改。普通聊天里的其他信息不用你记，夜里会统一整理。
 - 用户问成长、等级、宠物、还差多少 XP、什么时候进化 → get_growth，用工具返回的真实数字回答，不要自己编。
 - 用户问某个心理 / 显化概念 → knowledge_search，只说检索到的内容，并说明是团队整理的版本。
 - 用户说「以后别催我」「我更喜欢你先听我说」→ set_care_style。
+- 需要用工具时先调用、再开口，不要先说一句再去调用（否则会说两遍）。
 - 调用工具后，用一句自然的话告诉对方你做了什么；工具返回 ok=false 时必须说没写成，不能说「已经记好了」。
 - 工具返回的 xp 里如果 capped 或 duplicate 为真，说明这次没加分，别暗示加了。
 
@@ -109,6 +115,15 @@ TOOLS = [
             "text": {"type": "string", "description": "第三人称一句话"},
             "kind": {"type": "string", "enum": ["identity", "intent", "preference", "boundary", "insight", "event"]}},
             "required": ["text"]}}},
+    {"type": "function", "function": {
+        "name": "update_notebook", "description": "TA 让你往你的笔记本里加、改、删内容时使用（笔记本 TA 在「我的空间 → 夜里整理」里能看到）",
+        "parameters": {"type": "object", "properties": {
+            "action": {"type": "string", "enum": ["add", "replace", "remove"]},
+            "text": {"type": "string", "description": "add / replace：要写进去的内容，短句"},
+            "old": {"type": "string", "description": "replace / remove：笔记本里原来的那句话（照抄）"},
+            "section": {"type": "string", "enum": ["最近的生活", "在意的人", "正在努力的事", "心情和状态", "相处时的偏好", "时间线"],
+                        "description": "add 时放进哪一块，不确定就选最接近的"}},
+            "required": ["action"]}}},
     {"type": "function", "function": {
         "name": "correct_memory", "description": "用户明确更正或否定一条已有记忆时使用",
         "parameters": {"type": "object", "properties": {
@@ -208,7 +223,7 @@ TOOLS = [
             "note": {"type": "string"}}, "required": ["care_style"]}}},
 ]
 
-TOOL_MOOD = {"search_chats": "recall", "schedule_task": "satisfied", "cancel_task": "done", "list_tasks": "focused", "adjust_habit": "satisfied", "propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
+TOOL_MOOD = {"update_notebook": "recall", "search_chats": "recall", "schedule_task": "satisfied", "cancel_task": "done", "list_tasks": "focused", "adjust_habit": "satisfied", "propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
              "add_step": "satisfied", "remember": "recall", "start_scene": "curious",
              "get_growth": "focused", "knowledge_search": "searching", "set_care_style": "shy"}
 
@@ -341,7 +356,49 @@ def _match_wish(store: Store, ws: list[dict], hint: str) -> dict:
 
 # 「明确要求记住」的说法。没有这些词时，remember 一律拒绝——近况交给夜里的整理，
 # 不让模型把随口一提升级成受保护的长期记忆（讨论稿 2.4 的读写边界）。
-EXPLICIT_REMEMBER = re.compile(r"记住|记得|别忘|不要忘|记一下|记下来|帮我记|你要知道")
+EXPLICIT_REMEMBER = re.compile(r"记[住得下着好牢一]|别忘|不要忘|帮我记|你要知道|加进|加到|加上|加一个|加一条|写进|写到|写上|添加|存一下|存下|放进|笔记本"
+                               r"|删[了掉除]|去掉|换成|改成|改一下|改掉|那条")
+# 整句就是一个简短的同意（「好呀」「对的」「可以」），「对了我养了只猫」这种不算
+AGREE = re.compile(r"(好|好的|好呀|好啊|好吧|嗯+|对|对的|对呀|是的|是|可以|行|要|要的|当然|ok|okay|OK)[呀啊吧啦哦嗯的～~!！。.，, ]*")
+OFFER = re.compile(r"记住|记下|加进|写进|笔记本")
+
+
+def asked_to_remember(store: Store, user_text: str) -> bool:
+    """这句话明确要求记住；或者是在同意前面的请求（自己上一两句提过、或小光刚问过要不要记）。"""
+    if EXPLICIT_REMEMBER.search(user_text or ""):
+        return True
+    recent = [m for m in store.messages(8) if m["content"]][-6:]
+    prev_user = [m["content"] for m in recent if m["role"] == "user"][:-1][-2:]
+    last_ai = next((m["content"] for m in reversed(recent) if m["role"] == "assistant"), "")
+    short_yes = bool(AGREE.fullmatch((user_text or "").strip()))
+    return short_yes and (bool(OFFER.search(last_ai)) or any(EXPLICIT_REMEMBER.search(t) for t in prev_user))
+
+
+def notebook_edit(store: Store, action: str, text: str, old: str = "", section: str = "") -> dict:
+    nb = (store.profile().get("notebook") or {}).get("text") or ""
+    text = clip((text or "").strip(), 120)
+    old = (old or "").strip()
+    if action == "add":
+        if not text:
+            return {"ok": False, "error": "要加的内容是空的"}
+        lines = nb.split("\n") if nb else []
+        hit = next((i for i, ln in enumerate(lines) if section and ln.startswith(section)), None)
+        if hit is not None:
+            lines[hit] = lines[hit].rstrip("。；; ") + "；" + text
+        else:
+            lines.append((section + "：" if section else "") + text)
+        nb = "\n".join(lines)
+    elif action in ("replace", "remove"):
+        if not old or old not in nb:
+            return {"ok": False, "error": "笔记本里没找到这句话", "notebook": nb}
+        nb = nb.replace(old, text if action == "replace" else "", 1)
+        nb = re.sub(r"；{2,}", "；", nb).replace("：；", "：")
+        nb = re.sub(r"；(?=\n|$)", "", nb, flags=re.M)
+    else:
+        return {"ok": False, "error": "不认识的操作"}
+    store.set_profile({"notebook": {"text": clip(nb, 1600), "updated_at": now().isoformat(timespec="seconds"), "by": "agent"}})
+    store.log("memory", {"add": "在笔记本里加了：", "replace": "改了笔记本：", "remove": "从笔记本里删掉了："}[action] + (text or old))
+    return {"ok": True, "notebook": clip(nb, 1600)}
 
 
 def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
@@ -349,7 +406,7 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         hits = store.search(str(args.get("query") or ""), k=5)
         return {"ok": True, "memories": [{"text": m["text"], "date": m["created_at"][:10]} for m in hits]}
     if name == "remember":
-        if user_text and not EXPLICIT_REMEMBER.search(user_text):
+        if user_text and not asked_to_remember(store, user_text):
             return {"ok": False, "skipped": True,
                     "error": "用户这句话没有明确要求记住。近况不用现在写，夜里会统一整理；回复里不要说「记住了」。"}
         text = clip(str(args.get("text") or ""), 200)
@@ -358,6 +415,14 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         m = store.add_memory(text, args.get("kind") or "insight", "chat:explicit")
         store.log("memory", "记住了：" + m["text"])
         return {"ok": True, "memory": m}
+    if name == "update_notebook":
+        if user_text and not asked_to_remember(store, user_text):
+            return {"ok": False, "skipped": True, "error": "TA 没有让你改笔记本。笔记本夜里会自己整理，回复里不要说改好了。"}
+        out = notebook_edit(store, str(args.get("action") or "add"), str(args.get("text") or ""),
+                            str(args.get("old") or ""), str(args.get("section") or ""))
+        if out["ok"] and args.get("action", "add") == "add" and args.get("text"):
+            store.add_memory(clip(str(args["text"]), 200), "preference", "chat:explicit")
+        return out
     if name == "correct_memory":
         hits = store.search(str(args.get("about") or ""), k=1)
         if not hits:
@@ -555,10 +620,11 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
     msgs = ([{"role": "system", "content": system_prompt(store, retrieved)}] + hist[:-1]
             + [{"role": "system", "content": context_note(retrieved)}] + hist[-1:])
     reply, tool_log, mood_set = "", [], False
+    blocked: set[str] = set()   # 这一轮被拦下的写入工具，不再给模型反复重试
     try:
         for _round in range(MAX_ROUNDS + 1):
             calls, started = None, False
-            tools = TOOLS if _round < MAX_ROUNDS else None
+            tools = [t for t in TOOLS if t["function"]["name"] not in blocked] if _round < MAX_ROUNDS else None
             for kind, val in llm.stream_chat(msgs, tools=tools):
                 if kind == "text":
                     if not started:
@@ -581,7 +647,9 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
                     yield ("mood", {"id": MOODS["searching"]})
                 result = run_tool(store, c["name"], args, user_text)
                 tool_log.append({"name": c["name"], "args": args, "result": result})
-                if not result.get("skipped"):
+                if result.get("skipped"):
+                    blocked.add(c["name"])
+                else:
                     yield ("tool", {"name": c["name"], "args": args, "result": result})
                 if result.get("ok") and c["name"] in TOOL_MOOD:
                     mood_set = True
