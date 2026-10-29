@@ -13,13 +13,20 @@ from __future__ import annotations
 import threading
 import time
 
-from . import digest, llm
+from . import digest, llm, tasks
 from .store import Store, UID_RE
 from .util import DATA, clip, day_key, hours_since, iso, now
 
 IDLE_HOURS = {"more": 12, "normal": 24, "less": 60}
 QUIET = (23, 8)
 TICK_SECONDS = 600
+TASK_SECONDS = 30
+
+REMIND = {
+    "gentle": "到点啦，{title}的时间到了。{message}",
+    "clear": "提醒你一下：{title}，现在开始吧。{message}",
+    "lively": "叮！{title}时间到～{message}",
+}
 
 
 def in_quiet(hour: int) -> bool:
@@ -79,11 +86,11 @@ def compose(store: Store) -> dict:
 
 def deliver(store: Store, force: bool = False) -> dict:
     p = store.profile()
+    if not force and store.c.execute("SELECT 1 FROM record WHERE type='rest' AND day=?", (day_key(),)).fetchone():
+        return {"sent": False, "reason": "今天是偷懒日，不打扰"}
     ok, why = should_reach_out(p, bool(store.inbox(unseen_only=True)))
     if not ok and not force:
         return {"sent": False, "reason": why}
-    if not force and store.c.execute("SELECT 1 FROM record WHERE type='rest' AND day=?", (day_key(),)).fetchone():
-        return {"sent": False, "reason": "今天是偷懒日，不打扰"}
     msg = compose(store)
     item = store.add_inbox(msg["text"], msg["cue"])
     store.add_msg("assistant", msg["text"], {"proactive": True, "cue": msg["cue"], "inbox_id": item["id"]})
@@ -103,7 +110,7 @@ def tick() -> int:
         try:
             with Store(d.name) as st:
                 # 日终整理：03:00 之后处理「昨天」，每人每天一次
-                day = digest.due(st)
+                day = digest.due(st) if st.profile().get("digest_on", True) else None
                 if day:
                     digest.run(st, day)
                 if deliver(st)["sent"]:
@@ -113,7 +120,59 @@ def tick() -> int:
     return sent
 
 
+def compose_task(st: Store, t: dict) -> str:
+    """remind 用模板（不调模型）；ai 让小光按 TA 的情况写一句，失败就退回模板。"""
+    p = st.profile()
+    persona = p.get("persona") or "gentle"
+    base = REMIND.get(persona, REMIND["gentle"]).format(title=t["title"], message=t["message"] or "").strip()
+    if t["kind"] != "ai":
+        return base
+    from .agent import VOICES, core_block   # 避免循环引用
+    recent = [m for m in st.messages(8) if m["content"]][-6:]
+    out = llm.complete_json([
+        {"role": "system", "content": (
+            f"你是「{p.get('agent_name') or '小光'}」，这个人的朋友。{VOICES.get(persona, VOICES['gentle'])}\n"
+            "现在是 TA 让你定时做的一件事，到点了。按要求给 TA 发一条消息：1–3 句，口语，像朋友发微信；"
+            "只用下面给出的真实信息，不编造；不说教、不鸡血；不要用「不是……而是……」句式。只输出 JSON：{\"text\":\"...\"}")},
+        {"role": "user", "content": (f"例行任务：{t['title']}\n要求：{t['message'] or t['title']}\n\n关于 TA：\n{core_block(p, st)}\n\n最近的对话：\n"
+                                     + "\n".join(("TA：" if m["role"] == "user" else "你：") + clip(m["content"], 80) for m in recent))},
+    ], timeout=30)
+    text = clip(str((out or {}).get("text") or "").strip(), 200)
+    return text or base
+
+
+def run_tasks(ref=None) -> int:
+    """把到点的任务执行掉。一个任务出错不影响其他任务，也不会反复重试刷屏。"""
+    n = 0
+    for t in tasks.due(ref):
+        try:
+            if not UID_RE.match(t["uid"] or ""):
+                tasks.mark_ran(t, ref)
+                continue
+            with Store(t["uid"]) as st:
+                text = compose_task(st, t)
+                item = st.push_inbox(text, "task")
+                st.add_msg("assistant", text, {"proactive": True, "task": t["id"], "task_title": t["title"], "inbox_id": item["id"]})
+                st.log("task", f"例行任务：{t['title']}")
+            n += 1
+        except Exception as e:
+            print("[tasks]", t.get("id"), type(e).__name__, e)
+        finally:
+            tasks.mark_ran(t, ref)
+    return n
+
+
 def start_background() -> threading.Thread:
+    def task_loop():
+        while True:
+            time.sleep(TASK_SECONDS)
+            try:
+                run_tasks()
+            except Exception as e:
+                print("[tasks] tick failed", e)
+
+    threading.Thread(target=task_loop, name="tasks", daemon=True).start()
+
     def loop():
         while True:
             time.sleep(TICK_SECONDS)

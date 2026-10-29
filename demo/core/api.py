@@ -1,10 +1,10 @@
 """Pieces shared by server.py and routes.py."""
 from __future__ import annotations
 
-from . import academy, cheer, growth, journey, scenes, scheduler
+from . import academy, cheer, growth, journey, scenes, scheduler, tasks
 from .store import Store
 
-VERSION = "2.5.0"
+VERSION = "2.6.0"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
@@ -76,6 +76,13 @@ def bootstrap(st: Store) -> dict:
         "prefs": preferences(p),
         "journey": journey.board(st),
         "cheer": cheer.get(st),
+        "tasks": tasks.list_for(st.uid),
+        "routines": [
+            {"id": "digest", "title": "夜里整理记忆", "when": "每天 03:00 后", "enabled": bool(p.get("digest_on", True))},
+            {"id": "proactive", "title": "小光主动找你聊", "when": {"more": "常常", "normal": "隔一阵", "less": "偶尔"}.get(p.get("proactive") or "normal", "关着"),
+             "enabled": (p.get("proactive") or "normal") != "off"},
+            {"id": "cheer", "title": "换一句鼓励语", "when": "每天 0:00 和 12:00", "enabled": True, "fixed": True},
+        ],
         "digests": st.digests(7),
         "scene_counts": {r[0]: r[1] for r in st.c.execute(
             "SELECT scene, COUNT(*) FROM scene_run WHERE status='done' GROUP BY scene")},

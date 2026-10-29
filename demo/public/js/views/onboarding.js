@@ -10,7 +10,7 @@ const OPT_ICON = {
   "自信与表达": ["chat", "var(--c-sky)"], "健康作息": ["moon", "var(--c-violet)"], "学业或作品": ["book", "var(--c-coral)"],
   "关系与边界": ["heart", "var(--c-pink)"], "早起型": ["sun", "var(--c-lemon)"], "夜猫": ["moon", "var(--c-violet)"],
   "不固定": ["steps", "var(--c-sky)"], nudge: ["letter", "var(--c-sky)"], analyze: ["compass", "var(--c-mint)"],
-  quiet: ["moon", "var(--c-violet)"], "别说教": ["close", "var(--c-coral)"], "别鸡血催促": ["bolt", "var(--c-orange)"], "无": ["check", "var(--c-mint)"],
+  quiet: ["moon", "var(--c-violet)"], gentle: ["heart", "var(--c-pink)"], clear: ["list", "var(--c-sky)"], lively: ["sparkles", "var(--c-lemon)"], "别说教": ["close", "var(--c-coral)"], "别鸡血催促": ["bolt", "var(--c-orange)"], "无": ["check", "var(--c-mint)"],
 };
 
 export function renderOnboarding(root) {
@@ -24,7 +24,7 @@ export function renderOnboarding(root) {
     const opts = (q.options || []).map((o) => {
       const v = typeof o === "string" ? o : o.v;
       const label = typeof o === "string" ? o : o.label;
-      const base = { v, label, sub: o.sub };
+      const base = { v, label, sub: typeof o === "string" ? "" : o.sub || "" };
       if (q.key === "theme") return { ...base, theme: themeOf(v) };
       if (q.key === "agent_hue") return { ...base, color: v };
       const ic = OPT_ICON[v] || OPT_ICON[label];

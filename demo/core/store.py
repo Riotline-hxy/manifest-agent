@@ -37,6 +37,10 @@ DEFAULT_PROFILE = {
     # 互动偏好：中断时希望小光怎么做 + 一次问几个问题 + 是否接受被主动问候
     "care_style": "",       # nudge | analyze | quiet | ""
     "pace": "gentle",       # gentle | steady
+    "persona": "gentle",    # 小光的性格：gentle 温柔 | clear 有条理 | lively 活泼
+    "custom_moods": [],     # 用户自己加的心情词
+    "digest_on": True,      # 例行任务「夜里整理记忆」的开关
+    "notebook": {},         # 小光的笔记本：夜里整理时更新的、关于 TA 的长期笔记 {text, updated_at}
     "pet_name": "小芽", "pet_branch": "", "pet_branch_at": "", "pet_stage_seen": "",
     "last_digest_day": "", "current_wish": "", "cheer": {},
     "xp": 0, "badges": [], "last_chat_at": "", "last_proactive_at": "", "created_at": "",
@@ -131,8 +135,11 @@ class Store:
         cols = {r["name"] for r in self.c.execute("PRAGMA table_info(step)")}
         if "wish_id" not in cols:
             self.c.execute("ALTER TABLE step ADD COLUMN wish_id TEXT DEFAULT ''")
-        if "target_day" not in {r["name"] for r in self.c.execute("PRAGMA table_info(wish)")}:
+        wcols = {r["name"] for r in self.c.execute("PRAGMA table_info(wish)")}
+        if "target_day" not in wcols:
             self.c.execute("ALTER TABLE wish ADD COLUMN target_day TEXT DEFAULT ''")
+        if "prompts" not in wcols:
+            self.c.execute("ALTER TABLE wish ADD COLUMN prompts TEXT DEFAULT '[]'")
 
     # ---- profile (core memory) ---------------------------------------------
     def profile(self) -> dict:

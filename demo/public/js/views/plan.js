@@ -69,7 +69,8 @@ export function renderPlan(root, { fresh = "" } = {}) {
 
   root.innerHTML = `
     <div class="view-inner wide plan journey" style="--jc:${cat.color}">
-      <div class="page-head"><div><h1>蜕变计划</h1><p>给每个愿望定一个日子，把路拆成里程碑、习惯和小步，一天一天走过去</p></div></div>
+      <div class="page-head"><div><h1>蜕变计划</h1><p>给每个愿望定一个日子，把路拆成里程碑、习惯和小步，一天一天走过去</p></div>
+        <button class="report-entry" data-go-report>${tile("report", "var(--c-pink)", 38)}<span><b>蜕变报告</b><small>回头看看这段时间的你</small></span>${icon("arrow")}</button></div>
 
       <div class="wish-tabs" role="tablist" aria-label="切换愿望">
         ${wishes.map((x) => `<button class="wish-tab ${x.id === w.id ? "on" : ""}" role="tab" aria-selected="${x.id === w.id}" data-wish="${esc(x.id)}">
@@ -171,6 +172,7 @@ export function renderPlan(root, { fresh = "" } = {}) {
     try { setData(await api.wish("select", { id: b.dataset.wish })); renderPlan(root); }
     catch (e) { toast(e.message, "err"); }
   }));
+  root.querySelector("[data-go-report]").addEventListener("click", () => go("report"));
   root.querySelector("#newWish")?.addEventListener("click", () => wishSheet(root, null, J));
   root.querySelector("#editWish").addEventListener("click", () => wishSheet(root, w, J));
   root.querySelectorAll("[data-compose]").forEach((b) => b.addEventListener("click", () => composeSheet(root, w)));
@@ -464,26 +466,58 @@ function composeSheet(root, w, day = "") {
   const opts = [[today, "今天"], [addDays(today, -1), "昨天"], [addDays(today, -2), "前天"]];
   let pickDay = day || today;
   let mood = "";
+  let mine = [...(w.prompts || [])];
+  let moods = [...(state.data.profile?.custom_moods || [])];
+  const PH = "想写什么都行，一两句就好。比如：今天开完会有些紧张，我给自己留了十分钟，安静地喝了一杯茶。";
   const body = h("div", { class: "j-compose", html: `
-    <div class="j-prompts">${cat.prompts.map((p) => `<button class="chip" type="button">${esc(p)}</button>`).join("")}</div>
+    <div class="lbl">不知道写什么？从一个问题开始 <span class="muted">（也可以直接写）</span></div>
+    <div class="j-prompts"></div>
     <label class="lbl">发生了什么</label>
     <textarea class="field" id="mText" rows="4" maxlength="300" placeholder="一两句就好，比如：今天开完会有些紧张，我给自己留了十分钟，安静地喝了一杯茶。"></textarea>
     <label class="lbl">当时的感受 <span class="muted">（可选）</span></label>
     <input class="field" id="mFeel" maxlength="80" placeholder="比如：慢慢放松了一些">
-    <div class="j-moods">${MOODS.map((m) => `<button class="chip" type="button" data-mood="${m}">${m}</button>`).join("")}</div>
+    <div class="j-moods"></div>
     <label class="lbl">哪一天</label>
     <div class="j-days">${opts.map(([d, l]) => `<button class="chip ${d === pickDay ? "on" : ""}" type="button" data-day="${d}">${l}</button>`).join("")}
       <input class="field field-date" type="date" max="${today}" min="${addDays(today, -365)}" value="${opts.some(([d]) => d === pickDay) ? "" : pickDay}" aria-label="选一个更早的日期"></div>` });
   const ta = body.querySelector("#mText");
-  body.querySelectorAll(".j-prompts .chip").forEach((b) => b.addEventListener("click", () => {
-    ta.placeholder = b.textContent;
-    body.querySelectorAll(".j-prompts .chip").forEach((x) => x.classList.toggle("on", x === b));
-    ta.focus();
-  }));
-  body.querySelectorAll("[data-mood]").forEach((b) => b.addEventListener("click", () => {
-    mood = mood === b.dataset.mood ? "" : b.dataset.mood;
-    body.querySelectorAll("[data-mood]").forEach((x) => x.classList.toggle("on", x.dataset.mood === mood));
-  }));
+  ta.placeholder = PH;
+  // 一个可以加自己内容的小标签行：预设 + 自己的（带 ×）+「自己写一个」
+  const chipRow = (box, { items, custom, on, pick, add, remove, addLabel, max, maxLen, ph }) => {
+    const draw = () => {
+      box.innerHTML = items().map((t) => `<button class="chip ${on() === t ? "on" : ""}" type="button" data-t="${esc(t)}">${esc(t)}</button>`).join("")
+        + custom().map((t) => `<span class="chip mine ${on() === t ? "on" : ""}"><button type="button" data-t="${esc(t)}">${esc(t)}</button><button type="button" class="x" data-rm="${esc(t)}" aria-label="删掉「${esc(t)}」">×</button></span>`).join("")
+        + (custom().length < max ? `<button class="chip add" type="button" data-add>${icon("plus")}${addLabel}</button>` : "");
+      box.querySelectorAll("[data-t]").forEach((b) => b.addEventListener("click", () => { pick(b.dataset.t); draw(); }));
+      box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", async () => { await remove(b.dataset.rm); draw(); }));
+      box.querySelector("[data-add]")?.addEventListener("click", () => {
+        const a = box.querySelector("[data-add]");
+        const inp = h("input", { class: "field chip-input", maxlength: String(maxLen), placeholder: ph });
+        a.replaceWith(inp);
+        inp.focus();
+        let fired = false;
+        const done = async () => { if (fired) return; fired = true; const v = inp.value.trim(); if (v) { await add(v); pick(v); } draw(); };
+        inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); done(); } if (e.key === "Escape") draw(); });
+        inp.addEventListener("blur", done);
+      });
+    };
+    draw();
+  };
+  let promptOn = "";
+  const savePrompts = async () => { try { setData(await api.wish("edit", { id: w.id, prompts: mine })); w.prompts = [...mine]; } catch (e) { toast(e.message, "err"); } };
+  chipRow(body.querySelector(".j-prompts"), {
+    items: () => cat.prompts, custom: () => mine, on: () => promptOn, max: 6, maxLen: 30, addLabel: "我自己的问题", ph: "写一个你常想问自己的问题",
+    pick: (t) => { promptOn = promptOn === t ? "" : t; ta.placeholder = promptOn || PH; ta.focus(); },
+    add: async (t) => { if (!mine.includes(t)) { mine.push(t); await savePrompts(); } },
+    remove: async (t) => { mine = mine.filter((x) => x !== t); if (promptOn === t) { promptOn = ""; ta.placeholder = PH; } await savePrompts(); },
+  });
+  const saveMoods = async () => { try { setData(await api.profile({ custom_moods: moods })); } catch (e) { toast(e.message, "err"); } };
+  chipRow(body.querySelector(".j-moods"), {
+    items: () => MOODS, custom: () => moods, on: () => mood, max: 8, maxLen: 8, addLabel: "别的心情", ph: "比如：松了口气",
+    pick: (t) => { mood = mood === t ? "" : t; },
+    add: async (t) => { if (!moods.includes(t) && !MOODS.includes(t)) { moods.push(t); await saveMoods(); } },
+    remove: async (t) => { moods = moods.filter((x) => x !== t); if (mood === t) mood = ""; await saveMoods(); },
+  });
   const dateIn = body.querySelector(".field-date");
   body.querySelectorAll("[data-day]").forEach((b) => b.addEventListener("click", () => {
     pickDay = b.dataset.day; dateIn.value = "";

@@ -57,6 +57,8 @@ export const api = {
   milestone: (action, payload = {}) => post("/api/milestone", { action, ...payload }),
   planApply: (payload) => post("/api/plan/apply", payload),
   rest: (undo = false) => post("/api/record", { type: "rest", undo }),
+  task: (action, payload = {}) => post("/api/task", { action, ...payload }),
+  notebook: (text) => post("/api/notebook", { text }),
   wishReview: (id, days) => get(`/api/wish/review?id=${encodeURIComponent(id)}&days=${days}`),
   wishReflect: (id, days, text) => post("/api/wish/reflect", { id, days, text }),
   insight: (payload) => post("/api/wish/insight", payload),

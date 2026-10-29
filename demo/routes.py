@@ -5,7 +5,7 @@ the only source of the user id.
 """
 from __future__ import annotations
 
-from core import academy, auth, digest, growth, journey, llm, onboarding, report, scenes, scheduler
+from core import academy, auth, digest, growth, journey, llm, onboarding, report, scenes, scheduler, tasks
 from core.store import Store
 from core.util import clip, day_key, iso
 from core.api import VERSION, ApiError, bootstrap, public_user
@@ -81,7 +81,7 @@ def chat(h, u, b, q):
 
 PROFILE_FIELDS = {"nickname", "agent_name", "agent_hue", "agent_avatar_id", "intent_primary", "intent_why",
                   "schedule_hint", "traits", "mbti_hint", "boundaries", "proactive",
-                  "care_style", "pace", "pet_name", "theme"}
+                  "care_style", "pace", "pet_name", "theme", "persona", "custom_moods"}
 
 
 def profile(h, u, b, q):
@@ -90,6 +90,10 @@ def profile(h, u, b, q):
         raise ApiError(400, "频率不对")
     if "care_style" in patch and patch["care_style"] not in ("", "nudge", "analyze", "quiet"):
         raise ApiError(400, "偏好不对")
+    if "persona" in patch and patch["persona"] not in ("gentle", "clear", "lively"):
+        raise ApiError(400, "没有这种性格")
+    if "custom_moods" in patch:
+        patch["custom_moods"] = [str(x).strip()[:8] for x in (patch["custom_moods"] or []) if str(x).strip()][:8]
     if "theme" in patch and patch["theme"] not in onboarding.THEMES:
         raise ApiError(400, "没有这个氛围")
     if "agent_hue" in patch and patch["agent_hue"] not in onboarding.AGENT_COLORS | {""}:
@@ -251,6 +255,52 @@ def milestone_api(h, u, b, q):
         return 200, {**out, **bootstrap(st)}
 
 
+def task_api(h, u, b, q):
+    act = b.get("action")
+    uid = u["id"]
+    out = {}
+    try:
+        if act == "add":
+            out["task"] = tasks.add(uid, str(b.get("title") or ""), kind=str(b.get("kind") or "remind"),
+                                    message=str(b.get("message") or ""), repeat=str(b.get("repeat") or "once"),
+                                    time=str(b.get("time") or ""), days=b.get("days"), in_minutes=b.get("in_minutes"),
+                                    date=str(b.get("date") or ""), source="user")
+        elif act in ("on", "off"):
+            if not tasks.set_enabled(uid, str(b.get("id") or ""), act == "on"):
+                raise ApiError(404, "没有这个任务")
+        elif act == "edit":
+            if not tasks.edit(uid, str(b.get("id") or ""), b):
+                raise ApiError(404, "没有这个任务")
+        elif act == "delete":
+            if not tasks.delete(uid, str(b.get("id") or "")):
+                raise ApiError(404, "没有这个任务")
+        elif act == "routine":
+            rid, on = b.get("id"), bool(b.get("on"))
+            with Store(uid) as st:
+                if rid == "digest":
+                    st.set_profile({"digest_on": on})
+                elif rid == "proactive":
+                    st.set_profile({"proactive": "normal" if on else "off"})
+                else:
+                    raise ApiError(400, "这个不能关")
+        else:
+            raise ApiError(400, "未知操作")
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    with Store(uid) as st:
+        if act == "add":
+            st.log("task", f"安排了例行任务：{out['task']['title']}（{out['task']['when']}）")
+        return 200, {**out, **bootstrap(st)}
+
+
+def pulse(h, u, b, q):
+    """页面开着时每 30 秒问一次：有没有新的提醒 / 小光的消息。只读两个计数，很轻。"""
+    with Store(u["id"]) as st:
+        r = st.c.execute("SELECT COUNT(*), MAX(created_at) FROM inbox WHERE seen=0").fetchone()
+        last = st.c.execute("SELECT id, content, meta FROM msg WHERE role='assistant' ORDER BY created_at DESC LIMIT 1").fetchone()
+    return 200, {"unseen": r[0], "latest": r[1] or "", "last_msg": last["id"] if last else ""}
+
+
 def plan_apply(h, u, b, q):
     with Store(u["id"]) as st:
         try:
@@ -322,6 +372,15 @@ def digest_now(h, u, b, q):
     with Store(u["id"]) as st:
         out = digest.run(st)
         return 200, {"digest": out, **bootstrap(st)}
+
+
+def notebook(h, u, b, q):
+    """用户可以直接改小光的笔记本；改过的版本夜里整理时会在它的基础上继续写。"""
+    text = clip(str(b.get("text") or "").strip(), 1600)
+    with Store(u["id"]) as st:
+        st.set_profile({"notebook": {"text": text, "updated_at": iso(), "by": "user"}})
+        st.log("memory", "你改了小光的笔记本")
+        return 200, bootstrap(st)
 
 
 def academy_list(h, u, b, q):
@@ -467,6 +526,9 @@ ROUTES = {
     ("POST", "/api/habit"): (habit_api, True),
     ("POST", "/api/milestone"): (milestone_api, True),
     ("POST", "/api/plan/apply"): (plan_apply, True),
+    ("POST", "/api/task"): (task_api, True),
+    ("POST", "/api/notebook"): (notebook, True),
+    ("GET", "/api/pulse"): (pulse, True),
     ("GET", "/api/wish/review"): (wish_review, True),
     ("POST", "/api/wish/reflect"): (wish_reflect, True),
     ("POST", "/api/wish/insight"): (wish_insight, True),

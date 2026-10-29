@@ -66,6 +66,7 @@ def wishes(st, include_archived: bool = False) -> list[dict]:
         w = dict(r)
         w["label"] = CATEGORIES.get(w["category"], CATEGORIES["other"])["label"]
         w["target_day"] = target_of(w)
+        w["prompts"] = loads(w.get("prompts") or "[]", [])
         w["count"] = st.c.execute("SELECT COUNT(*) FROM moment WHERE wish_id=?", (w["id"],)).fetchone()[0]
         w["days"] = st.c.execute("SELECT COUNT(DISTINCT day) FROM moment WHERE wish_id=?", (w["id"],)).fetchone()[0]
         out.append(w)
@@ -141,6 +142,8 @@ def edit_wish(st, wid: str, patch: dict) -> dict | None:
         fields["archived"] = 1 if patch["archived"] else 0
     if patch.get("target_day"):
         fields["target_day"] = _target_day(patch["target_day"], w["started"])
+    if "prompts" in patch:   # 用户自己写的「从一个问题开始」
+        fields["prompts"] = dumps([clip(str(x).strip(), 30) for x in (patch["prompts"] or []) if str(x).strip()][:6])
     if fields:
         with st.lock:
             st.c.execute("UPDATE wish SET " + ",".join(f"{k}=?" for k in fields) + " WHERE id=?", (*fields.values(), wid))

@@ -2,7 +2,7 @@
 
 显化陪伴 agent 的网页 demo。线上：https://manifest.noryx.cn
 
-- 方案说明（创意 / 技术 / UI，对应线上 2.5.0）：[docs/三方向方案-v2.md](docs/三方向方案-v2.md)
+- 方案说明（创意 / 技术 / UI，对应线上 2.6.0）：[docs/三方向方案-v2.md](docs/三方向方案-v2.md)
 - v0.3 讨论稿原文：[docs/xiaoguang_v03.txt](docs/xiaoguang_v03.txt) · 旧方案：[docs/三方向方案.md](docs/三方向方案.md)
 - 会议纪要：[meeting.txt](meeting.txt) · 创意稿：[creative/](creative/)
 - 旧版 demo 归档：[_archive/demo-v0/](_archive/demo-v0/)

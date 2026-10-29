@@ -115,6 +115,7 @@ function editMem(m, root) {
 
 function digestTab(body, root) {
   const list = state.data.digests || [];
+  const nb = state.data.profile?.notebook || {};
   body.innerHTML = `
     <section class="night card">
       <div class="night-ball"></div>
@@ -123,6 +124,13 @@ function digestTab(body, root) {
         <p>小光只挑真正发生的事来记：新的偏好、你的更正、值得留下的瞬间。你明确让它记住的，不会因为时间久了被偷偷忘掉；它猜的，要你点头才算数。</p>
         <button class="btn btn-main" data-run>${icon("moon")}现在整理一下今天</button>
       </div>
+    </section>
+    <section class="nb card">
+      <div class="nb-head">${tile("book", "var(--c-violet)", 34)}<div><b>小光的笔记本</b>
+        <small>${nb.updated_at ? `${esc(fmtDay(nb.updated_at))}${nb.by === "user" ? " · 你改过" : " · 夜里整理时更新"}` : "夜里整理时会开始写"}</small></div>
+        <span class="sp"></span><button class="btn btn-sm btn-ghost" data-nb-edit>${icon("edit")}改一改</button></div>
+      <p class="nb-why">小光平时只把最近三天的聊天原话放在心上；更早的，就靠这本笔记和每天的小结记得你。写错了可以直接改。</p>
+      <div class="nb-text">${nb.text ? esc(nb.text) : '<span class="muted">还没有内容。</span>'}</div>
     </section>
     <div class="digests">${list.map((x, i) => `<div class="dg card" style="--i:${i}">
       <div class="dg-head">${tile("moon", "var(--c-violet)", 34)}<b>${esc(fmtDay(x.day + "T12:00:00+08:00"))}</b><span class="muted">${esc(x.day)}</span>
@@ -134,6 +142,17 @@ function digestTab(body, root) {
         <span>${o.op === "UPDATE" ? `<s>${esc(o.old)}</s> → ` : ""}${esc(o.text || o.old)}</span></div>`).join("")}</div>`
         : `<div class="muted" style="font-size:13px">这一天没有需要改动的记忆。</div>`}
     </div>`).join("")}</div>`;
+  body.querySelector("[data-nb-edit]").addEventListener("click", () => {
+    const box = body.querySelector(".nb-text");
+    box.innerHTML = `<textarea class="field" rows="10" maxlength="1600">${esc(nb.text || "")}</textarea>
+      <div class="row end" style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px"><button class="btn btn-ghost btn-sm" data-nb-cancel>取消</button><button class="btn btn-main btn-sm" data-nb-save>保存</button></div>`;
+    box.querySelector("textarea").focus();
+    box.querySelector("[data-nb-cancel]").addEventListener("click", () => renderSpace(root));
+    box.querySelector("[data-nb-save]").addEventListener("click", async () => {
+      try { setData(await api.notebook(box.querySelector("textarea").value)); toast("改好了，小光会照这个记"); renderSpace(root); }
+      catch (e) { toast(e.message, "err"); }
+    });
+  });
   const ball = mountBall(body.querySelector(".night-ball"), { size: 92, emotion: "00", agent: false });
   body.querySelector("[data-run]").addEventListener("click", async (e) => {
     const b = e.currentTarget;
@@ -170,6 +189,8 @@ function settingsTab(body, root) {
     <div class="settings card">
       <div class="set-row">${tile("user", "var(--c-orange)", 40)}<div class="sl"><b>账号</b><small>${state.user?.kind === "guest" ? "现在是体验账号，注册后记录会一直留着" : `已登录：${esc(state.user?.username || "")}`}</small></div>
         <button class="btn btn-sm btn-ghost" data-account>${state.user?.kind === "guest" ? "注册 / 退出" : "退出登录"}</button></div>
+      <div class="set-row">${tile("heart", "var(--c-pink)", 40)}<div class="sl"><b>小光的性格</b><small>说话的方式会跟着变，记得的事不变</small></div>
+        ${seg("persona", [["gentle", "温柔"], ["clear", "有条理"], ["lively", "活泼"]], p.persona || "gentle")}</div>
       <div class="set-row">${tile("compass", "var(--c-mint)", 40)}<div class="sl"><b>中断的时候，你希望我</b><small>三天没动时小光的反应方式</small></div>
         ${seg("care_style", [["nudge", "轻轻提醒"], ["analyze", "一起找原因"], ["quiet", "先别提"]], p.care_style)}</div>
       <div class="set-row">${tile("letter", "var(--c-sky)", 40)}<div class="sl"><b>主动消息</b><small>只在网页里出现；23:00–08:00 不打扰</small></div>

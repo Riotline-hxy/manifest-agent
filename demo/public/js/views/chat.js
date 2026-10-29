@@ -7,11 +7,14 @@ import { mountBall, setAgentMood, pulseAgent, agentMini, MOOD_TEXT } from "../ba
 import { flyXP, burstAt } from "../fx.js";
 import { startScene } from "../scene.js";
 import { openLazy, adjustSheet, isResting } from "../rest.js";
+import { askNotify } from "../tasks.js";
 
 const TOOL = {
   add_step: ["flag", "var(--c-orange)", "加进计划"], complete_step: ["checkc", "var(--c-orange)", "完成一小步"],
   log_good_news: ["star", "var(--c-lemon)", "收下小确幸"], log_lazy_day: ["moon", "var(--c-violet)", "今天偷个懒"], adjust_habit: ["leaf", "var(--c-mint)", "调整了习惯"],
-  propose_plan: ["flag", "var(--c-orange)", "小光提议的计划"], add_habit: ["clock", "var(--c-mint)", "加了一个习惯"],
+  propose_plan: ["flag", "var(--c-orange)", "小光提议的计划"], schedule_task: ["clock", "var(--c-sky)", "安排好了"],
+  cancel_task: ["clock", "var(--c-sky)", "关掉了提醒"], list_tasks: ["list", "var(--c-sky)", "看了看例行任务"],
+  search_chats: ["chat", "var(--c-violet)", "翻了翻以前的聊天"], add_habit: ["clock", "var(--c-mint)", "加了一个习惯"],
   checkin_habit: ["checkc", "var(--c-mint)", "习惯打卡"],
   remember: ["memory", "var(--c-violet)", "记住了"], correct_memory: ["edit", "var(--c-violet)", "改掉旧记忆"],
   search_memory: ["memory", "var(--c-violet)", "翻了翻记忆"], get_growth: ["sprout", "var(--c-mint)", "查了成长"],
@@ -103,6 +106,11 @@ function toolCard(name, args, result) {
     case "propose_plan": title = ok ? `给「${result.wish_title}」的一套安排` : "没能提议"; note = ok ? "勾掉不想要的，再加进计划" : result.error;
       foot = ok ? " " : ""; break;
     case "adjust_habit": title = ok ? result.habit : "没找到这个习惯"; note = ok ? result.done : result.error; break;
+    case "schedule_task": title = ok ? result.task.title : "没安排上"; note = ok ? `${result.task.when}${result.task.kind === "ai" ? " · 到点小光会给你发消息" : " · 到点叫你"}` : result.error;
+      foot = ok && "Notification" in window && Notification.permission === "default" ? `<button class="btn btn-sm btn-ghost" data-notify>${icon("letter")}开启浏览器通知</button>` : ""; break;
+    case "cancel_task": title = ok ? result.task : "没找到这个提醒"; note = ok ? "以后不会再响了" : result.error; break;
+    case "list_tasks": title = `${(result.tasks || []).filter((x) => x.on).length} 个开着的例行任务`; note = (result.tasks || []).filter((x) => x.on).map((x) => `${x.title}（${x.when}）`).join("；"); break;
+    case "search_chats": title = (result.hits || []).length ? `找到 ${(result.hits || []).length} 段` : "没翻到"; note = (result.hits || []).slice(0, 2).map((x) => `${x.date.slice(5, 10)} ${x.text}`).join(" / "); break;
     case "add_habit": title = ok ? result.habit.title : "没有加上"; note = ok ? `${result.habit.freq_text} · 放进「${result.wish_title}」了` : result.error; break;
     case "checkin_habit": title = ok ? result.habit.title : "没找到这个习惯"; note = ok ? (result.already ? "今天已经打过卡了" : `本周 ${result.habit.week}/${result.habit.need}`) : "没有写入打卡"; break;
     case "remember": title = ok ? result.memory?.text : "没有写入"; note = ok ? "长期记住了，在「我的空间」可以改" : result.error; break;
@@ -146,6 +154,7 @@ function toolCard(name, args, result) {
   el.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
   if (ok && name === "propose_moment") proposalFoot(el, result);
   if (ok && name === "propose_plan") planFoot(el, result);
+  el.querySelector("[data-notify]")?.addEventListener("click", (e) => { askNotify(); e.currentTarget.remove(); });
   el.querySelectorAll("[data-lazy-pick]").forEach((b) => b.addEventListener("click", () => {
     const pick = b.dataset.lazyPick;
     const f = el.querySelector(".tool-f");
@@ -175,7 +184,8 @@ function bubble(m) {
     return el;
   }
   const meta = m.meta || {};
-  const tag = meta.proactive ? `<span class="pill acc">${icon("letter")}小光主动找你</span>` : meta.scene ? `<span class="pill">${icon("wind")}练习</span>` : "";
+  const tag = meta.task ? `<span class="pill acc">${icon("clock")}例行任务 · ${esc(meta.task_title || "")}</span>`
+    : meta.proactive ? `<span class="pill acc">${icon("letter")}小光主动找你</span>` : meta.scene ? `<span class="pill">${icon("wind")}练习</span>` : "";
   el.innerHTML = `${agentMini()}<div class="col"><div class="bub">${tag}<div class="txt">${richText(m.content)}</div></div>
     <div class="when">${fmtTime(m.created_at)}</div></div>`;
   return el;
@@ -245,6 +255,7 @@ export function renderChat(root) {
     const text = ta.value.trim();
     if (!text || busy) return;
     busy = true;
+    const sentAt = Date.now() - 5000;
     ta.value = ""; state.composerDraft = ""; grow();
     if (lastDay !== "今天") { list.insertAdjacentHTML("beforeend", `<div class="day"><span>今天</span></div>`); lastDay = "今天"; }
     list.querySelector(".opener")?.remove();
@@ -286,8 +297,9 @@ export function renderChat(root) {
       busy = false;
       try {
         const data = await refresh();
-        const last = (data.messages || []).filter((m) => m.role === "assistant").pop();
-        if (last?.content && last.content.length > acc.length) txt.innerHTML = richText(last.content);
+        // 只用这一轮刚写下的回复（防止拿到别的时间点的消息）
+        const last = (data.messages || []).slice(-1)[0];
+        if (last?.role === "assistant" && Date.parse(last.created_at) >= sentAt && last.content && last.content.length > acc.length) txt.innerHTML = richText(last.content);
       } catch {}
       if (sceneToStart) setTimeout(() => startScene(sceneToStart), 900);
       setTimeout(() => setAgentMood("idle"), 2600);

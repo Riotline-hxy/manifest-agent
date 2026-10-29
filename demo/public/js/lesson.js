@@ -93,7 +93,7 @@ export function runLesson({ kicker = "", start, answer, onClose, onDone, finishL
           ${o.theme ? `<span class="opt-prev" style="background:linear-gradient(160deg, ${o.theme.swatch[0]}, ${o.theme.swatch[1]})"><i style="background:${o.theme.agent}"></i></span>`
             : o.color ? `<span class="opt-swatch" style="background:${o.color}"></span>`
             : o.icon ? tile(o.icon, o.tint || "var(--accent)", 38) : ""}
-          <span class="lbl">${esc(o.label)}${o.sub ? `<small>${esc(o.sub)}</small>` : ""}</span>
+          <span class="lbl">${esc(o.label)}${typeof o.sub === "string" && o.sub ? `<small>${esc(o.sub)}</small>` : ""}</span>
         </button>`).join("")}</div>`;
     }
     if (s.ph || s.free) {

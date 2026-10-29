@@ -35,9 +35,13 @@ PROMPT = """你在为「显化陪伴」应用做每天一次的记忆整理。�
 5. 已经记过的不要重复；补充或修正用 UPDATE 给出合并后的新文本。
 6. 标了 [长文资料] 的内容是用户粘贴的材料，不是他的经历，不要从中抽取个人信息。
 7. 另写一句今天的小结（≤50 字，第二人称，温和具体，只用材料里的事实），以及最多 3 个值得记住的瞬间（每个 ≤20 字）。
+8. 更新「笔记本」：这是陪伴者自己记的、关于用户的长期笔记，以后几周、几个月都会靠它记得这个人。
+   在上一版的基础上，把今天值得长期记住的内容合并进去，输出完整的新版本（≤1200 字），分这几块写，每块几行短句：
+   最近的生活 / 在意的人 / 正在努力的事 / 心情和状态 / 相处时的偏好 / 时间线（带日期的重要事件，按时间排）。
+   只写材料里出现过的事实；推测要标「（猜）」；过时的内容可以删掉或合并。今天没有值得写进去的，就原样返回上一版。
 
 只输出 JSON：
-{"summary":"...","highlights":["..."],"ops":[{"op":"ADD|UPDATE|DELETE","id":"(UPDATE/DELETE 必填)","text":"...","kind":"identity|intent|preference|boundary|insight|event|good_news","source":"said|guess","evidence":"(改动保护记忆时必填：用户原话)"}]}"""
+{"summary":"...","highlights":["..."],"notebook":"（完整的新笔记本）","ops":[{"op":"ADD|UPDATE|DELETE","id":"(UPDATE/DELETE 必填)","text":"...","kind":"identity|intent|preference|boundary|insight|event|good_news","source":"said|guess","evidence":"(改动保护记忆时必填：用户原话)"}]}"""
 
 
 def material(st: Store, day: str) -> dict:
@@ -117,15 +121,20 @@ def run(st: Store, day: str | None = None, use_model: bool = True) -> dict:
         lines += ["", "## 成长轨迹上的瞬间（用户亲手写的）"] + [f"- [{m['title']}] {m['text']}" + (f"（感受：{m['feeling']}）" if m["feeling"] else "")
                                                      for m in mat["moments"]]
     lines += ["", "## 已有记忆", mem_txt]
+    old_nb = (st.profile().get("notebook") or {}).get("text") or ""
+    lines += ["", "## 笔记本（上一版）", old_nb or "（还没有，今天开始写）"]
 
     out = llm.complete_json([{"role": "system", "content": PROMPT},
-                             {"role": "user", "content": clip("\n".join(lines), 9000)}], timeout=60) if use_model else None
+                             {"role": "user", "content": clip("\n".join(lines), 12000)}], timeout=90) if use_model else None
 
     applied, rejected = [], []
     if out:
         summary = clip(str(out.get("summary") or ""), 80)
         highlights = [clip(str(h), 24) for h in (out.get("highlights") or [])][:3]
         applied, rejected = apply(st, out.get("ops") or [], {m["id"]: m for m in existing}, mat, day)
+        nb = str(out.get("notebook") or "").strip()
+        if len(nb) >= 20 and nb != old_nb:
+            st.set_profile({"notebook": {"text": clip(nb, 1600), "updated_at": now().isoformat(timespec="seconds"), "day": day, "by": "digest"}})
         if not summary:
             summary, _ = fallback_summary(mat)
     else:

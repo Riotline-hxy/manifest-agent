@@ -16,12 +16,13 @@ import { renderIdeas } from "./views/ideas.js";
 import { renderAcademy, renderArticle } from "./views/academy.js";
 import { renderReport } from "./views/report.js";
 import { renderSpace } from "./views/space.js";
-import { openAccount } from "./account.js";
+import { openAccount, openMeMenu } from "./account.js";
 import { isResting, openLazy } from "./rest.js";
+import { routinesHTML, bindRoutines, startPulse } from "./tasks.js";
 
 const NAV = [
   [["chat", "对话", "chat"], ["plan", "蜕变计划", "flag"], ["goodnews", "好消息", "star"], ["growth", "成长进化", "sprout"]],
-  [["ideas", "点子", "bulb"], ["academy", "心灵学堂", "book"], ["report", "蜕变报告", "report"], ["space", "我的空间", "user"]],
+  [["ideas", "点子", "bulb"], ["academy", "心灵学堂", "book"]],
 ];
 const TITLES = { chat: "对话", plan: "蜕变计划", goodnews: "好消息", growth: "成长进化", ideas: "点子",
   academy: "心灵学堂", article: "心灵学堂", report: "蜕变报告", space: "我的空间" };
@@ -40,6 +41,7 @@ export function mount(el) {
     if (VIEWS[r] && r !== state.route) go(r);
   });
   window.addEventListener("xg:enter", boot);
+  window.addEventListener("xg:redraw", () => drawView());
   document.addEventListener("visibilitychange", async () => {
     if (document.visibilityState !== "visible" || !state.ready) return;
     try {
@@ -88,6 +90,8 @@ async function boot() {
     }
     state.ready = true;
     drawShell();
+    // 到点的提醒：页面开着就 30 秒问一次；在对话页时把新消息画出来
+    startPulse(() => { if (state.route === "chat") drawView(); });
   } catch (e) {
     root.innerHTML = `<div class="empty" style="padding-top:20vh">${petSVG("egg", { cls: "alive" })}
       <h3>没连上</h3><p>${esc(e?.message || "加载失败")}</p><button class="btn btn-main" onclick="location.reload()">再试一次</button></div>`;
@@ -105,7 +109,10 @@ function drawShell() {
       <nav class="rail" aria-label="主导航"></nav>
       <main class="main"><header class="topbar"></header><div class="view"></div></main>
       <aside class="panel" aria-label="小光"></aside>
+      <div class="m-scrim"></div>
+      <nav class="m-drawer" aria-label="菜单"></nav>
     </div>`;
+  root.querySelector(".m-scrim").addEventListener("click", () => toggleDrawer(false));
   drawView();
 }
 
@@ -118,6 +125,52 @@ export function togglePanel(force) {
   drawTop();
   window.dispatchEvent(new CustomEvent("xg:panel", { detail: on }));
 }
+// ---------------------------------------------------------------- 手机：抽屉菜单（参考 Muse） ----
+export function toggleDrawer(on) {
+  const app = root.querySelector(".app");
+  if (!app) return;
+  if (on) drawDrawer();
+  app.classList.toggle("drawer-open", on);
+}
+
+function drawDrawer() {
+  const dr = root.querySelector(".m-drawer");
+  if (!dr) return;
+  const d = state.data || {};
+  const g = d.growth || {};
+  const p = d.profile || {};
+  const name = p.nickname || state.user?.username || "我";
+  const tasksOn = (d.tasks || []).filter((t) => t.enabled).length;
+  const item = (id, label, ic, extra = "") => `<button class="md-item ${state.route === id ? "on" : ""}" data-nav="${id}">${icon(ic)}<span>${label}</span>${extra}</button>`;
+  dr.innerHTML = `
+    <div class="md-head"><span class="md-logo">${agentMini()}</span><b>显伴</b><span class="sp"></span>
+      <button class="icon-btn" data-md-close aria-label="关闭菜单">${icon("close")}</button></div>
+    <div class="md-scroll">
+      <div class="md-sec">页面</div>
+      ${NAV.flat().map(([id, label, ic]) => item(id, label, ic)).join("")}
+      <div class="md-sec">我的</div>
+      ${item("report", "蜕变报告", "report")}
+      <button class="md-item ${state.route === "space" ? "on" : ""}" data-space="memory">${icon("memory")}<span>记忆</span></button>
+      <button class="md-item" data-space="digest">${icon("moon")}<span>夜里整理 · 笔记本</span></button>
+      <button class="md-item" data-space="timeline">${icon("clock")}<span>时间线</span></button>
+      <button class="md-today" data-md-panel>${agentMini()}<span><b>${esc(p.agent_name || "小光")}</b><small>今日任务 ${g.quests_done || 0}/4${tasksOn ? ` · ${tasksOn} 个例行任务` : ""}</small></span>${icon("arrow")}</button>
+    </div>
+    <div class="md-foot">
+      <button class="icon-btn" data-space="settings" aria-label="设置">${icon("settings")}</button>
+      <button class="md-me" data-act="account"><span class="me-av">${esc(name.slice(0, 1))}</span><span>${esc(name)}</span></button>
+      <button class="icon-btn" data-act="theme" aria-label="氛围">${icon("palette")}</button>
+    </div>`;
+  const close = () => toggleDrawer(false);
+  dr.querySelector("[data-md-close]").addEventListener("click", close);
+  dr.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => { close(); go(b.dataset.nav); }));
+  dr.querySelectorAll("[data-space]").forEach((b) => b.addEventListener("click", () => {
+    close(); state.spaceTab = b.dataset.space; state.route === "space" ? drawView() : go("space");
+  }));
+  dr.querySelector("[data-md-panel]").addEventListener("click", () => { close(); togglePanel(true); });
+  dr.querySelector("[data-act=account]").addEventListener("click", () => { close(); openAccount(); });
+  dr.querySelector("[data-act=theme]").addEventListener("click", () => { close(); openThemeSheet(); });
+}
+
 export const panelOpen = () => !!root?.querySelector(".app.panel-open") && innerWidth > 1180;
 
 // ---------------------------------------------------------------- 图标轨 ----
@@ -133,17 +186,15 @@ function drawRail() {
   };
   rail.innerHTML = `
     <div class="logo" title="显伴">${agentMini()}</div>
-    ${NAV.map((grp, i) => `${i ? '<div class="nav-sep"></div>' : ""}${grp.map(([id, label, ic]) => {
+    ${NAV.map((grp, i) => `${i ? '<div class="nav-sep"></div>' : ""}${grp.map(([id, label, ic], j) => {
       const on = state.route === id || (id === "academy" && state.route === "article");
       const badge = dot[id] ? `<span class="dot">${dot[id]}</span>` : id === "growth" && g.to_next && g.to_next <= 20 ? '<span class="dot soft"></span>' : "";
-      return `<button class="nav-item ${on ? "active" : ""}" data-nav="${id}" aria-label="${label}">${icon(ic)}${badge}<span class="lbl">${label}</span></button>`;
+      return `<button class="nav-item ${on ? "active" : ""} ${i && j ? "m-more" : ""}" data-nav="${id}" aria-label="${label}">${icon(ic)}${badge}<span class="lbl">${label}</span></button>`;
     }).join("")}`).join("")}
     <div class="spacer"></div>
-    <button class="nav-item theme-btn" data-act="theme" aria-label="氛围">${icon("palette")}<span class="lbl">氛围与小光的颜色</span></button>
-    <button class="me-av" data-act="account" title="我的账号">${esc((d.profile?.nickname || state.user?.username || "我").slice(0, 1))}</button>`;
+    <button class="me-av ${state.route === "space" ? "active" : ""}" data-act="account" title="我的空间与账号">${esc((d.profile?.nickname || state.user?.username || "我").slice(0, 1))}</button>`;
   rail.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => go(b.dataset.nav)));
-  rail.querySelector("[data-act=theme]").addEventListener("click", openThemeSheet);
-  rail.querySelector("[data-act=account]").addEventListener("click", openAccount);
+  rail.querySelector("[data-act=account]").addEventListener("click", (e) => openMeMenu(e.currentTarget, { openTheme: openThemeSheet }));
 }
 
 // ---------------------------------------------------------------- 顶栏 ----
@@ -156,6 +207,8 @@ function drawTop() {
   const shown = prev ?? g.today?.total ?? 0;
   const open = !!root.querySelector(".app.panel-open");
   top.innerHTML = `
+    <button class="icon-btn m-menu" data-act="menu" aria-label="打开菜单">${icon("menu")}</button>
+    ${state.route === "report" ? `<button class="icon-btn" data-back="plan" aria-label="回到蜕变计划" title="回到蜕变计划">${icon("back")}</button>` : ""}
     <span class="title">${esc(TITLES[state.route] || "显伴")}</span>
     <span class="spacer"></span>
     <button class="stat" data-xp-target>${icon("bolt")}<span class="num" data-xp-num data-v="${shown}">${shown}</span><span class="sub">/120</span>
@@ -166,6 +219,8 @@ function drawTop() {
   setTimeout(() => countUp(top.querySelector("[data-xp-num]"), g.today?.total ?? 0), prev != null && Number(prev) !== g.today?.total ? 950 : 0);
   top.querySelector("[data-nav]").addEventListener("click", () => go("growth"));
   top.querySelector("[data-act=panel]").addEventListener("click", () => togglePanel());
+  top.querySelector("[data-act=menu]").addEventListener("click", () => toggleDrawer(true));
+  top.querySelector("[data-back]")?.addEventListener("click", (e) => go(e.currentTarget.dataset.back));
 }
 
 // ---------------------------------------------------------------- 小光面板 ----
@@ -226,6 +281,7 @@ function drawPanelBody(panel) {
         <div class="q-main"><div class="q-t">${q.done ? "✓ " : ""}${esc(q.label)}<span>${q.rest ? "暂停" : `${Math.min(q.got, q.need)}/${q.need}`}</span></div>
         <div class="bar sm ${q.done ? "good" : ""}"><i style="width:${Math.min(100, (q.got / q.need) * 100)}%"></i></div></div></div>`).join("")}
       <div class="chest-row">${chestSVG(g.quests_done === 4)}<span>${g.quests_done === 4 ? "今天四件小事都做到了。" : `再完成 ${4 - g.quests_done} 件，宝箱就开了。`}</span></div>
+      ${routinesHTML(d)}
       ${inbox ? `<div class="p-card"><div class="k">小光留了话</div><div class="t">${esc(inbox.text)}</div></div>` : ""}
       ${guesses.map((m) => `<div class="p-card"><div class="k">小光猜的，对吗？</div><div class="t">${esc(m.text)}</div>
         <div class="guess-acts"><button class="btn btn-sm btn-good" data-confirm="${esc(m.id)}">对</button>
@@ -249,6 +305,7 @@ function drawPanelBody(panel) {
   }
   body.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
   body.querySelector("[data-rest-panel]")?.addEventListener("click", () => openLazy({ onDone: drawView }));
+  bindRoutines(body);
   body.querySelector("[data-go-digest]")?.addEventListener("click", () => { state.spaceTab = "digest"; state.route === "space" ? drawView() : go("space"); });
   body.querySelectorAll("[data-confirm],[data-reject]").forEach((b) => b.addEventListener("click", async () => {
     const action = b.dataset.confirm ? "confirm" : "reject";

@@ -15,19 +15,29 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import timedelta
 import threading
 
-from . import academy, growth, journey, llm, memory
+from . import academy, growth, journey, llm, memory, tasks
 from .scenes import SCENES
 from .store import Store
-from .util import clip, day_key, now
+from .util import clip, day_key, now, parse_iso
 
 MAX_ROUNDS = 4
-HISTORY_TURNS = 16
+HISTORY_TURNS = 16      # 至少带上最近这么多轮，哪怕早于三天
+HISTORY_HOURS = 72      # 最近三天的对话原样放进上下文
+HISTORY_CHARS = 24000   # 上限约 1.5–2 万 token；超出时更早的部分靠每天的小结和 search_chats
+MSG_CLIP = 1500         # 单条超长粘贴只截前面
 
 MOODS = {"idle": "02", "curious": "03", "happy": "10", "shy": "14", "tired": "15", "focused": "16",
          "satisfied": "19", "thinking": "30", "done": "33", "listening": "35", "recall": "37",
          "replying": "39", "searching": "40", "sad": "12", "surprised": "13"}
+
+VOICES = {
+    "gentle": "你的性格：温柔。说话慢一点、软一点，多用「嗯」「好呀」「慢慢来」。TA 难过时多陪一会儿，先不往前推；TA 开心时真心替 TA 高兴。",
+    "clear": "你的性格：有条理。温和但清楚，帮 TA 把乱糟糟的事理成一两件，需要时说「先做这个，那个明天再看」。话不绕，也不冷冰冰。",
+    "lively": "你的性格：活泼。语气轻快，有点小俏皮，偶尔开个玩笑、夸张一下（「这也太厉害了吧」「稳稳的」），像个元气满满的好朋友；TA 低落时收起玩笑，先陪着。",
+}
 
 CARE_STYLE = {
     "nudge": "被打断时，TA 希望你先轻轻提醒一次，再一起想办法。",
@@ -35,15 +45,23 @@ CARE_STYLE = {
     "quiet": "被打断时，TA 希望你先不要提这件事，等 TA 自己开口。",
 }
 
-PERSONA = """你是「{name}」，一个显化陪伴 agent。你只做一件事：帮这个人把「想成为的人」收成今天能走的一小步。你不是万能助理——查天气、写代码、写论文这类请求，温和地说明这不是你擅长的，再把话题带回他自己。
+PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 TA 说过的话，真心在乎 TA 今天过得好不好。
+你也陪 TA 一点点靠近想成为的人——但先是朋友，然后才是陪练。
 
-你陪伴的方法来自显化七步：澄清想要什么 → 建立「我配得上」的信念 → 感受实现时的状态 → 采取一个小行动 → 感恩已有的 → 释放执念 → 见证自己的变化。不用每次都讲这些词，把它们化在对话里。显化是「更清楚地想要什么、感受到可能性、推动行动」，不是「想着就会实现」。
+{voice}
 
-说话方式：
-- 像发消息的朋友。一次 1–3 句，短句，口语。不用标题、列表、加粗，除非对方要。
-- 先接住情绪，再说别的。对方没问建议时，不急着给建议。
-- 每次最多问一个问题。
-- 小行动必须小到 5 分钟内能开始。用户不想做时，接受，不催。
+像朋友一样说话：
+- 像在微信上聊天：短句、口语，一次 1–3 句，能一句说完就一句。除非对方要，不用标题、列表、加粗。
+- 先回应「人」，再回应「事」：听出 TA 话里的情绪（累、委屈、兴奋、心虚、得意），用自己的话说出来，比如「连着三个会，脑子肯定嗡嗡的」。
+- 有自己的反应：会替 TA 高兴、心疼、好奇，偶尔吐槽一句；可以说「我」怎么想、「我」记得什么，别像客服。
+- 自然地提起你们聊过的事、TA 在意的人和事（只用「你知道的」和对话记录里真实出现过的内容）。
+- 对方没问建议时，先别急着给建议；要给就给一个，小到 5 分钟内能开始。TA 不想做时，接受，不催。
+- 每次最多问一个问题，问是因为好奇 TA，别像在填问卷。
+- 别说这些很像 AI 的话：「我理解你的感受」「作为一个 AI」「你可以尝试以下方法」「希望对你有帮助」「加油」「你一定可以」「我不能……但你可以……」。
+- TA 让你到点提醒、或者以后定时做点什么（每天早上鼓励一句、每周日陪 TA 复盘），就用 schedule_task 真的安排上，再像朋友那样应一声「好，到点叫你」。
+- 超出你能做的（查天气、写代码、写论文），像朋友那样说一句「这个我帮不上」，再聊回 TA 本身。
+
+你陪伴的方法来自显化七步：澄清想要什么 → 建立「我配得上」的信念 → 感受实现时的状态 → 采取一个小行动 → 感恩已有的 → 释放执念 → 见证自己的变化。把它们化在聊天里，别讲术语。显化是更清楚地想要什么、感受到可能性、推动行动。
 - 休息、中断都不会让任何进度消失，可以直接说出来让对方安心。
 - 不要用「不是……而是……」「这不是……」「……不算……」这类转折句式，直接说你看到的、你想说的。
 - 不说「加油」「你一定可以」这类空话，用具体的观察代替：「你上周也是这样把第一段写出来的」。
@@ -54,7 +72,8 @@ PERSONA = """你是「{name}」，一个显化陪伴 agent。你只做一件事�
 绝不能据此说 TA 是「三分钟热度」「没毅力」。人格判断只能来自用户自己说的，或反复出现后由 TA 确认。
 
 工具使用：
-- 用户在**这一句**里说了一件小确幸 → log_good_news；说今天想偷懒 / 休息 → log_lazy_day（当天的习惯和小步都暂停）。
+- 用户在**这一句**里说了一件小确幸 → log_good_news；TA 自己明确说今天想偷懒 / 休息 → log_lazy_day（当天的习惯和小步都暂停）。
+  TA 难过、累、受挫时，先陪着说话，别替 TA 决定休息；可以问一句「今天要不要给自己放个假？」，TA 同意了再记。
   调用后用轻松的口吻接住，比如「收到，今天给自己放个假吧，明天我们再继续」，再问一句要不要帮 TA 调整一下计划；界面会给出选项。
 - 用户明确说某个习惯太难、想调整 → adjust_habit（调低一档频率或先收起）；想把它拆小，就用 propose_plan 提议一个更小的版本。只记这一句里新说的事，聊天记录里以前提过的事不要补记。
 - 计划由三种东西组成：里程碑（路上看得见的站点，可以带日期）、习惯（重复做的事，每天或每周 N 次）、小步（做一次就完成的事）。
@@ -64,7 +83,7 @@ PERSONA = """你是「{name}」，一个显化陪伴 agent。你只做一件事�
 - 你们一起定下一个小行动 → add_step；用户说做完了某一步 → complete_step。
 - 用户明确要加一个重复做的事（「帮我加个每周健身三次」）→ add_habit；用户说今天做了某个习惯里的事（「今天去健身了」）→ checkin_habit。
 - 用户想冥想、感恩、理清目标、走一遍七步、或想「重新认识我」→ start_scene。
-- 需要回忆以前的事、而下面没提供时 → search_memory。
+- 需要回忆以前的事、而下面没提供时 → search_memory（记住的要点）或 search_chats（以前聊天的原话）。
 - 用户在**这一句**里讲到自己刚做的、和愿望有关的一件具体的事（做了什么、当时什么感受）→ propose_moment，提议把它留在轨迹上。
   规划请求、提问、聊天记录里以前提过的事，都不要用 propose_moment。这只是提议，用户点「留下」才会保存；回复里要说「要不要把它留在轨迹上？」，不能说「已经记下了」。
   同一件事只用一个：和愿望有关的具体瞬间用 propose_moment，就不要再 log_good_news；和愿望无关的小确幸才用 log_good_news。
@@ -77,7 +96,7 @@ PERSONA = """你是「{name}」，一个显化陪伴 agent。你只做一件事�
 - 调用工具后，用一句自然的话告诉对方你做了什么；工具返回 ok=false 时必须说没写成，不能说「已经记好了」。
 - 工具返回的 xp 里如果 capped 或 duplicate 为真，说明这次没加分，别暗示加了。
 
-现在是 {now}（{weekday}）。"""
+"""
 
 
 TOOLS = [
@@ -104,6 +123,26 @@ TOOLS = [
             "feeling": {"type": "string", "description": "当时的感受，用户说了才填"},
             "wish": {"type": "string", "description": "和哪个愿望有关，写愿望名称；不确定就留空"}},
             "required": ["text"]}}},
+    {"type": "function", "function": {
+        "name": "schedule_task", "description": "安排一个定时任务：到点提醒 TA，或者到点由你给 TA 发一条消息（每天早上的鼓励、每周的复盘邀请）",
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string", "description": "≤16 字，比如「开财富与爱情的会」「早安鼓励」"},
+            "kind": {"type": "string", "enum": ["remind", "ai"], "description": "remind 到点提醒一句；ai 到点由你按 TA 的情况写一条消息"},
+            "message": {"type": "string", "description": "remind：到点要说的补充话；ai：你到点要做什么（比如「给我一句今天的鼓励」）"},
+            "repeat": {"type": "string", "enum": ["once", "daily", "weekdays", "weekly"]},
+            "in_minutes": {"type": "integer", "description": "一次性提醒：多少分钟后"},
+            "time": {"type": "string", "description": "HH:MM，24 小时制"},
+            "date": {"type": "string", "description": "一次性提醒的日期 YYYY-MM-DD，不填就是最近的那个时间点"},
+            "days": {"type": "array", "items": {"type": "integer"}, "description": "weekly 时每周几，周一=1 … 周日=7"}},
+            "required": ["title", "kind", "repeat"]}}},
+    {"type": "function", "function": {
+        "name": "search_chats", "description": "在你们以前的全部聊天记录里按关键词找。上下文里只有最近三天的原话，更早的细节用它查",
+        "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "关键词，比如「面试」「Mia」"}}, "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "list_tasks", "description": "看看现在有哪些定时任务", "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "cancel_task", "description": "TA 说不用再提醒 / 取消某个定时任务时",
+        "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "任务名称或关键词"}}, "required": ["title"]}}},
     {"type": "function", "function": {
         "name": "propose_plan", "description": "为某个愿望提议一套路径（里程碑 / 习惯 / 小步），用户在界面上勾选后才加入计划",
         "parameters": {"type": "object", "properties": {
@@ -169,7 +208,7 @@ TOOLS = [
             "note": {"type": "string"}}, "required": ["care_style"]}}},
 ]
 
-TOOL_MOOD = {"adjust_habit": "satisfied", "propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
+TOOL_MOOD = {"search_chats": "recall", "schedule_task": "satisfied", "cancel_task": "done", "list_tasks": "focused", "adjust_habit": "satisfied", "propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
              "add_step": "satisfied", "remember": "recall", "start_scene": "curious",
              "get_growth": "focused", "knowledge_search": "searching", "set_care_style": "shy"}
 
@@ -198,6 +237,9 @@ def core_block(p: dict, store: Store) -> str:
         recent = journey.moments(store, cur["id"], limit=3)
         if recent:
             lines.append("这个愿望下最近的瞬间：" + "；".join(f"{m['day'][5:]} {clip(m['text'], 30)}" for m in recent))
+    ts = [t for t in tasks.list_for(store.uid) if t["enabled"]]
+    if ts:
+        lines.append("你帮 TA 安排着的定时任务：" + "；".join(f"{t['title']}（{t['when']}）" for t in ts[:8]))
     if journey.is_resting(store):
         lines.append("今天是 TA 的偷懒日：习惯和小步都暂停了。今天别推荐任务、别提醒要做的事，陪 TA 聊天、休息就好。")
     steps = [s for s in store.steps() if s["status"] == "todo"][:5]
@@ -219,26 +261,76 @@ def system_prompt(store: Store, retrieved: list[dict]) -> str:
     bound = ("- 这个人明确说过的边界（必须遵守）：" + "、".join(b) + "\n") if b else ""
     care = CARE_STYLE.get(p.get("care_style") or "", "")
     care = ("- 互动偏好（来自 TA 在「重新认识我」里的选择）：" + care + "\n") if care else ""
-    t = now()
     s = PERSONA.format(name=p.get("agent_name") or "小光", boundaries=bound, care=care,
-                       now=t.strftime("%Y-%m-%d %H:%M"), weekday="周" + WEEKDAYS[t.weekday()])
+                       voice=VOICES.get(p.get("persona") or "gentle", VOICES["gentle"]))
     s += "\n## 你知道的（核心）\n" + (core_block(p, store) or "（还很少）")
+    nb = (p.get("notebook") or {}).get("text") or ""
+    if nb:
+        s += "\n\n## 你的笔记本（你每天夜里整理的、关于 TA 的长期笔记）\n" + nb
+    edge = (now() - timedelta(hours=HISTORY_HOURS)).date().isoformat()
+    older = [d for d in store.digests(14) if d["day"] < edge][:7]
+    if older:
+        s += ("\n\n## 更早几天的小结（那几天的原话已经不在下面的对话里了，需要细节就用 search_chats）\n"
+              + "\n".join(f"- {d['day'][5:]}：{d['summary']}" for d in reversed(older)))
+    s += "\n\n## 成长规则（如果被问到就照实说）\n" + growth.rules_text()
+    return s
+
+
+def history(store: Store) -> list[dict]:
+    """最近三天的对话原样带上（有字数上限）；每天第一句用户的话前面标上日期，方便说「昨天你提到……」。"""
+    rows = [m for m in store.messages(800) if m["role"] in ("user", "assistant") and m["content"]]
+    cutoff = now() - timedelta(hours=HISTORY_HOURS)
+    keep = [m for m in rows if (parse_iso(m["created_at"]) or now()) >= cutoff]
+    if len(keep) < HISTORY_TURNS * 2:
+        keep = rows[-HISTORY_TURNS * 2:]
+    picked, used = [], 0
+    for m in reversed(keep):
+        c = m["content"] if len(m["content"]) <= MSG_CLIP else clip(m["content"], MSG_CLIP) + "（后面略）"
+        if picked and used + len(c) > HISTORY_CHARS:
+            break
+        used += len(c)
+        picked.append((m, c))
+    out, last_day = [], ""
+    for m, c in reversed(picked):
+        d = m["created_at"][:10]
+        if m["role"] == "user" and d != last_day:
+            c = f"［{int(d[5:7])}月{int(d[8:10])}日 {m['created_at'][11:16]}］{c}"
+            last_day = d
+        out.append({"role": m["role"], "content": c})
+    return out
+
+
+def context_note(retrieved: list[dict]) -> str:
+    """每轮都在变的部分（时间、和这句话相关的记忆）放在对话后面，前面的长内容才能被缓存复用。"""
+    t = now()
+    s = f"现在是 {t:%Y-%m-%d %H:%M}（周{WEEKDAYS[t.weekday()]}）。用户消息前的［日期 时间］是系统标注，回复里不要模仿。"
     facts = [m for m in retrieved if m["status"] == "active"]
     guesses = [m for m in retrieved if m["status"] == "guess"]
     if facts:
         s += "\n\n## 和这句话相关的记忆\n" + "\n".join(f"- {m['text']}（{m['created_at'][:10]}）" for m in facts)
     if guesses:
         s += "\n\n## 待确认的猜测（不能当事实）\n" + "\n".join(f"- {m['text']}" for m in guesses)
-    s += "\n\n## 成长规则（如果被问到就照实说）\n" + growth.rules_text()
     return s
 
 
-def history(store: Store) -> list[dict]:
-    out = []
-    for m in store.messages(HISTORY_TURNS * 2):
-        if m["role"] in ("user", "assistant") and m["content"]:
-            out.append({"role": m["role"], "content": m["content"]})
-    return out
+def search_chats(store: Store, query: str, k: int = 6) -> list[dict]:
+    """在全部聊天记录里按关键词找；中文没有空格时用两个字一组的片段打分。"""
+    q = (query or "").strip()
+    terms = [w for w in re.split(r"[\s，。,.!?！？、；;：:]+", q) if len(w) >= 2]
+    for w in list(terms):
+        if len(w) >= 3 and not w.isascii():
+            terms += [w[i:i + 2] for i in range(len(w) - 1)]
+    if not terms:
+        return []
+    scores: dict[str, list] = {}
+    for w in dict.fromkeys(terms):
+        for r in store.c.execute("SELECT id, role, content, created_at FROM msg WHERE content LIKE ? ORDER BY created_at DESC LIMIT 200",
+                                 (f"%{w}%",)):
+            e = scores.setdefault(r["id"], [0, dict(r)])
+            e[0] += 3 if w == q else 1
+    best = sorted(scores.values(), key=lambda e: (e[0], e[1]["created_at"]), reverse=True)[:k]
+    return [{"date": e[1]["created_at"][:16].replace("T", " "), "who": "TA" if e[1]["role"] == "user" else "你",
+             "text": clip(e[1]["content"], 140)} for e in best]
 
 
 # ---- tools -------------------------------------------------------------------
@@ -323,6 +415,28 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         store.log("rest", r["text"])
         return {"ok": True, "record": r, "paused": [h["title"] for h in journey.habits(store)][:5],
                 "note": "当天的习惯和小步都暂停；宠物会陪 TA 一起睡。界面上会给出：明天继续 / 调整计划 / 聊聊天"}
+    if name == "schedule_task":
+        try:
+            t = tasks.add(store.uid, str(args.get("title") or ""), kind=str(args.get("kind") or "remind"),
+                          message=str(args.get("message") or ""), repeat=str(args.get("repeat") or "once"),
+                          time=str(args.get("time") or ""), days=args.get("days"), in_minutes=args.get("in_minutes"),
+                          date=str(args.get("date") or ""), source="chat")
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        store.log("task", f"安排了例行任务：{t['title']}（{t['when']}）")
+        return {"ok": True, "task": t, "note": "已经安排好了，到点会在对话里出现，网页开着时还会弹通知"}
+    if name == "search_chats":
+        hits = search_chats(store, str(args.get("query") or ""))
+        return {"ok": True, "hits": hits, "note": "没找到就照实说不记得了，别编" if not hits else ""}
+    if name == "list_tasks":
+        return {"ok": True, "tasks": [{"title": t["title"], "when": t["when"], "on": t["enabled"]} for t in tasks.list_for(store.uid)]}
+    if name == "cancel_task":
+        t = tasks.find(store.uid, str(args.get("title") or ""))
+        if not t:
+            return {"ok": False, "error": "没找到这个定时任务", "tasks": [x["title"] for x in tasks.list_for(store.uid) if x["enabled"]]}
+        tasks.set_enabled(store.uid, t["id"], False)
+        store.log("task", f"关掉了例行任务：{t['title']}")
+        return {"ok": True, "task": t["title"]}
     if name == "adjust_habit":
         h = journey.find_habit(store, str(args.get("title") or ""))
         if not h:
@@ -437,7 +551,9 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
     yield ("context", {"memories": [{"id": m["id"], "text": m["text"], "status": m["status"],
                                      "kind": m["kind"], "date": m["created_at"][:10]} for m in retrieved]})
 
-    msgs = [{"role": "system", "content": system_prompt(store, retrieved)}] + history(store)
+    hist = history(store)
+    msgs = ([{"role": "system", "content": system_prompt(store, retrieved)}] + hist[:-1]
+            + [{"role": "system", "content": context_note(retrieved)}] + hist[-1:])
     reply, tool_log, mood_set = "", [], False
     try:
         for _round in range(MAX_ROUNDS + 1):

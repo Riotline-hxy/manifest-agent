@@ -25,7 +25,7 @@ os.environ["MODELFLARE_API_KEY"] = "test-key"
 sys.path.insert(0, DEMO)
 
 import server  # noqa: E402
-from core import auth, llm, scheduler  # noqa: E402
+from core import auth, llm, scheduler, tasks  # noqa: E402
 from core.store import Store  # noqa: E402
 
 ONBOARD = {"agent_name": "阿光", "agent_avatar_id": "stardust", "intent_primary": "健康作息",
@@ -103,6 +103,7 @@ class ApiTest(unittest.TestCase):
         cls.httpd.server_close()
         llm.stream_chat, llm.complete_json = cls._orig
         auth.reset_for_tests()
+        tasks.reset_for_tests()
         shutil.rmtree(TMP, ignore_errors=True)
 
     def setUp(self):
@@ -319,7 +320,7 @@ class ApiTest(unittest.TestCase):
         ctx = next(d for e, d in ev if e == "context")
         self.assertIn("晚上十一点后容易刷手机停不下来", [m["text"] for m in ctx["memories"]])
         self.assertIn("10", [d["id"] for e, d in ev if e == "mood"])
-        sys_prompt = self.fake.seen[0][0]["content"]
+        sys_prompt = " ".join(m["content"] for m in self.fake.seen[0] if m["role"] == "system")
         self.assertIn("健康作息", sys_prompt)
         self.assertIn("别说教", sys_prompt)
         self.assertIn("晚上十一点后容易刷手机", sys_prompt)
@@ -826,6 +827,111 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(tool["result"]["done"], "调成每周 3 次")
         _, d = c.req("GET", "/api/bootstrap")
         self.assertEqual(d["journey"]["wishes"][0]["habits"][0]["freq_text"], "每周 3 次")
+
+    # ---- 定时任务 ------------------------------------------------------------------
+    def test_tasks_schedule_fire_and_toggle(self):
+        from datetime import timedelta
+        from core.util import now
+        c, uid = self.onboarded("tasks_user")
+        s, d = c.req("POST", "/api/task", {"action": "add", "title": "开财富与爱情的会", "repeat": "once", "in_minutes": 5})
+        self.assertEqual(s, 200, d)
+        tid = d["task"]["id"]
+        self.assertTrue(d["task"]["when"].endswith("一次"))
+        self.assertIn(tid, [t["id"] for t in d["tasks"]])
+        _, d = c.req("POST", "/api/task", {"action": "add", "title": "早安鼓励", "kind": "ai", "message": "给我一句鼓励",
+                                           "repeat": "daily", "time": "08:00"})
+        daily = d["task"]["id"]
+        self.assertEqual(d["task"]["when"], "每天 08:00")
+        self.assertEqual(c.req("POST", "/api/task", {"action": "add", "title": "x", "repeat": "daily", "time": "25:00"})[0], 400)
+        # 别人碰不到
+        other, _ = self.member("tasks_other")
+        self.assertEqual(other.req("POST", "/api/task", {"action": "off", "id": tid})[0], 404)
+        # 还没到点：什么都不发
+        self.assertEqual(scheduler.run_tasks(now() + timedelta(minutes=2)), 0)
+        # 到点：remind 不调模型，消息进对话和收件箱，一次性任务关掉
+        self.fake.json_out = None
+        _, before = c.req("GET", "/api/pulse")
+        self.assertGreaterEqual(scheduler.run_tasks(now() + timedelta(minutes=6)), 1)
+        _, d = c.req("GET", "/api/bootstrap")
+        last = d["messages"][-1]
+        self.assertEqual(last["meta"]["task"], tid)
+        self.assertIn("开财富与爱情的会", last["content"])
+        self.assertFalse(next(t for t in d["tasks"] if t["id"] == tid)["enabled"])
+        _, after = c.req("GET", "/api/pulse")
+        self.assertGreater(after["unseen"], before["unseen"])
+        # ai 任务：到点由小光写一句；每天的任务跑完排到下一天
+        self.fake.json_out = {"text": "早呀，今天也从一件小事开始就好。"}
+        scheduler.run_tasks(now() + timedelta(days=1, hours=1))
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertIn("早呀，今天也从一件小事开始就好。", [m["content"] for m in d["messages"]])
+        t = next(t for t in d["tasks"] if t["id"] == daily)
+        self.assertTrue(t["enabled"])
+        # 开关与内置例行任务
+        _, d = c.req("POST", "/api/task", {"action": "off", "id": daily})
+        self.assertFalse(next(t for t in d["tasks"] if t["id"] == daily)["enabled"])
+        _, d = c.req("POST", "/api/task", {"action": "routine", "id": "digest", "on": False})
+        self.assertFalse(next(r for r in d["routines"] if r["id"] == "digest")["enabled"])
+        _, d = c.req("POST", "/api/task", {"action": "delete", "id": daily})
+        self.assertNotIn(daily, [t["id"] for t in d["tasks"]])
+
+    def test_chat_schedules_task(self):
+        c, uid = self.onboarded("tasks_chat")
+        self.fake.turns = [
+            [("tool_calls", [{"id": "c1", "name": "schedule_task", "arguments": json.dumps(
+                {"title": "开会", "kind": "remind", "repeat": "once", "in_minutes": 5})}])],
+            [("text", "好，五分钟后叫你。")],
+        ]
+        s, ev = c.sse("你能5分钟后提醒我开一个会议吗")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "schedule_task")
+        self.assertTrue(tool["result"]["ok"])
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual([t["title"] for t in d["tasks"]], ["开会"])
+
+    # ---- 记忆：三天原话 + 笔记本 + 翻聊天记录 ------------------------------------------
+    def test_history_window_notebook_and_search(self):
+        from datetime import timedelta
+        from core import agent, digest
+        from core.util import now
+        c, uid = self.onboarded("memory_long")
+        with Store(uid) as st:
+            for d, text in ((6, "上周我和 Mia 去看了海"), (2, "前天面试被问到最喜欢的书"), (1, "昨天熬夜到两点")):
+                m = st.add_msg("user", text)
+                st.c.execute("UPDATE msg SET created_at=? WHERE id=?", ((now() - timedelta(days=d)).isoformat(timespec="seconds"), m["id"]))
+            for i in range(40):     # 让总条数超过「至少 16 轮」，三天的窗口才起作用
+                st.add_msg("assistant" if i % 2 else "user", f"今天的闲聊 {i}")
+            hist = agent.history(st)
+            texts = " ".join(h["content"] for h in hist)
+            self.assertIn("前天面试被问到最喜欢的书", texts)
+            self.assertIn("昨天熬夜到两点", texts)
+            self.assertNotIn("去看了海", texts)                       # 超过三天的不在上下文里
+            self.assertTrue(any(h["content"].startswith("［") for h in hist if h["role"] == "user"))
+            hits = agent.search_chats(st, "和 Mia 去看海")
+            self.assertIn("上周我和 Mia 去看了海", [h["text"] for h in hits])   # 但能翻到
+            # 夜里整理顺手更新笔记本
+            st.add_msg("user", "我决定下个月开始学游泳")
+            self.fake.json_out = {"summary": "你决定学游泳。", "highlights": [], "ops": [],
+                                  "notebook": "最近的生活：决定下个月开始学游泳。\n在意的人：Mia。"}
+            digest.run(st)
+            self.assertIn("学游泳", st.profile()["notebook"]["text"])
+            sp = agent.system_prompt(st, [])
+            self.assertIn("你的笔记本", sp)
+            self.assertIn("学游泳", sp)
+        _, d = c.req("POST", "/api/notebook", {"text": "在意的人：Mia、室友。"})
+        self.assertEqual(d["profile"]["notebook"]["by"], "user")
+
+    def test_persona_and_custom_moments(self):
+        from core import agent
+        c, uid = self.onboarded("persona_user")
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["profile"]["persona"], "gentle")
+        self.assertEqual(c.req("POST", "/api/profile", {"persona": "robot"})[0], 400)
+        _, d = c.req("POST", "/api/profile", {"persona": "lively", "custom_moods": ["松了口气", " ", "超开心的那种很长的心情"]})
+        self.assertEqual(d["profile"]["custom_moods"], ["松了口气", "超开心的那种很长"])
+        with Store(uid) as st:
+            self.assertIn("活泼", agent.system_prompt(st, []))
+        wid = d["journey"]["current"]
+        _, d = c.req("POST", "/api/wish", {"action": "edit", "id": wid, "prompts": ["今天哪一刻我没有逃避？", ""]})
+        self.assertEqual(d["journey"]["wishes"][0]["prompts"], ["今天哪一刻我没有逃避？"])
 
 
 if __name__ == "__main__":

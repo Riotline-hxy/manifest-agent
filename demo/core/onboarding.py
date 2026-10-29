@@ -33,6 +33,11 @@ QUESTIONS = [
      "options": [{"v": "nudge", "label": "轻轻提醒我一下"}, {"v": "analyze", "label": "陪我一起找原因"},
                  {"v": "quiet", "label": "先别提，等我自己说"}],
      "hint": "这个选择以后可以随时改，也会出现在「重新认识我」里。"},
+    {"key": "persona", "q": "你希望我是什么样的朋友？", "type": "single", "optional": True,
+     "options": [{"v": "gentle", "label": "温柔", "sub": "先接住你的情绪，慢慢说"},
+                 {"v": "clear", "label": "有条理", "sub": "帮你把乱糟糟的事理清楚"},
+                 {"v": "lively", "label": "活泼", "sub": "轻松一点，偶尔逗你笑"}],
+     "hint": "以后在设置里随时能换。"},
     {"key": "traits", "q": "别人常觉得你是？最多选 3 个", "type": "multi", "max": 3,
      "options": ["敏感", "理性", "行动派", "拖延但爆发", "需要被提醒", "喜欢独处"], "optional": True, "skip": True},
     {"key": "mbti_hint", "q": "有没有想对号入座的类型标签？只是好玩", "type": "single_or_text", "optional": True,
@@ -74,6 +79,8 @@ def apply(store: Store, answers: dict) -> dict:
     a["last_chat_at"] = iso()
     if not a.get("care_style"):
         a["care_style"] = ""
+    if a.get("persona") not in ("gentle", "clear", "lively"):
+        a["persona"] = "gentle"
     p = store.set_profile(a)
     # profile is the always-on core block; mirror the most important parts into
     # archival memory so retrieval can find them later by meaning.
@@ -94,14 +101,21 @@ def seed_guest(store: Store) -> None:
     per-day / per-source caps hold exactly like a real account."""
     t0 = now() - timedelta(days=14)
 
+    def md(d):
+        x = t0 + timedelta(days=d)
+        return f"{x.month}月{x.day}日"
+
     def at(d, h, m=0):
-        return (t0.replace(hour=h, minute=m, second=0) + timedelta(days=d)).isoformat(timespec="seconds")
+        # 「今天」的种子时间不能晚于现在，否则会排在用户真正发的消息后面
+        dt = t0.replace(hour=h, minute=m, second=0) + timedelta(days=d)
+        cap = now() - timedelta(minutes=5 + (24 - h) * 3)
+        return min(dt, cap).isoformat(timespec="seconds")
 
     store.set_profile({
         "agent_name": "小光", "agent_avatar_id": "soft", "agent_hue": "", "theme": "forest", "nickname": "林夏",
         "intent_primary": "自信与表达", "intent_why": "交换项目时想敢开口说英语", "schedule_hint": "夜猫",
         "traits": ["敏感", "拖延但爆发", "需要被提醒"], "mbti_hint": "INFJ", "boundaries": ["别鸡血催促"],
-        "care_style": "analyze", "onboarded": True, "proactive": "normal", "xp": 0,
+        "care_style": "analyze", "onboarded": True, "proactive": "normal", "xp": 0, "persona": "gentle",
         "pet_name": "小芽", "pet_branch": "",
         "created_at": at(0, 21), "last_chat_at": at(14, 22), "last_proactive_at": at(13, 9),
     })
@@ -279,6 +293,14 @@ def seed_guest(store: Store) -> None:
                     ("in_seed", conf["id"], "你说过常常想好了却说不出口，但这两周你有三次是自己先开口的。你觉得，这算是更相信自己的开始吗？",
                      "这两周有三次主动开口，开始更相信自己了", journey.dumps([cids[1], cids[5], cids[6]]), "open", at(14, 21)))
     store.set_profile({"current_wish": conf["id"]})
+    store.set_profile({"notebook": {"by": "digest", "day": at(13, 3)[:10], "updated_at": at(14, 3), "text": (
+        "最近的生活：大三，在准备交换项目；晚上 9–11 点最有精神，早上很难进入状态。\n"
+        "在意的人：Mia——一起练英语口语的朋友，和她说话不紧张；室友会记得她奶茶要少糖。\n"
+        "正在努力的事：敢开口说英语。录了 30 秒自我介绍，改到第二版，准备发给 Mia 听；在小组里试着先开口。\n"
+        "心情和状态：开口前会紧张，但说完常常发现没那么可怕；累的时候会给自己放一天假。\n"
+        "相处时的偏好：中断时希望被陪着找原因，不想被催；不喜欢鸡血式的鼓励。\n"
+        f"时间线：{md(3)} 第一次在课上开口，声音在抖；{md(6)} 录完自我介绍；{md(10)} 小组里第一次主动提问；"
+        f"{md(12)} 面试前对着镜子练开场，面试官笑了一下。")}})
     from . import cheer
     store.set_profile({"cheer": {"slot": cheer.slot(), "kind": "you", "label": "最近的你", "source": "", "at": at(14, 12),
                                  "text": "这两周你有三次是自己先开口的，声音在抖也说完了。"}})
