@@ -247,19 +247,36 @@ export function placeInd(tabs) {
   Object.assign(tabs.querySelector(".ind").style, { left: on.offsetLeft + "px", width: on.offsetWidth + "px" });
 }
 
+// 「小光的一句话」：留言、昨晚整理时的发现、最近的你 / 送你一句。按优先级排，第一句最该看，小圆点可以翻到其他几句。
+let sayIndex = 0;
+function sayLines(d) {
+  const out = [];
+  const msg = (d.inbox || []).slice(-1)[0];
+  if (msg) out.push({ kind: "say-msg", icon: msg.cue === "task" ? "clock" : "letter", label: msg.cue === "task" ? "到点啦" : "想跟你说", text: msg.text, go: "chat" });
+  const dg = (d.digests || [])[0];
+  if (dg && dg.by_model && dg.summary) {
+    const ago = Math.round((Date.now() - Date.parse(dg.day + "T12:00:00+08:00")) / 864e5);
+    if (ago <= 2) out.push({ kind: "say-night", icon: "moon", label: ago <= 1 ? "昨晚整理时" : "前天夜里整理时", text: dg.summary, go: "digest" });
+  }
+  const ch = d.cheer;
+  if (ch?.text) out.push({ kind: ch.kind === "you" ? "say-you" : "say-quote", icon: ch.kind === "you" ? "leaf" : "quote", label: ch.label, text: ch.text, source: ch.source });
+  return out;
+}
+
 function drawPanelBody(panel) {
   const body = panel.querySelector(".panel-body");
   const d = state.data || {};
   const g = d.growth || {};
   if (!g.stage) return;
   if (panelTab === "today") {
-    const inbox = (d.inbox || [])[0];
     const guesses = (d.memories || []).filter((m) => m.status === "guess").slice(0, 2);
-    const digest = (d.digests || [])[0];
-    const ch = d.cheer;
+    const lines = sayLines(d);
+    const li = Math.min(sayIndex, Math.max(0, lines.length - 1));
+    const L = lines[li];
     body.innerHTML = `
-      ${ch?.text ? `<div class="cheer ${ch.kind === "you" ? "you" : "quote"}"><div class="k">${icon(ch.kind === "you" ? "leaf" : "quote")}${esc(ch.label)}</div>
-        <div class="t">${esc(ch.text)}</div>${ch.source ? `<div class="src">${esc(ch.source)}</div>` : ""}</div>` : ""}
+      ${L ? `<div class="cheer ${L.kind}" ${L.go ? `data-say-go="${L.go}"` : ""}>
+        <div class="k">${icon(L.icon)}${esc(L.label)}${lines.length > 1 ? `<span class="say-dots">${lines.map((x, i) => `<button class="${i === li ? "on" : ""}" data-say="${i}" aria-label="${esc(x.label)}"></button>`).join("")}</span>` : ""}</div>
+        <div class="t">${esc(L.text)}</div>${L.source ? `<div class="src">${esc(L.source)}</div>` : ""}</div>` : ""}
       <div class="sec-title" style="margin-bottom:2px">今日任务 <span class="more">${g.quests_done}/4</span></div>
       ${isResting() ? `<button class="p-rest" data-rest-panel>${petSVG(g.stage.art, { sleep: true, cls: "alive" })}<span><b>今天是偷懒日</b>${esc(g.pet_name)}陪你一起睡，任务不着急</span></button>` : ""}
       ${g.quests.map((q) => `<div class="quest ${q.done ? "done" : ""} ${q.rest ? "rest" : ""}">${q.rest ? tile("moon", "var(--c-violet)", 34) : tile(QUEST_TILE[q.id][0], QUEST_TILE[q.id][1], 34)}
@@ -267,11 +284,9 @@ function drawPanelBody(panel) {
         <div class="bar sm ${q.done ? "good" : ""}"><i style="width:${Math.min(100, (q.got / q.need) * 100)}%"></i></div></div></div>`).join("")}
       <div class="chest-row">${chestSVG(g.quests_done === 4)}<span>${g.quests_done === 4 ? "今天四件小事都做到了。" : `再完成 ${4 - g.quests_done} 件，宝箱就开了。`}</span></div>
       ${routinesHTML(d)}
-      ${inbox ? `<div class="p-card"><div class="k">小光留了话</div><div class="t">${esc(inbox.text)}</div></div>` : ""}
       ${guesses.map((m) => `<div class="p-card"><div class="k">小光猜的，对吗？</div><div class="t">${esc(m.text)}</div>
         <div class="guess-acts"><button class="btn btn-sm btn-good" data-confirm="${esc(m.id)}">对</button>
-        <button class="btn btn-sm btn-ghost" data-reject="${esc(m.id)}">不太对</button></div></div>`).join("")}
-      ${digest ? `<div class="p-card" data-go-digest style="cursor:pointer"><div class="k">夜里整理了 · ${esc(digest.day.slice(5))}</div><div class="t">${esc(digest.summary)}</div></div>` : ""}`;
+        <button class="btn btn-sm btn-ghost" data-reject="${esc(m.id)}">不太对</button></div></div>`).join("")}`;
   } else if (panelTab === "pet") {
     const span = g.next ? g.next.at - g.prev_at : 1;
     const pct = g.next ? Math.round(((g.total - g.prev_at) / span) * 100) : 100;
@@ -283,14 +298,25 @@ function drawPanelBody(panel) {
       <div class="to">${g.next ? `再 <b>${g.to_next}</b> 经验到「${esc(g.next.name)}」` : "已经是成年形态了"}</div>
       <button class="btn btn-sm btn-ghost" data-go="growth" style="margin-top:14px">看进化图</button></div>`;
   } else {
-    const ICON = { plan: "flag", record: "star", memory: "memory", scene: "wind", growth: "sprout", onboarding: "compass", profile: "settings", proactive: "letter", step: "flag" };
-    body.innerHTML = (d.activity || []).slice(0, 30).map((a, i) => `<div class="act" style="--i:${i}">${icon(ICON[a.kind] || "checkc")}
-      <div><div class="t">${esc(a.text)}</div><div class="w">${esc(fmtDay(a.at))} ${esc((a.at || "").slice(11, 16))}</div></div></div>`).join("")
+    const ICON = { plan: "flag", record: "star", memory: "memory", scene: "wind", growth: "sprout", onboarding: "compass", profile: "settings",
+      proactive: "letter", step: "flag", rest: "moon", task: "clock", journey: "sparkles" };
+    const days = [];
+    for (const a of (d.activity || []).slice(0, 40)) {
+      const k = fmtDay(a.at);
+      (days.find((x) => x.k === k) || days[days.push({ k, items: [] }) - 1]).items.push(a);
+    }
+    body.innerHTML = days.map((g2) => `<div class="act-day">${esc(g2.k)}</div>${g2.items.map((a, i) => `<div class="act" style="--i:${i}">${icon(ICON[a.kind] || "checkc")}
+      <div><div class="t">${esc(a.text)}</div><div class="w">${esc((a.at || "").slice(11, 16))}</div></div></div>`).join("")}`).join("")
       || `<div class="empty"><p>还没有动静。</p></div>`;
   }
   body.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
   body.querySelector("[data-rest-panel]")?.addEventListener("click", () => openLazy({ onDone: drawView }));
   bindRoutines(body);
+  body.querySelectorAll("[data-say]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); sayIndex = +b.dataset.say; drawPanelBody(panel); }));
+  body.querySelector("[data-say-go]")?.addEventListener("click", (e) => {
+    const t = e.currentTarget.dataset.sayGo;
+    if (t === "digest") { state.spaceTab = "digest"; state.route === "space" ? drawView() : go("space"); } else go(t);
+  });
   body.querySelector("[data-go-digest]")?.addEventListener("click", () => { state.spaceTab = "digest"; state.route === "space" ? drawView() : go("space"); });
   body.querySelectorAll("[data-confirm],[data-reject]").forEach((b) => b.addEventListener("click", async () => {
     const action = b.dataset.confirm ? "confirm" : "reject";

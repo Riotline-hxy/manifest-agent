@@ -678,7 +678,7 @@ class ApiTest(unittest.TestCase):
         w = d["journey"]["wishes"][0]
         today = d["journey"]["today"]
         # 默认计划日：定下后 90 天；改成更早于定下日会被拒绝
-        self.assertEqual(w["target_day"], (date.fromisoformat(w["started"]) + timedelta(days=90)).isoformat())
+        self.assertEqual(w["target_day"], (date.fromisoformat(w["started"]) + timedelta(days=30)).isoformat())
         bad = (date.fromisoformat(w["started"]) - timedelta(days=1)).isoformat()
         self.assertEqual(c.req("POST", "/api/wish", {"action": "edit", "id": w["id"], "target_day": bad})[0], 400)
         new_t = (date.fromisoformat(today) + timedelta(days=60)).isoformat()
@@ -869,8 +869,6 @@ class ApiTest(unittest.TestCase):
         # 开关与内置例行任务
         _, d = c.req("POST", "/api/task", {"action": "off", "id": daily})
         self.assertFalse(next(t for t in d["tasks"] if t["id"] == daily)["enabled"])
-        _, d = c.req("POST", "/api/task", {"action": "routine", "id": "digest", "on": False})
-        self.assertFalse(next(r for r in d["routines"] if r["id"] == "digest")["enabled"])
         _, d = c.req("POST", "/api/task", {"action": "delete", "id": daily})
         self.assertNotIn(daily, [t["id"] for t in d["tasks"]])
 

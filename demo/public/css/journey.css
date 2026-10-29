@@ -345,3 +345,4 @@
   .j-types { grid-template-columns: 1fr; }
   .j-type { flex-direction: row; align-items: center; flex-wrap: wrap; }
 }
+.j-span-note { display: block; margin-top: 6px; font-size: 12px; font-weight: 700; }

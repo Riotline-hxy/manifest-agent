@@ -100,6 +100,10 @@ def seed_guest(store: Store) -> None:
     times, and the XP ledger is built by growth.award on those past rows so the
     per-day / per-source caps hold exactly like a real account."""
     t0 = now() - timedelta(days=14)
+    seeded_at = now().isoformat(timespec="seconds")
+
+    def day(d):   # 只要日期（计划日、里程碑日期可以在未来）
+        return (t0 + timedelta(days=d)).date().isoformat()
 
     def md(d):
         x = t0 + timedelta(days=d)
@@ -225,14 +229,14 @@ def seed_guest(store: Store) -> None:
 
     # 过去三晚的日终整理（与 core/digest.py 写入的结构一致）
     digests = [
-        (11, "你完成了「重新认识我」，说中断时更想被陪着找原因。", ["选了「一起找原因」", "把第一句话练顺"],
+        (11, "你说中断的时候更想被陪着找原因，我记下了，下次就这样陪你。", ["选了「一起找原因」", "把第一句话练顺"],
          {"added": 1, "updated": 0, "deleted": 0, "guesses": 0, "user_lines": 6},
          [{"op": "ADD", "text": "中断时更希望被陪着找原因，不想被催", "kind": "preference", "status": "active"}]),
-        (12, "面试官笑了一下，你没那么紧张了。开场白练了一次。", ["面试官笑了一下", "对着镜子练开场"],
+        (12, "面试官那一笑，我猜你心里松了一大口气吧。", ["面试官笑了一下", "对着镜子练开场"],
          {"added": 0, "updated": 1, "deleted": 0, "guesses": 0, "user_lines": 4},
          [{"op": "UPDATE", "text": "跟熟悉的朋友一起练口语时不紧张，面对陌生人也在慢慢放松",
            "old": "跟熟悉的朋友一起练口语时不紧张", "kind": "insight", "status": ""}]),
-        (13, "早上居然自然醒了，还读完一篇英文播客文稿。", ["自然醒", "读完一篇文稿"],
+        (13, "你居然自然醒了，还顺手读完一篇英文文稿，昨天状态真不错。", ["自然醒", "读完一篇文稿"],
          {"added": 0, "updated": 0, "deleted": 0, "guesses": 1, "user_lines": 3},
          [{"op": "ADD", "text": "可能其实会说，更怕的是说错", "kind": "insight", "status": "guess"}]),
     ]
@@ -245,7 +249,7 @@ def seed_guest(store: Store) -> None:
     # 两张成长轨迹看板：主线「自信与表达」，加一张「心灵平静」（文档里的首个主题示例）
     def seed_wish(title, cat, now_t, vision_t, start_d, items, span=60):
         w = journey.add_wish(store, title, cat, now_t, vision_t, started=at(start_d, 9)[:10],
-                             target_day=at(start_d + span, 9)[:10])
+                             target_day=day(start_d + span))
         store.c.execute("UPDATE wish SET created_at=? WHERE id=?", (at(start_d, 9), w["id"]))
         ids = []
         for d, h, text, feeling in items:
@@ -286,7 +290,7 @@ def seed_guest(store: Store) -> None:
     seed_habit(calm, "睡前做 6 轮呼吸", "daily", 7, [5, 6, 8, 10, 11, 13], 5)
     for w, title, due_d, done_d in [(conf, "第一次在小组里先开口", 10, 10), (conf, "录好英文自我介绍", 16, None),
                                     (conf, "能用英语聊满 20 分钟", 38, None), (calm, "一周有 5 天按时睡着", 24, None)]:
-        m = journey.add_milestone(store, w["id"], title, at(due_d, 9)[:10])
+        m = journey.add_milestone(store, w["id"], title, day(due_d))
         store.c.execute("UPDATE milestone SET created_at=?, status=?, done_at=? WHERE id=?",
                         (at(1, 21), "done" if done_d is not None else "todo", at(done_d, 22) if done_d is not None else "", m["id"]))
     store.c.execute("INSERT INTO insight(id, wish_id, text, claim, basis, status, created_at) VALUES(?,?,?,?,?,?,?)",
@@ -304,6 +308,9 @@ def seed_guest(store: Store) -> None:
     from . import cheer
     store.set_profile({"cheer": {"slot": cheer.slot(), "kind": "you", "label": "最近的你", "source": "", "at": at(14, 12),
                                  "text": "这两周你有三次是自己先开口的，声音在抖也说完了。"}})
+
+    # 建示例数据时顺手写下的「加了习惯 / 定了里程碑」之类的动态不是用户做的，清掉
+    store.c.execute("DELETE FROM activity WHERE kind IN ('plan','journey','task') AND at >= ?", (seeded_at,))
 
     # 示例账号里已经发生的进化与徽章算作「看过」，免得第一次打开就弹一串庆祝
     total = growth.total_xp(store)

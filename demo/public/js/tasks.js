@@ -1,4 +1,4 @@
-// 例行任务：小光的定时提醒 / 定时消息。面板里列出来（像 Grok 的 routines），可以开关、编辑、新建；
+// 例行任务：用户让小光定的提醒 / 定时消息。面板里列出来（像 Grok 的 routines），可以开关、编辑、新建；
 // 网页开着时每 30 秒轻轻问一次服务器，有新提醒就弹一句，并在允许时发浏览器通知。
 import { api, get } from "./api.js";
 import { state, setData } from "./store.js";
@@ -9,17 +9,14 @@ const localDay = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).to
 
 export function routinesHTML(d) {
   const ts = d.tasks || [];
-  const rs = d.routines || [];
-  const row = (t, builtin) => `<div class="rt ${t.enabled ? "" : "off"}" ${builtin ? "" : `data-task="${esc(t.id)}"`}>
-      <span class="rt-ic">${icon(builtin ? (t.id === "digest" ? "moon" : t.id === "cheer" ? "leaf" : "letter") : t.kind === "ai" ? "sparkles" : "clock")}</span>
+  const row = (t) => `<div class="rt ${t.enabled ? "" : "off"}" data-task="${esc(t.id)}">
+      <span class="rt-ic">${icon(t.kind === "ai" ? "sparkles" : "clock")}</span>
       <span class="rt-main"><b>${esc(t.title)}</b><small>${esc(t.when)}</small></span>
-      ${t.fixed ? "" : `<button class="switch ${t.enabled ? "on" : ""}" role="switch" aria-checked="${t.enabled}" aria-label="${esc(t.title)}"
-        ${builtin ? `data-routine="${esc(t.id)}"` : `data-toggle="${esc(t.id)}"`}><i></i></button>`}
+      <button class="switch ${t.enabled ? "on" : ""}" role="switch" aria-checked="${t.enabled}" aria-label="${esc(t.title)}" data-toggle="${esc(t.id)}"><i></i></button>
     </div>`;
   return `<div class="routines">
     <div class="sec-title" style="margin-bottom:6px">例行任务 <span class="more"><button class="rt-add" data-task-new>${icon("plus")}新建</button></span></div>
-    <div class="rt-list">${ts.map((t) => row(t, false)).join("")}${rs.map((r) => row(r, true)).join("")}</div>
-    ${ts.length ? "" : `<p class="rt-hint">也可以直接跟小光说「明早 8 点提醒我交作业」「每天晚上陪我复盘一下」。</p>`}
+    ${ts.length ? `<div class="rt-list">${ts.map(row).join("")}</div>` : `<p class="rt-hint">还没有，跟小光说一声就能定。</p>`}
   </div>`;
 }
 
@@ -29,13 +26,6 @@ export function bindRoutines(body) {
     const on = !b.classList.contains("on");
     b.classList.toggle("on", on);
     try { setData(await api.task(on ? "on" : "off", { id: b.dataset.toggle })); }
-    catch (err) { b.classList.toggle("on", !on); toast(err.message, "err"); }
-  }));
-  body.querySelectorAll("[data-routine]").forEach((b) => b.addEventListener("click", async (e) => {
-    e.stopPropagation();
-    const on = !b.classList.contains("on");
-    b.classList.toggle("on", on);
-    try { setData(await api.task("routine", { id: b.dataset.routine, on })); }
     catch (err) { b.classList.toggle("on", !on); toast(err.message, "err"); }
   }));
   body.querySelectorAll("[data-task]").forEach((r) => r.addEventListener("click", () => taskSheet((state.data.tasks || []).find((t) => t.id === r.dataset.task))));

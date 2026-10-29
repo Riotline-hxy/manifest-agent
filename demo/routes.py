@@ -281,15 +281,6 @@ def task_api(h, u, b, q):
         elif act == "delete":
             if not tasks.delete(uid, str(b.get("id") or "")):
                 raise ApiError(404, "没有这个任务")
-        elif act == "routine":
-            rid, on = b.get("id"), bool(b.get("on"))
-            with Store(uid) as st:
-                if rid == "digest":
-                    st.set_profile({"digest_on": on})
-                elif rid == "proactive":
-                    st.set_profile({"proactive": "normal" if on else "off"})
-                else:
-                    raise ApiError(400, "这个不能关")
         else:
             raise ApiError(400, "未知操作")
     except ValueError as e:

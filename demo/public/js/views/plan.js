@@ -686,9 +686,10 @@ function wishSheet(root, w, J) {
   const today = J.today;
   const base = isNew ? today : w.started.slice(0, 10);
   let cat = w?.category || "";
-  let target = w?.target_day || addDays(today, 90);
+  let target = w?.target_day || addDays(today, 14);
   const vis = (id) => (J.categories || []).find((c) => c.id === id)?.vision || "";
-  const spans = [[30, "1 个月"], [90, "3 个月"], [182, "半年"], [365, "1 年"]];
+  const spans = [[14, "14 天"], [30, "30 天"], [90, "90 天"]];
+  const custom = !spans.some(([n]) => addDays(base, n) === target);
   const body = h("div", { class: "j-wish", html: `
     ${isNew ? `<p class="muted">选一个方向。分类只是帮你起个头，名字和愿景都可以自己写。</p>` : ""}
     ${catGrid(cat)}
@@ -696,7 +697,9 @@ function wishSheet(root, w, J) {
     <input class="field" id="wTitle" maxlength="30" value="${esc(w?.title || "")}" placeholder="比如：更敢开口表达">
     <label class="lbl">计划什么时候实现</label>
     <div class="j-days">${spans.map(([n, l]) => `<button type="button" class="chip ${addDays(base, n) === target ? "on" : ""}" data-span="${n}">${l}</button>`).join("")}
-      <input class="field field-date" type="date" min="${addDays(base, 1)}" value="${target}" aria-label="计划实现的日期"></div>
+      <button type="button" class="chip ${custom ? "on" : ""}" data-span-custom>自定义</button>
+      <input class="field field-date" type="date" min="${addDays(base, 1)}" value="${target}" aria-label="计划实现的日期" ${custom ? "" : "hidden"}></div>
+    <small class="muted j-span-note">${diffDays(target, base)} 天后，${md(target)}</small>
     <label class="lbl">出发时的我 <span class="muted">（一句话，没人会评判）</span></label>
     <input class="field" id="wNow" maxlength="80" value="${esc(w?.now_text || "")}" placeholder="比如：开会时总是不敢说出自己的想法">
     <label class="lbl">向往的我</label>
@@ -710,11 +713,17 @@ function wishSheet(root, w, J) {
     if (!t.value || t.value === CATS[prev]?.label) t.value = CATS[cat].label;
     if (!v.value || v.value === vis(prev)) v.value = vis(cat);
   }));
+  const note = () => { body.querySelector(".j-span-note").textContent = target ? `${diffDays(target, base)} 天后，${md(target)}` : ""; };
   body.querySelectorAll("[data-span]").forEach((b) => b.addEventListener("click", () => {
-    target = addDays(base, +b.dataset.span); dIn.value = target;
-    body.querySelectorAll("[data-span]").forEach((x) => x.classList.toggle("on", x === b));
+    target = addDays(base, +b.dataset.span); dIn.value = target; dIn.hidden = true;
+    body.querySelectorAll("[data-span], [data-span-custom]").forEach((x) => x.classList.toggle("on", x === b));
+    note();
   }));
-  dIn.addEventListener("change", () => { target = dIn.value; body.querySelectorAll("[data-span]").forEach((x) => x.classList.remove("on")); });
+  body.querySelector("[data-span-custom]").addEventListener("click", (e) => {
+    body.querySelectorAll("[data-span], [data-span-custom]").forEach((x) => x.classList.toggle("on", x === e.currentTarget));
+    dIn.hidden = false; dIn.focus(); dIn.showPicker?.();
+  });
+  dIn.addEventListener("change", () => { target = dIn.value; body.querySelectorAll("[data-span]").forEach((x) => x.classList.remove("on")); note(); });
   const save = async () => {
     if (isNew && !cat) return toast("先选一个方向");
     const payload = { title: t.value.trim(), category: cat, now_text: body.querySelector("#wNow").value, vision_text: v.value, target_day: target };

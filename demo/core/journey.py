@@ -37,7 +37,7 @@ CATEGORIES = {
 
 RANGES = (7, 15, 30, 60, 90)
 MAX_ACTIVE = 6
-DEFAULT_SPAN = 90           # 没设计划日期时，默认定下后 90 天
+DEFAULT_SPAN = 30           # 没设计划日期时（比如建档自动生成的愿望），默认定下后 30 天
 MAX_HABITS = 8
 
 
