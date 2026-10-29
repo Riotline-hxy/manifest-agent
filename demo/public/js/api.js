@@ -34,6 +34,7 @@ export const api = {
   register: (username, password) => post("/api/auth/register", { username, password }),
   guest: (seed = true) => post("/api/auth/guest", { seed }),
   logout: () => post("/api/auth/logout"),
+  rename: (username) => post("/api/auth/rename", { username }),
   bootstrap: () => get("/api/bootstrap"),
   onboard: (answers) => post("/api/onboard", { answers }),
   profile: (patch) => post("/api/profile", patch),

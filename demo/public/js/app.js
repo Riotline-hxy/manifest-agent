@@ -16,7 +16,6 @@ import { renderIdeas } from "./views/ideas.js";
 import { renderAcademy, renderArticle } from "./views/academy.js";
 import { renderReport } from "./views/report.js";
 import { renderSpace } from "./views/space.js";
-import { openAccount, openMeMenu } from "./account.js";
 import { isResting, openLazy } from "./rest.js";
 import { routinesHTML, bindRoutines, startPulse } from "./tasks.js";
 
@@ -140,7 +139,6 @@ function drawDrawer() {
   const g = d.growth || {};
   const p = d.profile || {};
   const name = p.nickname || state.user?.username || "我";
-  const tasksOn = (d.tasks || []).filter((t) => t.enabled).length;
   const item = (id, label, ic, extra = "") => `<button class="md-item ${state.route === id ? "on" : ""}" data-nav="${id}">${icon(ic)}<span>${label}</span>${extra}</button>`;
   dr.innerHTML = `
     <div class="md-head"><span class="md-logo">${agentMini()}</span><b>显伴</b><span class="sp"></span>
@@ -148,27 +146,14 @@ function drawDrawer() {
     <div class="md-scroll">
       <div class="md-sec">页面</div>
       ${NAV.flat().map(([id, label, ic]) => item(id, label, ic)).join("")}
-      <div class="md-sec">我的</div>
-      ${item("report", "蜕变报告", "report")}
-      <button class="md-item ${state.route === "space" ? "on" : ""}" data-space="memory">${icon("memory")}<span>记忆</span></button>
-      <button class="md-item" data-space="digest">${icon("moon")}<span>夜里整理 · 笔记本</span></button>
-      <button class="md-item" data-space="timeline">${icon("clock")}<span>时间线</span></button>
-      <button class="md-today" data-md-panel>${agentMini()}<span><b>${esc(p.agent_name || "小光")}</b><small>今日任务 ${g.quests_done || 0}/4${tasksOn ? ` · ${tasksOn} 个例行任务` : ""}</small></span>${icon("arrow")}</button>
     </div>
     <div class="md-foot">
-      <button class="icon-btn" data-space="settings" aria-label="设置">${icon("settings")}</button>
-      <button class="md-me" data-act="account"><span class="me-av">${esc(name.slice(0, 1))}</span><span>${esc(name)}</span></button>
-      <button class="icon-btn" data-act="theme" aria-label="氛围">${icon("palette")}</button>
+      <button class="md-me ${state.route === "space" ? "on" : ""}" data-act="account"><span class="me-av">${esc(name.slice(0, 1))}</span><span>${esc(name)}</span><small>我的空间</small>${icon("arrow")}</button>
     </div>`;
   const close = () => toggleDrawer(false);
   dr.querySelector("[data-md-close]").addEventListener("click", close);
   dr.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => { close(); go(b.dataset.nav); }));
-  dr.querySelectorAll("[data-space]").forEach((b) => b.addEventListener("click", () => {
-    close(); state.spaceTab = b.dataset.space; state.route === "space" ? drawView() : go("space");
-  }));
-  dr.querySelector("[data-md-panel]").addEventListener("click", () => { close(); togglePanel(true); });
-  dr.querySelector("[data-act=account]").addEventListener("click", () => { close(); openAccount(); });
-  dr.querySelector("[data-act=theme]").addEventListener("click", () => { close(); openThemeSheet(); });
+  dr.querySelector("[data-act=account]").addEventListener("click", () => { close(); go("space"); });
 }
 
 export const panelOpen = () => !!root?.querySelector(".app.panel-open") && innerWidth > 1180;
@@ -192,9 +177,9 @@ function drawRail() {
       return `<button class="nav-item ${on ? "active" : ""} ${i && j ? "m-more" : ""}" data-nav="${id}" aria-label="${label}">${icon(ic)}${badge}<span class="lbl">${label}</span></button>`;
     }).join("")}`).join("")}
     <div class="spacer"></div>
-    <button class="me-av ${state.route === "space" ? "active" : ""}" data-act="account" title="我的空间与账号">${esc((d.profile?.nickname || state.user?.username || "我").slice(0, 1))}</button>`;
+    <button class="me-av ${state.route === "space" ? "active" : ""}" data-act="account" title="我的空间" aria-label="我的空间">${esc((d.profile?.nickname || state.user?.username || "我").slice(0, 1))}</button>`;
   rail.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => go(b.dataset.nav)));
-  rail.querySelector("[data-act=account]").addEventListener("click", (e) => openMeMenu(e.currentTarget, { openTheme: openThemeSheet }));
+  rail.querySelector("[data-act=account]").addEventListener("click", () => go("space"));
 }
 
 // ---------------------------------------------------------------- 顶栏 ----

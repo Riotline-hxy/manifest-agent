@@ -933,6 +933,21 @@ class ApiTest(unittest.TestCase):
         _, d = c.req("POST", "/api/wish", {"action": "edit", "id": wid, "prompts": ["今天哪一刻我没有逃避？", ""]})
         self.assertEqual(d["journey"]["wishes"][0]["prompts"], ["今天哪一刻我没有逃避？"])
 
+    def test_rename_nickname_and_username(self):
+        c, uid = self.onboarded("old_name")
+        _, d = c.req("POST", "/api/profile", {"nickname": "小鱼"})
+        self.assertEqual(d["profile"]["nickname"], "小鱼")
+        s, d = c.req("POST", "/api/auth/rename", {"username": "new_name"})
+        self.assertEqual((s, d["user"]["username"]), (200, "new_name"))
+        self.member("taken_name")
+        self.assertEqual(c.req("POST", "/api/auth/rename", {"username": "taken_name"})[0], 409)
+        self.assertEqual(c.req("POST", "/api/auth/rename", {"username": "x"})[0], 400)
+        c2 = Client(self.port)
+        self.assertEqual(c2.req("POST", "/api/auth/login", {"username": "new_name", "password": "secret12"})[0], 200)
+        g = Client(self.port)
+        g.req("POST", "/api/auth/guest", {"seed": False})
+        self.assertEqual(g.req("POST", "/api/auth/rename", {"username": "guest_x"})[0], 400)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,7 +28,7 @@ export function renderSpace(root) {
       <section class="me-card card">
         <span class="me-av">${esc((p.nickname || state.user?.username || "我").slice(0, 1))}</span>
         <div class="me-main">
-          <h1>${esc(p.nickname || state.user?.username || "你")}</h1>
+          <h1>${esc(p.nickname || state.user?.username || "你")}<button class="icon-btn sm me-edit" data-name-edit aria-label="改名字" title="改名字">${icon("edit")}</button></h1>
           <p>陪伴第 ${d.counts?.days || 1} 天 · 正在靠近「${esc(p.intent_primary || "还没想好")}」</p>
           <div class="me-stats">
             <span><b class="num">${mems.filter((m) => m.status === "active").length}</b>条记忆</span>
@@ -42,6 +42,7 @@ export function renderSpace(root) {
       <div class="tabs space-tabs">${TABS.map(([k, l]) => `<button class="${k === tab ? "on" : ""}" data-tab="${k}">${l}</button>`).join("")}<span class="ind"></span></div>
       <div class="space-body"></div>
     </div>`;
+  root.querySelector("[data-name-edit]").addEventListener("click", () => nameSheet(root));
   const tabs = root.querySelector(".space-tabs");
   requestAnimationFrame(() => placeInd(tabs));
   tabs.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { state.spaceTab = b.dataset.tab; renderSpace(root); }));
@@ -187,6 +188,8 @@ function settingsTab(body, root) {
     <div class="sec-title">小光的颜色</div>
     <div class="swatches" style="margin-bottom:28px">${AGENT_COLORS.map((c) => `<button class="swatch ${c === col ? "on" : ""}" data-color="${c}" style="background:${c}"></button>`).join("")}</div>
     <div class="settings card">
+      <div class="set-row">${tile("chat", "var(--c-sky)", 40)}<div class="sl"><b>名字</b><small>小光叫你「${esc(p.nickname || state.user?.username || "你")}」${state.user?.kind === "member" ? ` · 登录用户名 ${esc(state.user.username)}` : ""}</small></div>
+        <button class="btn btn-sm btn-ghost" data-name-edit2>修改</button></div>
       <div class="set-row">${tile("user", "var(--c-orange)", 40)}<div class="sl"><b>账号</b><small>${state.user?.kind === "guest" ? "现在是体验账号，注册后记录会一直留着" : `已登录：${esc(state.user?.username || "")}`}</small></div>
         <button class="btn btn-sm btn-ghost" data-account>${state.user?.kind === "guest" ? "注册 / 退出" : "退出登录"}</button></div>
       <div class="set-row">${tile("heart", "var(--c-pink)", 40)}<div class="sl"><b>小光的性格</b><small>说话的方式会跟着变，记得的事不变</small></div>
@@ -220,6 +223,7 @@ function settingsTab(body, root) {
     save({ agent_hue: b.dataset.color }, "小光换好颜色了");
   }));
   body.querySelectorAll(".seg").forEach((sg) => sg.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => save({ [sg.dataset.key]: b.dataset.v }, "改好了"))));
+  body.querySelector("[data-name-edit2]").addEventListener("click", () => nameSheet(root));
   body.querySelector("[data-account]").addEventListener("click", () => (state.user?.kind === "guest" ? openAccount() : confirmLogout()));
   body.querySelector("[data-relearn]").addEventListener("click", () => startScene("relearn", { onFinish: () => renderSpace(root) }));
   body.querySelector("[data-rename]").addEventListener("click", () => {
@@ -247,4 +251,32 @@ function settingsTab(body, root) {
 
 async function confirmLogout() {
   if (await confirmSheet("退出登录？", "下次用用户名和密码就能回来，记录都在。", "退出", "back")) logout();
+}
+
+// 改名字：称呼（小光怎么叫你、页面上显示的名字）；正式账号还可以改登录用户名
+function nameSheet(root) {
+  const p = state.data.profile || {};
+  const member = state.user?.kind === "member";
+  const body = h("div", { class: "j-add", html: `
+    <label class="lbl">小光怎么叫你</label>
+    <input class="field" id="nNick" maxlength="20" value="${esc(p.nickname || "")}" placeholder="比如：林夏、小鱼">
+    ${member ? `<label class="lbl">登录用户名 <span class="muted">（下次登录用这个）</span></label>
+      <input class="field" id="nUser" maxlength="20" value="${esc(state.user.username || "")}">` : `<p class="muted j-note">体验账号还没有登录用户名，注册后就能设置。</p>`}` });
+  const s = sheet({ title: "改名字", body, sticker: "edit",
+    footer: [h("button", { class: "btn btn-ghost", onclick: () => s.close() }, "取消"), h("button", { class: "btn btn-main", onclick: async () => {
+      const nick = body.querySelector("#nNick").value.trim();
+      if (!nick) return body.querySelector("#nNick").focus();
+      try {
+        if (member) {
+          const un = body.querySelector("#nUser").value.trim();
+          if (un && un !== state.user.username) state.user = (await api.rename(un)).user;
+        }
+        setData(await api.profile({ nickname: nick }));
+        s.close();
+        toast(`好，以后叫你「${nick}」`);
+        renderSpace(root);
+      } catch (e) { toast(e.message, "err"); }
+    } }, "保存")] });
+  s.panel.classList.add("j-sheet");
+  setTimeout(() => body.querySelector("#nNick").select(), 60);
 }

@@ -155,6 +155,22 @@ def claim_guest(uid: str, username: str, password: str) -> dict:
     return {"id": uid, "username": username, "kind": "member"}
 
 
+def rename(uid: str, username: str) -> dict:
+    """正式账号改登录用户名（体验账号还没有用户名，要先注册）。"""
+    username = (username or "").strip()
+    if not USERNAME_RE.match(username):
+        raise AuthError("用户名需 2–20 位，可用中文、字母、数字或下划线")
+    with _lock:
+        row = db().execute("SELECT kind FROM users WHERE id=?", (uid,)).fetchone()
+        if not row or row["kind"] != "member":
+            raise AuthError("体验账号先注册，才能设置用户名", 400)
+        try:
+            db().execute("UPDATE users SET username=? WHERE id=?", (username, uid))
+        except sqlite3.IntegrityError:
+            raise AuthError("这个用户名已被使用", 409)
+    return {"id": uid, "username": username, "kind": "member"}
+
+
 def login(username: str, password: str, ip: str) -> dict:
     key_u, key_ip = "u:" + (username or "").lower(), "ip:" + ip
     if too_many(key_u) or too_many(key_ip):

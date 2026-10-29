@@ -51,6 +51,13 @@ def guest(h, u, b, q):
     return _logged_in(h, user, 201)
 
 
+def rename(h, u, b, q):
+    user = auth.rename(u["id"], str(b.get("username") or ""))
+    with Store(u["id"]) as st:
+        st.log("profile", "你改了登录用户名")
+    return 200, {"user": public_user(user)}
+
+
 def logout(h, u, b, q):
     auth.end_session(h._token())
     return 200, {"ok": True}, {"Set-Cookie": h._set_cookie(None)}
@@ -507,6 +514,7 @@ ROUTES = {
     ("POST", "/api/auth/login"): (login, False),
     ("POST", "/api/auth/guest"): (guest, False),
     ("POST", "/api/auth/logout"): (logout, False),
+    ("POST", "/api/auth/rename"): (rename, True),
     ("GET", "/api/bootstrap"): (boot, True),
     ("POST", "/api/onboard"): (onboard, True),
     ("POST", "/api/chat"): (chat, True),

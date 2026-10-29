@@ -337,3 +337,7 @@ details summary::-webkit-details-marker { display: none; }
   .set-row .sl { flex: 1 1 calc(100% - 60px); }
   .set-row .seg, .set-row > .btn { margin-left: 54px; }
 }
+
+.me-main h1 { display: flex; align-items: center; gap: 6px; }
+.me-edit { opacity: .55; }
+.me-edit:hover { opacity: 1; }
