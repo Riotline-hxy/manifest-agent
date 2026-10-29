@@ -38,7 +38,7 @@ DEFAULT_PROFILE = {
     "care_style": "",       # nudge | analyze | quiet | ""
     "pace": "gentle",       # gentle | steady
     "pet_name": "小芽", "pet_branch": "", "pet_branch_at": "", "pet_stage_seen": "",
-    "last_digest_day": "", "current_wish": "",
+    "last_digest_day": "", "current_wish": "", "cheer": {},
     "xp": 0, "badges": [], "last_chat_at": "", "last_proactive_at": "", "created_at": "",
 }
 
@@ -113,6 +113,14 @@ class Store:
               id TEXT PRIMARY KEY, wish_id TEXT, text TEXT, claim TEXT, basis TEXT, status TEXT,
               created_at TEXT, answered_at TEXT);
             CREATE TABLE IF NOT EXISTS reflection(id TEXT PRIMARY KEY, wish_id TEXT, days INTEGER, text TEXT, created_at TEXT);
+            CREATE TABLE IF NOT EXISTS habit(
+              id TEXT PRIMARY KEY, wish_id TEXT, title TEXT, freq TEXT, per_week INTEGER,
+              archived INTEGER DEFAULT 0, created_at TEXT);
+            CREATE TABLE IF NOT EXISTS habit_log(
+              id TEXT PRIMARY KEY, habit_id TEXT, day TEXT, created_at TEXT, UNIQUE(habit_id, day));
+            CREATE TABLE IF NOT EXISTS milestone(
+              id TEXT PRIMARY KEY, wish_id TEXT, title TEXT, due_day TEXT, status TEXT,
+              done_at TEXT, created_at TEXT);
             CREATE TABLE IF NOT EXISTS memory_rev(
               id TEXT PRIMARY KEY, memory_id TEXT, old_text TEXT, new_text TEXT,
               reason TEXT, evidence TEXT, at TEXT);
@@ -121,6 +129,8 @@ class Store:
         cols = {r["name"] for r in self.c.execute("PRAGMA table_info(step)")}
         if "wish_id" not in cols:
             self.c.execute("ALTER TABLE step ADD COLUMN wish_id TEXT DEFAULT ''")
+        if "target_day" not in {r["name"] for r in self.c.execute("PRAGMA table_info(wish)")}:
+            self.c.execute("ALTER TABLE wish ADD COLUMN target_day TEXT DEFAULT ''")
 
     # ---- profile (core memory) ---------------------------------------------
     def profile(self) -> dict:

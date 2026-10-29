@@ -67,7 +67,7 @@ def compose(store: Store) -> dict:
         {"role": "system", "content": (
             f"你是「{p.get('agent_name') or '小光'}」，显化陪伴 agent，要主动给用户发一条消息。"
             "要求：一到两句，口语，像朋友发的消息；引用一个具体的记忆细节；最多一个问题；"
-            "不说教、不鸡血、不催。只输出 JSON：{\"text\":\"...\"}")},
+            "不说教、不鸡血、不催；不要用「不是……而是……」这类转折句式。只输出 JSON：{\"text\":\"...\"}")},
         {"role": "user", "content": (
             f"话题方向：{cue['cue']}；参考文案：{cue['text']}\n"
             f"TA 想靠近：{p.get('intent_primary') or '未知'}\n"

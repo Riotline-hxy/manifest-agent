@@ -113,9 +113,9 @@ def seed_guest(store: Store) -> None:
         ("在小组讨论里常常想好了却没说出口", "event", "chat", "active", 3),
         ("有具体的人需要她时，更容易开始行动", "insight", "confirmed", "active", 5),
         ("跟熟悉的朋友一起练口语时不紧张", "insight", "chat", "active", 7),
-        ("把「拖延」看成准备不足，而不是懒", "insight", "confirmed", "active", 8),
-        ("可能更怕说错，而不是不会说", "insight", "chat", "guess", 10),
-        ("中断时更希望被陪着找原因，而不是被催", "preference", "scene:relearn", "active", 11),
+        ("把「拖延」看成准备不足", "insight", "confirmed", "active", 8),
+        ("可能其实会说，更怕的是说错", "insight", "chat", "guess", 10),
+        ("中断时更希望被陪着找原因，不想被催", "preference", "scene:relearn", "active", 11),
     ]
     for text, kind, src, status, d in mem:
         m = store.add_memory(text, kind, src, status)
@@ -144,9 +144,10 @@ def seed_guest(store: Store) -> None:
 
     recs = [
         ("good", "室友帮我带了奶茶，还记得我要少糖", 0), ("good", "课上老师夸我的问题问得好", 3),
-        ("rest", "今天想休息", 4), ("good", "和 Mia 用英语聊了十分钟，比想象中顺", 5),
-        ("find", "帮朋友准备面试时我特别投入", 5), ("good", "终于把录音听完了，没那么难听", 6),
-        ("good", "Mia 说我口音比上次自然", 8), ("rest", "今天想休息", 9),
+        ("rest", "今天休息", 4), ("good", "和 Mia 用英语聊了十分钟，比想象中顺", 5),
+        ("meme", "录音里的我：这是谁？？我平时就是这个声音吗", 5), ("good", "终于把录音听完了，没那么难听", 6),
+        ("good", "Mia 说我口音比上次自然", 8), ("rest", "今天休息", 9),
+        ("meme", "我：今晚一定早睡。也是我：凌晨一点在看猫咪视频", 11),
         ("good", "楼下的猫今天让我摸了", 9), ("good", "小组里第一次主动提问，大家都在认真听", 10),
         ("good", "面试官笑了一下，我没那么紧张了", 12), ("good", "早上居然自然醒了", 13),
         ("good", "把自我介绍发给 Mia，她说听起来像我", 14),
@@ -200,7 +201,7 @@ def seed_guest(store: Store) -> None:
         store.c.execute("UPDATE msg SET created_at=? WHERE id=?", (at(d, h), m["id"]))
     for kind, text, d in [("onboarding", "完成建档：想靠近「自信与表达」", 0),
                           ("step", "完成一小步：约 Mia 周末一起练口语 20 分钟", 8),
-                          ("memory", "猜了一条：可能更怕说错，而不是不会说", 10),
+                          ("memory", "猜了一条：可能其实会说，更怕的是说错", 10),
                           ("record", "记下好消息：小组里第一次主动提问", 10),
                           ("scene", "完成「重新认识我」，互动偏好：一起找原因", 11)]:
         store.log(kind, text)
@@ -212,14 +213,14 @@ def seed_guest(store: Store) -> None:
     digests = [
         (11, "你完成了「重新认识我」，说中断时更想被陪着找原因。", ["选了「一起找原因」", "把第一句话练顺"],
          {"added": 1, "updated": 0, "deleted": 0, "guesses": 0, "user_lines": 6},
-         [{"op": "ADD", "text": "中断时更希望被陪着找原因，而不是被催", "kind": "preference", "status": "active"}]),
+         [{"op": "ADD", "text": "中断时更希望被陪着找原因，不想被催", "kind": "preference", "status": "active"}]),
         (12, "面试官笑了一下，你没那么紧张了。开场白练了一次。", ["面试官笑了一下", "对着镜子练开场"],
          {"added": 0, "updated": 1, "deleted": 0, "guesses": 0, "user_lines": 4},
          [{"op": "UPDATE", "text": "跟熟悉的朋友一起练口语时不紧张，面对陌生人也在慢慢放松",
            "old": "跟熟悉的朋友一起练口语时不紧张", "kind": "insight", "status": ""}]),
         (13, "早上居然自然醒了，还读完一篇英文播客文稿。", ["自然醒", "读完一篇文稿"],
          {"added": 0, "updated": 0, "deleted": 0, "guesses": 1, "user_lines": 3},
-         [{"op": "ADD", "text": "可能更怕说错，而不是不会说", "kind": "insight", "status": "guess"}]),
+         [{"op": "ADD", "text": "可能其实会说，更怕的是说错", "kind": "insight", "status": "guess"}]),
     ]
     for d, summary, hl, stats, ops in digests:
         store.save_digest(at(d, 3)[:10], summary, hl, stats, ops, True)
@@ -228,8 +229,9 @@ def seed_guest(store: Store) -> None:
     store.bump("report_open", 0)
 
     # 两张成长轨迹看板：主线「自信与表达」，加一张「心灵平静」（文档里的首个主题示例）
-    def seed_wish(title, cat, now_t, vision_t, start_d, items):
-        w = journey.add_wish(store, title, cat, now_t, vision_t, started=at(start_d, 9)[:10])
+    def seed_wish(title, cat, now_t, vision_t, start_d, items, span=60):
+        w = journey.add_wish(store, title, cat, now_t, vision_t, started=at(start_d, 9)[:10],
+                             target_day=at(start_d + span, 9)[:10])
         store.c.execute("UPDATE wish SET created_at=? WHERE id=?", (at(start_d, 9), w["id"]))
         ids = []
         for d, h, text, feeling in items:
@@ -249,7 +251,7 @@ def seed_guest(store: Store) -> None:
         (12, 10, "面试开场前对着镜子练了一次，面试官笑了一下。", "没那么紧张了"),
         (14, 20, "把自我介绍发给 Mia 听，她说听起来像我。", "想继续练"),
     ])
-    calm, _ = seed_wish("心灵平静", "calm", "睡前总在想白天没做好的事，脑子停不下来。", "在忙碌中也能找到平静的片刻", 5, [
+    calm, _ = seed_wish("心灵平静", "calm", "睡前总在想白天没做好的事，脑子停不下来。", "在忙碌中也能找到平静的片刻", 5, span=40, items=[
         (5, 22, "睡前做了六轮四拍呼吸，第三轮开始肩膀松下来了。", "比平时早一点睡着"),
         (8, 18, "今天开完会有些紧张，我给自己留了十分钟，安静地喝了一杯茶。", "慢慢放松了一些"),
         (10, 21, "绕操场慢慢走了两圈，没戴耳机。", "脑子里的声音小了一点"),
@@ -257,10 +259,29 @@ def seed_guest(store: Store) -> None:
         (14, 12, "午饭后在楼下晒了十分钟太阳。", "暖暖的"),
     ])
     store.c.execute("UPDATE step SET wish_id=? WHERE wish_id='' OR wish_id IS NULL", (conf["id"],))
+
+    # 路径：习惯（带打卡历史，今天留给访客自己打）+ 里程碑。历史打卡不补经验，保持 306 的进化演示
+    def seed_habit(w, title, freq, per_week, days, created_d):
+        h = journey.add_habit(store, w["id"], title, freq, per_week)
+        store.c.execute("UPDATE habit SET created_at=? WHERE id=?", (at(created_d, 9), h["id"]))
+        for d in days:
+            store.c.execute("INSERT OR IGNORE INTO habit_log(id, habit_id, day, created_at) VALUES(?,?,?,?)",
+                            (f"hl_{h['id']}_{d}", h["id"], at(d, 21)[:10], at(d, 21)))
+    seed_habit(conf, "跟读英文播客 5 分钟", "daily", 7, [1, 2, 3, 5, 6, 7, 8, 10, 11, 12, 13], 1)
+    seed_habit(conf, "小组里主动开口", "weekly", 2, [3, 10, 12], 3)
+    seed_habit(calm, "睡前做 6 轮呼吸", "daily", 7, [5, 6, 8, 10, 11, 13], 5)
+    for w, title, due_d, done_d in [(conf, "第一次在小组里先开口", 10, 10), (conf, "录好英文自我介绍", 16, None),
+                                    (conf, "能用英语聊满 20 分钟", 38, None), (calm, "一周有 5 天按时睡着", 24, None)]:
+        m = journey.add_milestone(store, w["id"], title, at(due_d, 9)[:10])
+        store.c.execute("UPDATE milestone SET created_at=?, status=?, done_at=? WHERE id=?",
+                        (at(1, 21), "done" if done_d is not None else "todo", at(done_d, 22) if done_d is not None else "", m["id"]))
     store.c.execute("INSERT INTO insight(id, wish_id, text, claim, basis, status, created_at) VALUES(?,?,?,?,?,?,?)",
                     ("in_seed", conf["id"], "你说过常常想好了却说不出口，但这两周你有三次是自己先开口的。你觉得，这算是更相信自己的开始吗？",
                      "这两周有三次主动开口，开始更相信自己了", journey.dumps([cids[1], cids[5], cids[6]]), "open", at(14, 21)))
     store.set_profile({"current_wish": conf["id"]})
+    from . import cheer
+    store.set_profile({"cheer": {"slot": cheer.slot(), "kind": "you", "label": "最近的你", "source": "", "at": at(14, 12),
+                                 "text": "这两周你有三次是自己先开口的，声音在抖也说完了。"}})
 
     # 示例账号里已经发生的进化与徽章算作「看过」，免得第一次打开就弹一串庆祝
     total = growth.total_xp(store)

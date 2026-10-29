@@ -1,15 +1,18 @@
-"""成长轨迹看板（蜕变计划 v3）：愿望 · 瞬间 · 阶段回望 · 小光的小发现。
+"""蜕变计划：愿望 → 路径（里程碑 · 习惯 · 小步）→ 时间轨迹。
 
-依据《显化成长轨迹看板设计文档》：
-  - 每个愿望一张看板：左下「现在的我」，右上「向往的我」，中间是时间轨迹；
-  - 亮点 = 某天真实留下的瞬间；休息或没记录的日子什么都不出现，不清零、不提示补卡；
-  - 曲线是时间，不是进度：不把记录次数换算成「愿望完成度」；
-  - 阶段回望只用所选区间内的真实记录做统计，不编造；
-  - 小光的小发现是「推测」，用户选「像我 / 有一部分 / 不太像 / 跳过」，没确认就不写成事实；
-  - 小光在聊天里只能「提议」记录，用户点了「留下」才保存（routes / agent 负责）。
+  - 每个愿望有定下的日子（started）和计划实现的日子（target_day），轨迹从前者画到后者；
+  - 路径有三种东西：里程碑（路上的站点，可带日期）、习惯（重复做的事，每天或每周 N 次）、
+    小步（做一次就完成的事）；
+  - 轨迹上的时间节点 = 那天为这个愿望做过的事：完成的小步、习惯打卡、到达的里程碑、留下的瞬间；
+    跨度长时由前端按天数合并节点；
+  - 休息日记成 record(type=rest)，那天的习惯不用做，什么进度都保留；
+  - 阶段回望只用所选区间内的真实记录做统计；
+  - 小光的小发现是推测，用户选「像我 / 有一部分」才写进记忆；
+  - 小光在聊天里只能提议瞬间或计划，用户确认后才保存（routes / agent 负责）。
 """
 from __future__ import annotations
 
+import re
 from datetime import date, timedelta
 
 from . import llm
@@ -34,6 +37,8 @@ CATEGORIES = {
 
 RANGES = (7, 15, 30, 60, 90)
 MAX_ACTIVE = 6
+DEFAULT_SPAN = 90           # 没设计划日期时，默认定下后 90 天
+MAX_HABITS = 8
 
 
 def guess_category(text: str) -> str:
@@ -60,6 +65,7 @@ def wishes(st, include_archived: bool = False) -> list[dict]:
     for r in st.c.execute(q):
         w = dict(r)
         w["label"] = CATEGORIES.get(w["category"], CATEGORIES["other"])["label"]
+        w["target_day"] = target_of(w)
         w["count"] = st.c.execute("SELECT COUNT(*) FROM moment WHERE wish_id=?", (w["id"],)).fetchone()[0]
         w["days"] = st.c.execute("SELECT COUNT(DISTINCT day) FROM moment WHERE wish_id=?", (w["id"],)).fetchone()[0]
         out.append(w)
@@ -68,22 +74,52 @@ def wishes(st, include_archived: bool = False) -> list[dict]:
 
 def get_wish(st, wid: str) -> dict | None:
     r = st.c.execute("SELECT * FROM wish WHERE id=?", (wid,)).fetchone()
-    return dict(r) if r else None
+    if not r:
+        return None
+    w = dict(r)
+    w["target_day"] = target_of(w)
+    return w
+
+
+def target_of(w: dict) -> str:
+    if w.get("target_day"):
+        return w["target_day"]
+    try:
+        return (date.fromisoformat(w["started"][:10]) + timedelta(days=DEFAULT_SPAN)).isoformat()
+    except (TypeError, ValueError, KeyError):
+        return (now().date() + timedelta(days=DEFAULT_SPAN)).isoformat()
+
+
+def _target_day(day, started: str) -> str:
+    """计划实现的日子：在定下愿望那天之后，五年以内。"""
+    if not day:
+        return ""
+    try:
+        d = date.fromisoformat(str(day)[:10])
+    except ValueError:
+        raise ValueError("日期不对")
+    if d <= date.fromisoformat(started[:10]):
+        raise ValueError("计划日期要在定下愿望之后")
+    if (d - now().date()).days > 365 * 5:
+        raise ValueError("先定一个五年以内的日子吧")
+    return d.isoformat()
 
 
 def add_wish(st, title: str, category: str, now_text: str = "", vision_text: str = "",
-             started: str | None = None, scene: str = "") -> dict:
+             started: str | None = None, scene: str = "", target_day: str | None = None) -> dict:
     category = category if category in CATEGORIES else guess_category(title)
     title = clip(title or CATEGORIES[category]["label"], 30)
     active = st.c.execute("SELECT COUNT(*) FROM wish WHERE archived=0").fetchone()[0]
     if active >= MAX_ACTIVE:
         raise ValueError(f"同时最多 {MAX_ACTIVE} 个愿望，可以先收起一个")
     wid = new_id("w")
+    started = started or day_key()
+    target = _target_day(target_day, started)
     with st.lock:
-        st.c.execute("INSERT INTO wish(id, title, category, now_text, vision_text, scene, started, archived, sort, created_at) "
-                     "VALUES(?,?,?,?,?,?,?,0,?,?)",
+        st.c.execute("INSERT INTO wish(id, title, category, now_text, vision_text, scene, started, archived, sort, created_at, target_day) "
+                     "VALUES(?,?,?,?,?,?,?,0,?,?,?)",
                      (wid, title, category, clip(now_text, 80), clip(vision_text or CATEGORIES[category]["vision"], 80),
-                      clip(scene, 20), started or day_key(), active, iso()))
+                      clip(scene, 20), started, active, iso(), target))
     st.set_profile({"current_wish": wid})
     st.log("journey", f"开启了一段旅程：{title}")
     return get_wish(st, wid)
@@ -103,6 +139,8 @@ def edit_wish(st, wid: str, patch: dict) -> dict | None:
             fields[k] = clip(str(patch[k] or ""), n)
     if "archived" in patch:
         fields["archived"] = 1 if patch["archived"] else 0
+    if patch.get("target_day"):
+        fields["target_day"] = _target_day(patch["target_day"], w["started"])
     if fields:
         with st.lock:
             st.c.execute("UPDATE wish SET " + ",".join(f"{k}=?" for k in fields) + " WHERE id=?", (*fields.values(), wid))
@@ -323,16 +361,260 @@ def answer_insight(st, iid: str, answer: str) -> dict:
     return {"ok": True, "memory": wrote}
 
 
+# ---------------------------------------------------------------- 习惯 ----
+
+def _week_start(d: date) -> date:
+    return d - timedelta(days=d.weekday())
+
+
+def habits(st, wish_id: str | None = None, since: str | None = None, include_archived: bool = False) -> list[dict]:
+    q, a = "SELECT * FROM habit WHERE 1=1" + ("" if include_archived else " AND archived=0"), []
+    if wish_id:
+        q += " AND wish_id=?"; a.append(wish_id)
+    today = now().date()
+    wk = _week_start(today).isoformat()
+    since = since or (today - timedelta(days=400)).isoformat()
+    out = []
+    for r in st.c.execute(q + " ORDER BY created_at", a).fetchall():
+        h = dict(r)
+        h["days"] = [x[0] for x in st.c.execute(
+            "SELECT day FROM habit_log WHERE habit_id=? AND day>=? ORDER BY day", (h["id"], since))]
+        h["need"] = 7 if h["freq"] == "daily" else max(1, min(6, int(h["per_week"] or 1)))
+        h["week"] = sum(1 for d in h["days"] if d >= wk)
+        h["today"] = today.isoformat() in h["days"]
+        h["total"] = st.c.execute("SELECT COUNT(*) FROM habit_log WHERE habit_id=?", (h["id"],)).fetchone()[0]
+        h["freq_text"] = freq_text(h)
+        out.append(h)
+    return out
+
+
+def freq_text(h: dict) -> str:
+    return "每天" if h["freq"] == "daily" else f"每周 {h['per_week']} 次"
+
+
+def add_habit(st, wish_id: str, title: str, freq: str = "daily", per_week=3) -> dict:
+    if not get_wish(st, wish_id):
+        raise ValueError("没有这个愿望")
+    title = clip((title or "").strip(), 30)
+    if not title:
+        raise ValueError("写一下要重复做的事")
+    if st.c.execute("SELECT COUNT(*) FROM habit WHERE wish_id=? AND archived=0", (wish_id,)).fetchone()[0] >= MAX_HABITS:
+        raise ValueError(f"一个愿望最多 {MAX_HABITS} 个习惯，可以先收起一个")
+    freq = "weekly" if freq == "weekly" else "daily"
+    try:
+        per_week = max(1, min(6, int(per_week or 3)))
+    except (TypeError, ValueError):
+        per_week = 3
+    hid = new_id("h")
+    with st.lock:
+        st.c.execute("INSERT INTO habit(id, wish_id, title, freq, per_week, archived, created_at) VALUES(?,?,?,?,?,0,?)",
+                     (hid, wish_id, title, freq, per_week if freq == "weekly" else 7, iso()))
+    st.log("plan", f"加了一个习惯：{title}")
+    return next(h for h in habits(st, wish_id) if h["id"] == hid)
+
+
+def edit_habit(st, hid: str, patch: dict) -> dict | None:
+    r = st.c.execute("SELECT * FROM habit WHERE id=?", (hid,)).fetchone()
+    if not r:
+        return None
+    fields = {}
+    if patch.get("title"):
+        fields["title"] = clip(str(patch["title"]).strip(), 30)
+    if patch.get("freq") in ("daily", "weekly"):
+        fields["freq"] = patch["freq"]
+        try:
+            pw = max(1, min(6, int(patch.get("per_week") or 3)))
+        except (TypeError, ValueError):
+            pw = 3
+        fields["per_week"] = 7 if patch["freq"] == "daily" else pw
+    if "archived" in patch:
+        fields["archived"] = 1 if patch["archived"] else 0
+    if fields:
+        with st.lock:
+            st.c.execute("UPDATE habit SET " + ",".join(f"{k}=?" for k in fields) + " WHERE id=?", (*fields.values(), hid))
+        if fields.get("archived"):
+            st.log("plan", f"收起了习惯：{r['title']}（打卡记录都在）")
+    return dict(st.c.execute("SELECT * FROM habit WHERE id=?", (hid,)).fetchone())
+
+
+def check_habit(st, hid: str, day: str | None = None, undo: bool = False) -> tuple[dict, bool]:
+    """打卡 / 撤销。返回 (habit, 这次是否新打了卡)。"""
+    r = st.c.execute("SELECT * FROM habit WHERE id=?", (hid,)).fetchone()
+    if not r:
+        raise ValueError("没有这个习惯")
+    day = _valid_day(day)
+    with st.lock:
+        if undo:
+            st.c.execute("DELETE FROM habit_log WHERE habit_id=? AND day=?", (hid, day))
+            created = False
+        else:
+            created = st.c.execute("INSERT OR IGNORE INTO habit_log(id, habit_id, day, created_at) VALUES(?,?,?,?)",
+                                   (new_id("hl"), hid, day, iso())).rowcount > 0
+    if created:
+        st.log("plan", f"打卡：{r['title']}")
+    return dict(r), created
+
+
+def find_habit(st, title: str) -> dict | None:
+    t = (title or "").strip()
+    if not t:
+        return None
+    return next((h for h in habits(st) if t in h["title"] or h["title"] in t), None)
+
+
+# ---------------------------------------------------------------- 里程碑 ----
+
+def milestones(st, wish_id: str | None = None) -> list[dict]:
+    q, a = "SELECT * FROM milestone", []
+    if wish_id:
+        q += " WHERE wish_id=?"; a.append(wish_id)
+    rows = [dict(r) for r in st.c.execute(q, a)]
+    rows.sort(key=lambda m: (m["due_day"] or "9999", m["created_at"]))
+    return rows
+
+
+def _due(day) -> str:
+    if not day:
+        return ""
+    try:
+        return date.fromisoformat(str(day)[:10]).isoformat()
+    except ValueError:
+        raise ValueError("日期不对")
+
+
+def add_milestone(st, wish_id: str, title: str, due_day: str | None = None) -> dict:
+    if not get_wish(st, wish_id):
+        raise ValueError("没有这个愿望")
+    title = clip((title or "").strip(), 30)
+    if not title:
+        raise ValueError("写一下这个站点是什么")
+    mid = new_id("ms")
+    with st.lock:
+        st.c.execute("INSERT INTO milestone(id, wish_id, title, due_day, status, done_at, created_at) VALUES(?,?,?,?,?,?,?)",
+                     (mid, wish_id, title, _due(due_day), "todo", "", iso()))
+    st.log("plan", f"定了一个里程碑：{title}")
+    return dict(st.c.execute("SELECT * FROM milestone WHERE id=?", (mid,)).fetchone())
+
+
+def edit_milestone(st, mid: str, patch: dict) -> dict | None:
+    r = st.c.execute("SELECT * FROM milestone WHERE id=?", (mid,)).fetchone()
+    if not r:
+        return None
+    if patch.get("delete"):
+        with st.lock:
+            st.c.execute("DELETE FROM milestone WHERE id=?", (mid,))
+        return dict(r)
+    fields = {}
+    if patch.get("title"):
+        fields["title"] = clip(str(patch["title"]).strip(), 30)
+    if "due_day" in patch:
+        fields["due_day"] = _due(patch["due_day"])
+    if patch.get("status") in ("todo", "done"):
+        fields["status"] = patch["status"]
+        fields["done_at"] = iso() if patch["status"] == "done" else ""
+    if fields:
+        with st.lock:
+            st.c.execute("UPDATE milestone SET " + ",".join(f"{k}=?" for k in fields) + " WHERE id=?", (*fields.values(), mid))
+        if fields.get("status") == "done":
+            st.log("plan", f"到达里程碑：{r['title']}")
+    return dict(st.c.execute("SELECT * FROM milestone WHERE id=?", (mid,)).fetchone())
+
+
+# ---------------------------------------------------------------- 小光提议的整套计划 ----
+
+def _norm(t: str) -> str:
+    return re.sub(r"[\s，。,.!！?？、]+", "", t or "").lower()
+
+
+def existing_titles(st, wish_id: str) -> dict:
+    """路径上已经有的东西（用于去重）。"""
+    return {
+        "milestones": [m["title"] for m in milestones(st, wish_id)],
+        "habits": [h["title"] for h in habits(st, wish_id)],
+        "steps": [r[0] for r in st.c.execute("SELECT title FROM step WHERE wish_id=? AND status='todo'", (wish_id,))],
+    }
+
+
+def is_dup(title: str, have: list[str]) -> bool:
+    t = _norm(title)
+    return bool(t) and any(t == _norm(x) or (len(t) >= 4 and (t in _norm(x) or _norm(x) in t)) for x in have)
+
+
+def drop_dups(st, wish_id: str, plan: dict) -> tuple[dict, list[str]]:
+    have = existing_titles(st, wish_id)
+    out, dropped = {}, []
+    for k in ("milestones", "habits", "steps"):
+        seen = list(have[k]) + (have["habits"] if k == "steps" else [])
+        keep = []
+        for it in plan.get(k) or []:
+            title = str((it or {}).get("title") or "")
+            if is_dup(title, seen):
+                dropped.append(title)
+                continue
+            seen.append(title)
+            keep.append(it)
+        out[k] = keep
+    return out, dropped
+
+
+def apply_plan(st, wish_id: str, plan: dict) -> dict:
+    """用户在对话卡片上勾选后才调用；每一项都走和手动添加一样的校验。"""
+    w = get_wish(st, wish_id)
+    if not w:
+        raise ValueError("没有这个愿望")
+    made = {"milestones": [], "habits": [], "steps": []}
+    today = now().date()
+    plan, _ = drop_dups(st, wish_id, plan)
+    for m in (plan.get("milestones") or [])[:5]:
+        due = m.get("due_day") or ""
+        if not due and m.get("due_in_days"):
+            try:
+                due = (today + timedelta(days=max(1, min(1800, int(m["due_in_days"]))))).isoformat()
+            except (TypeError, ValueError):
+                due = ""
+        if str(m.get("title") or "").strip():
+            made["milestones"].append(add_milestone(st, wish_id, str(m["title"]), due))
+    for h in (plan.get("habits") or [])[:4]:
+        if str(h.get("title") or "").strip():
+            made["habits"].append(add_habit(st, wish_id, str(h["title"]), str(h.get("freq") or "daily"), h.get("per_week") or 3))
+    for s_ in (plan.get("steps") or [])[:5]:
+        title = clip(str(s_.get("title") or "").strip(), 40)
+        if title:
+            made["steps"].append(st.add_step(title, why=str(s_.get("why") or ""), wish=w["title"], wish_id=wish_id))
+    st.log("plan", f"和小光一起规划了「{w['title']}」")
+    return made
+
+
+def path_text(st, w: dict) -> str:
+    """给小光看的一段路径描述。"""
+    lines = [f"[{w['id']}] {w['title']}（{w['label']}）：{w['started']} 定下，计划 {w['target_day']} 实现；向往：{w['vision_text']}"]
+    for m in milestones(st, w["id"]):
+        lines.append(f"  - 里程碑 {'✓' if m['status'] == 'done' else '·'} {m['title']}" + (f"（{m['due_day']}）" if m["due_day"] else ""))
+    for h in habits(st, w["id"]):
+        lines.append(f"  - 习惯 [{h['id']}] {h['title']}，{h['freq_text']}，本周 {h['week']}/{h['need']}" + ("，今天已打卡" if h["today"] else ""))
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------- 打包给前端 ----
 
 def board(st) -> dict:
     cur = current(st)
-    since = (now().date() - timedelta(days=89)).isoformat()
+    ws = wishes(st)
+    today = now().date()
+    oldest = min([w["started"][:10] for w in ws] + [(today - timedelta(days=90)).isoformat()])
+    since = max(oldest, (today - timedelta(days=730)).isoformat())
+    hs = habits(st, since=since)
+    ms = milestones(st)
+    for w in ws:
+        w["habits"] = [h for h in hs if h["wish_id"] == w["id"]]
+        w["milestones"] = [m for m in ms if m["wish_id"] == w["id"]]
     return {
-        "wishes": wishes(st),
+        "wishes": ws,
         "current": cur["id"] if cur else "",
         "moments": moments(st, since=since),
-        "insights": {w["id"]: open_insight(st, w["id"]) for w in wishes(st)},
+        "rest_days": [r[0] for r in st.c.execute("SELECT DISTINCT day FROM record WHERE type='rest' AND day>=?", (since,))],
+        "insights": {w["id"]: open_insight(st, w["id"]) for w in ws},
         "categories": [{"id": k, "label": v["label"], "vision": v["vision"]} for k, v in CATEGORIES.items()],
-        "today": day_key(),
+        "today": today.isoformat(),
+        "week_start": _week_start(today).isoformat(),
     }

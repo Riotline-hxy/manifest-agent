@@ -52,6 +52,8 @@ def build(store: Store, days: int = 14, with_letter: bool = True) -> dict:
         "SELECT * FROM xp WHERE created_at >= ?", (since.isoformat(timespec="seconds"),))]
     xp_sum = sum(int(r["amount"]) for r in growth_rows)
     rest_days = {r["day"] for r in rest}
+    checkins = [dict(r) for r in store.c.execute(
+        "SELECT h.title, l.day FROM habit_log l JOIN habit h ON h.id=l.habit_id WHERE l.day >= ?", (since.date().isoformat(),))]
 
     nodes = []          # 故事节点，每条带可核对来源
     surprise = None
@@ -73,14 +75,19 @@ def build(store: Store, days: int = 14, with_letter: bool = True) -> dict:
         first = good[-1]
         nodes.append({"kind": "good", "label": "第一条好消息", "title": clip(first["text"], 40),
                       "text": first["day"], "sources": [{"type": "record", "id": first["id"], "text": first["text"]}]})
+    if checkins:
+        top = max({c["title"] for c in checkins}, key=lambda t: sum(1 for c in checkins if c["title"] == t))
+        nodes.append({"kind": "action", "label": "一直在做的事", "title": f"习惯打卡 {len(checkins)} 次",
+                      "text": f"其中「{clip(top, 16)}」做了 {sum(1 for c in checkins if c['title'] == top)} 次",
+                      "sources": [{"type": "habit", "text": f"{c['day'][5:]} {c['title']}"} for c in checkins[-4:]]})
     if done:
         nodes.append({"kind": "action", "label": "真实做过的事", "title": f"完成了 {len(done)} 个小步",
                       "text": "、".join(clip(s["title"], 16) for s in done[:3]),
                       "sources": [{"type": "step", "id": s["id"], "text": s["title"]} for s in done[:4]]})
     if rest_days:
         nodes.append({"kind": "rest", "label": "慢下来的日子", "title": f"{len(rest_days)} 天",
-                      "text": "这些天你没有完成任何事，也没有被扣掉什么。",
-                      "sources": [{"type": "record", "text": "偷懒日记录"}]})
+                      "text": "这些天你好好休息了，所有进度都还在。",
+                      "sources": [{"type": "record", "text": "休息日记录"}]})
     if len(good) >= 2 and w:
         nodes.append({"kind": "theme", "label": "反复出现的词", "title": w,
                       "text": "它在你写下的好事里出现了不止一次。",
@@ -89,7 +96,7 @@ def build(store: Store, days: int = 14, with_letter: bool = True) -> dict:
     facts = {
         "days": days, "name": p.get("nickname") or "", "agent": p.get("agent_name") or "小光",
         "intent": p.get("intent_primary") or "", "why": p.get("intent_why") or "",
-        "good": len(good), "rest": len(rest_days), "done": len(done), "finds": len(finds),
+        "good": len(good), "rest": len(rest_days), "done": len(done), "finds": len(finds), "checkins": len(checkins),
         "xp": xp_sum,
         "good_samples": [clip(r["text"], 30) for r in good[:4]],
         "done_samples": [clip(s["title"], 24) for s in done[:4]],
@@ -103,7 +110,7 @@ def build(store: Store, days: int = 14, with_letter: bool = True) -> dict:
             {"role": "system", "content": (
                 "你是显化陪伴 agent，要给用户写一段蜕变回顾。只使用给出的事实，不要编造任何事件或数字。"
                 "要求：90–150 字，第二人称，温暖但克制，不用感叹号堆砌；先说一个具体的变化，再引用一条好消息或完成的小步；"
-                "最后一句指向下一阶段，但不布置任务。另给一个 ≤12 字的标题。只输出 JSON：{\"title\":\"...\",\"letter\":\"...\"}")},
+                "最后一句指向下一阶段，但不布置任务；不要用「不是……而是……」这类转折句式。另给一个 ≤12 字的标题。只输出 JSON：{\"title\":\"...\",\"letter\":\"...\"}")},
             {"role": "user", "content": str(facts)},
         ], timeout=30)
         if out and out.get("letter"):

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from core import academy, auth, digest, growth, journey, llm, onboarding, report, scenes, scheduler
 from core.store import Store
-from core.util import clip, iso
+from core.util import clip, day_key, iso
 from core.api import VERSION, ApiError, bootstrap, public_user
 
 
@@ -167,19 +167,84 @@ def step(h, u, b, q):
 
 
 def record(h, u, b, q):
+    """好消息页：小确幸(good) / 内心戏(meme)。蜕变计划：休息日(rest，可撤销)。find 只保留旧数据的展示。"""
     type_ = b.get("type")
-    if type_ not in ("good", "rest", "find"):
+    if type_ not in ("good", "meme", "rest"):
         raise ApiError(400, "类型不对")
-    text = clip(str(b.get("text") or ""), 200).strip() or ("今天想休息" if type_ == "rest" else "")
-    if not text:
-        raise ApiError(400, "写点什么")
     with Store(u["id"]) as st:
+        if type_ == "rest" and b.get("undo"):
+            with st.lock:
+                st.c.execute("DELETE FROM record WHERE type='rest' AND day=?", (day_key(),))
+            st.log("record", "今天不休息了")
+            return 200, bootstrap(st)
+        text = clip(str(b.get("text") or ""), 200).strip() or ("今天休息" if type_ == "rest" else "")
+        if not text:
+            raise ApiError(400, "写点什么")
+        if type_ == "rest" and st.c.execute("SELECT 1 FROM record WHERE type='rest' AND day=?", (day_key(),)).fetchone():
+            return 200, {"xp": None, **bootstrap(st)}
         r = st.add_record(type_, text)
         xp = None
-        if type_ == "good":
-            xp = growth.award(st, "good", ref="rec:" + r["id"], note="好消息")
-        st.log("record", {"good": "收下一条好消息", "rest": "今天是偷懒日", "find": "记下一条新发现"}[type_])
-        return 200, {"xp": xp, **bootstrap(st)}
+        if type_ in ("good", "meme"):
+            xp = growth.award(st, "good", ref="rec:" + r["id"], note="小确幸" if type_ == "good" else "内心戏")
+        st.log("record", {"good": "记下一件小确幸", "meme": "记下一段内心戏", "rest": "今天给自己放了假"}[type_])
+        return 200, {"xp": xp, "record": r, **bootstrap(st)}
+
+
+def habit_api(h, u, b, q):
+    act = b.get("action")
+    out = {}
+    with Store(u["id"]) as st:
+        try:
+            if act == "add":
+                out["habit"] = journey.add_habit(st, str(b.get("wish_id") or ""), str(b.get("title") or ""),
+                                                 str(b.get("freq") or "daily"), b.get("per_week") or 3)
+            elif act in ("check", "uncheck"):
+                hb, created = journey.check_habit(st, str(b.get("id") or ""), b.get("day"), undo=act == "uncheck")
+                if created:
+                    day = b.get("day") or day_key()
+                    out["xp"] = growth.award(st, "action", ref=f"habit:{hb['id']}:{day}", note="打卡：" + hb["title"])
+            elif act == "edit":
+                if not journey.edit_habit(st, str(b.get("id") or ""), b):
+                    raise ApiError(404, "没有这个习惯")
+            else:
+                raise ApiError(400, "未知操作")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, {**out, **bootstrap(st)}
+
+
+def milestone_api(h, u, b, q):
+    act = b.get("action")
+    out = {}
+    with Store(u["id"]) as st:
+        try:
+            if act == "add":
+                out["milestone"] = journey.add_milestone(st, str(b.get("wish_id") or ""), str(b.get("title") or ""), b.get("due_day"))
+            elif act in ("done", "todo", "edit", "delete"):
+                patch = dict(b)
+                if act in ("done", "todo"):
+                    patch["status"] = act
+                if act == "delete":
+                    patch["delete"] = True
+                m = journey.edit_milestone(st, str(b.get("id") or ""), patch)
+                if not m:
+                    raise ApiError(404, "没有这个里程碑")
+                if act == "done":
+                    out["xp"] = growth.award(st, "action", ref="ms:" + m["id"], note="到达：" + m["title"])
+            else:
+                raise ApiError(400, "未知操作")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, {**out, **bootstrap(st)}
+
+
+def plan_apply(h, u, b, q):
+    with Store(u["id"]) as st:
+        try:
+            made = journey.apply_plan(st, str(b.get("wish_id") or ""), b)
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, {"made": {k: len(v) for k, v in made.items()}, **bootstrap(st)}
 
 
 def scene_start(h, u, b, q):
@@ -268,7 +333,8 @@ def wish_api(h, u, b, q):
         try:
             if act == "add":
                 journey.add_wish(st, str(b.get("title") or ""), str(b.get("category") or ""),
-                                 str(b.get("now_text") or ""), str(b.get("vision_text") or ""), scene=str(b.get("scene") or ""))
+                                 str(b.get("now_text") or ""), str(b.get("vision_text") or ""), scene=str(b.get("scene") or ""),
+                                 target_day=b.get("target_day") or None)
             elif act == "edit":
                 if not journey.edit_wish(st, str(b.get("id") or ""), b):
                     raise ApiError(404, "没有这个愿望")
@@ -385,6 +451,9 @@ ROUTES = {
     ("POST", "/api/memory/digest"): (digest_now, True),
     ("POST", "/api/wish"): (wish_api, True),
     ("POST", "/api/moment"): (moment_api, True),
+    ("POST", "/api/habit"): (habit_api, True),
+    ("POST", "/api/milestone"): (milestone_api, True),
+    ("POST", "/api/plan/apply"): (plan_apply, True),
     ("GET", "/api/wish/review"): (wish_review, True),
     ("POST", "/api/wish/reflect"): (wish_reflect, True),
     ("POST", "/api/wish/insight"): (wish_insight, True),

@@ -20,7 +20,7 @@ import threading
 from . import academy, growth, journey, llm, memory
 from .scenes import SCENES
 from .store import Store
-from .util import clip, now
+from .util import clip, day_key, now
 
 MAX_ROUNDS = 4
 HISTORY_TURNS = 16
@@ -44,7 +44,8 @@ PERSONA = """你是「{name}」，一个显化陪伴 agent。你只做一件事�
 - 先接住情绪，再说别的。对方没问建议时，不急着给建议。
 - 每次最多问一个问题。
 - 小行动必须小到 5 分钟内能开始。用户不想做时，接受，不催。
-- 偷懒、失败都不会清零任何东西，可以直接说出来让对方安心。
+- 休息、中断都不会让任何进度消失，可以直接说出来让对方安心。
+- 不要用「不是……而是……」「这不是……」「……不算……」这类转折句式，直接说你看到的、你想说的。
 - 不说「加油」「你一定可以」这类空话，用具体的观察代替：「你上周也是这样把第一段写出来的」。
 - 只用下面「你知道的」里的事实谈论这个人。不知道就问，不要编造过去的对话。
 - 标注为「待确认的猜测」的内容，不能当成事实说。
@@ -53,11 +54,17 @@ PERSONA = """你是「{name}」，一个显化陪伴 agent。你只做一件事�
 绝不能据此说 TA 是「三分钟热度」「没毅力」。人格判断只能来自用户自己说的，或反复出现后由 TA 确认。
 
 工具使用：
-- 用户在**这一句**里说了一件好事 → log_good_news；说今天想休息/偷懒 → log_lazy_day。只记这一句里新说的事，不要把聊天记录里以前提过的事补记一遍。
+- 用户在**这一句**里说了一件小确幸 → log_good_news；说今天想休息 → log_lazy_day（记成休息日，计划里的习惯那天不用做）。只记这一句里新说的事，聊天记录里以前提过的事不要补记。
+- 计划由三种东西组成：里程碑（路上看得见的站点，可以带日期）、习惯（重复做的事，每天或每周 N 次）、小步（做一次就完成的事）。
+- 用户想规划某个愿望怎么实现（包括界面发来的「帮我规划这条路」）→ 先看「正在看的愿望和它的路径」里已经有什么，
+  再补齐缺的信息：第一次回复只问一个问题（比如每周能投入多少时间、现在最卡在哪），这一轮不调用任何工具；
+  信息够了再调用 propose_plan：最多 3 个里程碑、3 个习惯、3 个小步，只放路径上还没有的，具体、量力而行。这只是提议，回复里请对方「看看哪些想加进计划」，不要说已经加好了。
 - 你们一起定下一个小行动 → add_step；用户说做完了某一步 → complete_step。
+- 用户明确要加一个重复做的事（「帮我加个每周健身三次」）→ add_habit；用户说今天做了某个习惯里的事（「今天去健身了」）→ checkin_habit。
 - 用户想冥想、感恩、理清目标、走一遍七步、或想「重新认识我」→ start_scene。
 - 需要回忆以前的事、而下面没提供时 → search_memory。
-- 用户讲到一个和 TA 的愿望有关的具体瞬间（做了什么、当时什么感受）→ propose_moment，提议把它留在成长轨迹上。这只是提议，用户点「留下」才会保存；回复里要说「要不要把它留在轨迹上？」，不能说「已经记下了」。
+- 用户在**这一句**里讲到自己刚做的、和愿望有关的一件具体的事（做了什么、当时什么感受）→ propose_moment，提议把它留在轨迹上。
+  规划请求、提问、聊天记录里以前提过的事，都不要用 propose_moment。这只是提议，用户点「留下」才会保存；回复里要说「要不要把它留在轨迹上？」，不能说「已经记下了」。
   同一件事只用一个：和愿望有关的具体瞬间用 propose_moment，就不要再 log_good_news；和愿望无关的小确幸才用 log_good_news。
 - 用户明确让你记住某事 → remember（说「帮我记住」这类明确请求才用）。
 - 用户明确更正或否定以前记住的事（「我现在不喜欢寿司了」「那条不对」）→ correct_memory，写清新的说法；
@@ -96,6 +103,32 @@ TOOLS = [
             "wish": {"type": "string", "description": "和哪个愿望有关，写愿望名称；不确定就留空"}},
             "required": ["text"]}}},
     {"type": "function", "function": {
+        "name": "propose_plan", "description": "为某个愿望提议一套路径（里程碑 / 习惯 / 小步），用户在界面上勾选后才加入计划",
+        "parameters": {"type": "object", "properties": {
+            "wish": {"type": "string", "description": "愿望名称"},
+            "milestones": {"type": "array", "items": {"type": "object", "properties": {
+                "title": {"type": "string", "description": "≤16 字，看得见的站点"},
+                "due_in_days": {"type": "integer", "description": "大约多少天后到达"}}, "required": ["title"]}},
+            "habits": {"type": "array", "items": {"type": "object", "properties": {
+                "title": {"type": "string", "description": "≤16 字，动词开头"},
+                "freq": {"type": "string", "enum": ["daily", "weekly"]},
+                "per_week": {"type": "integer", "description": "weekly 时每周几次"}}, "required": ["title", "freq"]}},
+            "steps": {"type": "array", "items": {"type": "object", "properties": {
+                "title": {"type": "string", "description": "≤20 字，5 分钟内能开始"},
+                "why": {"type": "string"}}, "required": ["title"]}},
+            "note": {"type": "string", "description": "一句话说明这样安排的理由"}},
+            "required": ["wish"]}}},
+    {"type": "function", "function": {
+        "name": "add_habit", "description": "用户明确要求时，给愿望加一个重复做的习惯",
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"}, "freq": {"type": "string", "enum": ["daily", "weekly"]},
+            "per_week": {"type": "integer"}, "wish": {"type": "string", "description": "愿望名称，不确定就留空"}},
+            "required": ["title", "freq"]}}},
+    {"type": "function", "function": {
+        "name": "checkin_habit", "description": "用户说今天做了某个习惯里的事时打卡",
+        "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "习惯名称或其中的关键词"}},
+                       "required": ["title"]}}},
+    {"type": "function", "function": {
         "name": "add_step", "description": "把一个今天就能开始的小行动加入计划",
         "parameters": {"type": "object", "properties": {
             "title": {"type": "string", "description": "≤20 字，动词开头"},
@@ -108,7 +141,7 @@ TOOLS = [
         "name": "log_good_news", "description": "记录一件好事（再小也算）",
         "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}},
     {"type": "function", "function": {
-        "name": "log_lazy_day", "description": "用户今天想休息/偷懒。不会清零任何进度",
+        "name": "log_lazy_day", "description": "用户今天想休息：记成休息日，计划里的习惯这天不用做，所有进度都保留",
         "parameters": {"type": "object", "properties": {"note": {"type": "string"}}}}},
     {"type": "function", "function": {
         "name": "start_scene", "description": "开始一个引导场景，由界面一步步带用户完成",
@@ -128,7 +161,7 @@ TOOLS = [
             "note": {"type": "string"}}, "required": ["care_style"]}}},
 ]
 
-TOOL_MOOD = {"propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
+TOOL_MOOD = {"propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
              "add_step": "satisfied", "remember": "recall", "start_scene": "curious",
              "get_growth": "focused", "knowledge_search": "searching", "set_care_style": "shy"}
 
@@ -147,20 +180,22 @@ def core_block(p: dict, store: Store) -> str:
         lines.append("作息：" + p["schedule_hint"])
     if p.get("mbti_hint"):
         lines.append(f"MBTI（只是好玩，不用来判断）：{p['mbti_hint']}")
-    steps = [s for s in store.steps() if s["status"] == "todo"][:4]
+    ws = journey.wishes(store)
+    cur = journey.current(store)
+    if ws:
+        lines.append("TA 的愿望：" + "；".join(f"「{w['title']}」" for w in ws) + "。")
+    if cur:
+        lines.append("正在看的愿望和它的路径：\n" + journey.path_text(store, cur)
+                     + (f"\n  TA 定下时说自己：{cur['now_text']}" if cur["now_text"] else ""))
+        recent = journey.moments(store, cur["id"], limit=3)
+        if recent:
+            lines.append("这个愿望下最近的瞬间：" + "；".join(f"{m['day'][5:]} {clip(m['text'], 30)}" for m in recent))
+    steps = [s for s in store.steps() if s["status"] == "todo"][:5]
     if steps:
-        lines.append("计划里待做的小步：" + "；".join(f"[{s['id']}] {s['title']}" for s in steps))
+        lines.append("待做的小步：" + "；".join(f"[{s['id']}] {s['title']}" for s in steps))
     done = [s for s in store.steps() if s["status"] == "done"][:3]
     if done:
         lines.append("最近完成：" + "；".join(s["title"] for s in done))
-    cur = journey.current(store)
-    if cur:
-        recent = journey.moments(store, cur["id"], limit=3)
-        lines.append(f"正在看的愿望看板：「{cur['title']}」（{journey.CATEGORIES.get(cur['category'], {}).get('label', '')}）"
-                     + (f"；TA 说现在的自己：{cur['now_text']}" if cur["now_text"] else "")
-                     + (f"；向往：{cur['vision_text']}" if cur["vision_text"] else ""))
-        if recent:
-            lines.append("轨迹上最近的瞬间：" + "；".join(f"{m['day'][5:]} {clip(m['text'], 30)}" for m in recent))
     total = growth.total_xp(store)
     stg = growth.stage_of(total, p.get("pet_branch") or "")
     lines.append(f"陪伴第 {store.counts()['days']} 天；累计经验 {total}（Lv{growth.level_of(total)['lv']}）；"
@@ -197,6 +232,10 @@ def history(store: Store) -> list[dict]:
 
 
 # ---- tools -------------------------------------------------------------------
+
+def _match_wish(store: Store, ws: list[dict], hint: str) -> dict:
+    return (next((x for x in ws if hint and (hint in x["title"] or x["title"] in hint or hint in x["label"])), None)
+            or journey.current(store) or ws[0])
 
 # 「明确要求记住」的说法。没有这些词时，remember 一律拒绝——近况交给夜里的整理，
 # 不让模型把随口一提升级成受保护的长期记忆（讨论稿 2.4 的读写边界）。
@@ -239,9 +278,7 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         ws = journey.wishes(store)
         if not ws:
             return {"ok": False, "error": "还没有开启任何愿望的轨迹"}
-        hint = str(args.get("wish") or "")
-        w = (next((x for x in ws if hint and (hint in x["title"] or x["title"] in hint or hint in x["label"])), None)
-             or journey.current(store) or ws[0])
+        w = _match_wish(store, ws, str(args.get("wish") or ""))
         return {"ok": True, "pending": True, "note": "只是提议，等用户在界面上点「留下」才会保存",
                 "proposal": {"text": text, "feeling": clip(str(args.get("feeling") or ""), 80),
                              "wish_id": w["id"], "wish_title": w["title"]},
@@ -269,9 +306,53 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         store.log("record", "收下一条好消息")
         return {"ok": True, "record": r, "xp": xp, "count": store.counts()["good"]}
     if name == "log_lazy_day":
-        r = store.add_record("rest", str(args.get("note") or "今天偷懒"))
-        store.log("record", "今天是偷懒日")
+        if store.c.execute("SELECT 1 FROM record WHERE type='rest' AND day=?", (day_key(),)).fetchone():
+            return {"ok": True, "already": True, "note": "今天已经是休息日了"}
+        r = store.add_record("rest", clip(str(args.get("note") or "今天休息"), 200))
+        store.log("record", "今天给自己放了假")
         return {"ok": True, "record": r, "kept": store.counts()}
+    if name == "propose_plan":
+        ws = journey.wishes(store)
+        if not ws:
+            return {"ok": False, "error": "还没有愿望，先请对方在蜕变计划里定一个"}
+        w = _match_wish(store, ws, str(args.get("wish") or ""))
+
+        def items(key, n, fields):
+            out = []
+            for it in (args.get(key) or [])[:n]:
+                if isinstance(it, dict) and str(it.get("title") or "").strip():
+                    out.append({k: it.get(k) for k in fields})
+            return out
+        plan = {"milestones": items("milestones", 3, ("title", "due_in_days")),
+                "habits": items("habits", 3, ("title", "freq", "per_week")),
+                "steps": items("steps", 3, ("title", "why"))}
+        plan, dropped = journey.drop_dups(store, w["id"], plan)
+        if not any(plan.values()):
+            return {"ok": False, "error": "提议的内容路径上都已经有了", "already": dropped}
+        for h in plan["habits"]:
+            h["freq"] = "weekly" if h.get("freq") == "weekly" else "daily"
+        return {"ok": True, "pending": True, "note": "只是提议，用户勾选后才会加入计划",
+                "already_on_path": dropped, "wish_id": w["id"], "wish_title": w["title"], "plan": plan, "why": clip(str(args.get("note") or ""), 80)}
+    if name == "add_habit":
+        ws = journey.wishes(store)
+        if not ws:
+            return {"ok": False, "error": "还没有愿望"}
+        w = _match_wish(store, ws, str(args.get("wish") or ""))
+        try:
+            h = journey.add_habit(store, w["id"], str(args.get("title") or ""), str(args.get("freq") or "daily"),
+                                  args.get("per_week") or 3)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "habit": {"id": h["id"], "title": h["title"], "freq_text": h["freq_text"]}, "wish_title": w["title"]}
+    if name == "checkin_habit":
+        h = journey.find_habit(store, str(args.get("title") or ""))
+        if not h:
+            return {"ok": False, "error": "没找到对应的习惯", "habits": [x["title"] for x in journey.habits(store)]}
+        _, created = journey.check_habit(store, h["id"])
+        xp = growth.award(store, "action", ref=f"habit:{h['id']}:{day_key()}", note="打卡：" + h["title"]) if created else None
+        h = next(x for x in journey.habits(store) if x["id"] == h["id"])
+        return {"ok": True, "habit": {"title": h["title"], "week": h["week"], "need": h["need"], "freq_text": h["freq_text"]},
+                "already": not created, "xp": xp}
     if name == "start_scene":
         sid = args.get("scene")
         if sid not in SCENES:

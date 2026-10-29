@@ -9,7 +9,9 @@ import { startScene } from "../scene.js";
 
 const TOOL = {
   add_step: ["flag", "var(--c-orange)", "加进计划"], complete_step: ["checkc", "var(--c-orange)", "完成一小步"],
-  log_good_news: ["star", "var(--c-lemon)", "收下好消息"], log_lazy_day: ["moon", "var(--c-sky)", "偷懒日"],
+  log_good_news: ["star", "var(--c-lemon)", "收下小确幸"], log_lazy_day: ["moon", "var(--c-violet)", "今天休息"],
+  propose_plan: ["flag", "var(--c-orange)", "小光提议的计划"], add_habit: ["clock", "var(--c-mint)", "加了一个习惯"],
+  checkin_habit: ["checkc", "var(--c-mint)", "习惯打卡"],
   remember: ["memory", "var(--c-violet)", "记住了"], correct_memory: ["edit", "var(--c-violet)", "改掉旧记忆"],
   search_memory: ["memory", "var(--c-violet)", "翻了翻记忆"], get_growth: ["sprout", "var(--c-mint)", "查了成长"],
   knowledge_search: ["book", "var(--c-coral)", "心灵学堂"], set_care_style: ["compass", "var(--c-sky)", "互动偏好"],
@@ -17,7 +19,41 @@ const TOOL = {
   propose_moment: ["sparkles", "var(--c-violet)", "要留在轨迹上吗"],
 };
 
-// 小光只能「提议」记录：卡片上由用户决定留不留、留在哪个愿望下（文档 3.2）
+// 小光提议的计划：逐项勾选，用户点「加进计划」才写入
+function planFoot(el, result) {
+  const plan = result.plan || {};
+  const groups = [["milestones", "里程碑", "flag"], ["habits", "习惯", "clock"], ["steps", "小步", "check"]];
+  const box = el.querySelector(".tool-f");
+  box.classList.add("plan-pick");
+  box.innerHTML = `${result.why ? `<p class="pp-why">${esc(result.why)}</p>` : ""}
+    ${groups.filter(([k]) => (plan[k] || []).length).map(([k, label, ic]) => `<div class="pp-g"><div class="pp-k">${icon(ic)}${label}</div>
+      ${plan[k].map((it, i) => `<label class="pp-it"><input type="checkbox" checked data-k="${k}" data-i="${i}"><span>${esc(it.title)}</span>
+        <small>${k === "habits" ? (it.freq === "weekly" ? `每周 ${it.per_week || 3} 次` : "每天") : k === "milestones" && it.due_in_days ? `约 ${it.due_in_days} 天后` : ""}</small></label>`).join("")}</div>`).join("")}
+    <div class="pp-acts"><button class="btn btn-sm btn-main" data-apply>${icon("check")}加进「${esc(result.wish_title || "")}」</button>
+      <button class="btn btn-sm btn-quiet" data-skip>先不加</button></div>`;
+  box.querySelector("[data-skip]").addEventListener("click", () => {
+    box.innerHTML = `<span class="muted">好，这次先不加。想改哪里，直接跟我说。</span>`;
+    el.classList.add("dim");
+  });
+  box.querySelector("[data-apply]").addEventListener("click", async (e) => {
+    const pick = { milestones: [], habits: [], steps: [] };
+    box.querySelectorAll("input:checked").forEach((c) => pick[c.dataset.k].push(plan[c.dataset.k][+c.dataset.i]));
+    if (!pick.milestones.length && !pick.habits.length && !pick.steps.length) return toast("至少勾一项");
+    e.currentTarget.disabled = true;
+    try {
+      const out = await api.planApply({ wish_id: result.wish_id, ...pick });
+      setData(out);
+      const n = out.made || {};
+      box.innerHTML = `<span class="muted">加好了：${[n.milestones && `${n.milestones} 个里程碑`, n.habits && `${n.habits} 个习惯`, n.steps && `${n.steps} 个小步`].filter(Boolean).join("、")}</span>
+        <button class="btn btn-sm btn-ghost" data-go-plan>去蜕变计划看看</button>`;
+      box.querySelector("[data-go-plan]").addEventListener("click", () => go("plan"));
+      el.querySelector(".tool-k").textContent = "加进计划了";
+      burstAt(el.querySelector(".tile"), 26);
+    } catch (err) { e.currentTarget.disabled = false; toast(err.message, "err"); }
+  });
+}
+
+// 小光只能「提议」记录：卡片上由用户决定留不留、留在哪个愿望下
 function proposalFoot(el, result) {
   const p = result.proposal || {};
   const ws = result.wishes || [];
@@ -47,6 +83,8 @@ function proposalFoot(el, result) {
   });
 }
 
+const GOOD_PH = { good: "今天有什么让你嘴角上扬的小事？", meme: "此刻脑子里在上演什么？吐槽、碎碎念都可以" };
+
 const HINTS = [
   ["帮我记住我喜欢吃寿司", "memory"], ["我三天没健身了", "moon"], ["你对我了解多少？", "eye"],
   ["今天被老师夸了", "star"], ["水桶效应是什么意思", "book"], ["我什么时候能进化？", "sprout"],
@@ -59,7 +97,11 @@ function toolCard(name, args, result) {
     case "add_step": title = result.step?.title || args.title || ""; note = "写进蜕变计划了"; break;
     case "complete_step": title = ok ? result.step?.title : "没找到对应的一小步"; note = ok ? "打勾了，花园里多了一株" : "没有写入任何完成记录"; break;
     case "log_good_news": title = ok ? result.record?.text : "没有记下来"; note = ok ? `第 ${result.count} 颗星` : result.error; break;
-    case "log_lazy_day": title = "今天记成偷懒日"; note = "什么都不会清零"; break;
+    case "log_lazy_day": title = result?.already ? "今天已经在休息了" : "今天给自己放个假"; note = "计划里的习惯今天不用做"; break;
+    case "propose_plan": title = ok ? `给「${result.wish_title}」的一套安排` : "没能提议"; note = ok ? "勾掉不想要的，再加进计划" : result.error;
+      foot = ok ? " " : ""; break;
+    case "add_habit": title = ok ? result.habit.title : "没有加上"; note = ok ? `${result.habit.freq_text} · 放进「${result.wish_title}」了` : result.error; break;
+    case "checkin_habit": title = ok ? result.habit.title : "没找到这个习惯"; note = ok ? (result.already ? "今天已经打过卡了" : `本周 ${result.habit.week}/${result.habit.need}`) : "没有写入打卡"; break;
     case "remember": title = ok ? result.memory?.text : "没有写入"; note = ok ? "长期记住了，在「我的空间」可以改" : result.error; break;
     case "correct_memory":
       title = ok ? (result.deleted ? `删掉：${result.old}` : result.new) : "没找到要改的那条";
@@ -100,8 +142,9 @@ function toolCard(name, args, result) {
   el.querySelectorAll("[data-article]").forEach((b) => b.addEventListener("click", () => go("article", { id: b.dataset.article })));
   el.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
   if (ok && name === "propose_moment") proposalFoot(el, result);
+  if (ok && name === "propose_plan") planFoot(el, result);
   if (amount) setTimeout(() => flyXP(el.querySelector(".tool-xp"), amount), 250);
-  if (ok && ["log_good_news", "complete_step"].includes(name)) setTimeout(() => burstAt(el.querySelector(".tile"), 26), 150);
+  if (ok && ["log_good_news", "complete_step", "checkin_habit"].includes(name)) setTimeout(() => burstAt(el.querySelector(".tile"), 26), 150);
   return el;
 }
 
@@ -149,7 +192,6 @@ export function renderChat(root) {
         <div class="inbox">
           <button class="ib" data-act="good" title="记一条好消息">${icon("star")}</button>
           <textarea rows="1" placeholder="给${esc(p.agent_name || "小光")}发消息" aria-label="消息"></textarea>
-          <button class="ib" data-act="rest" title="今天是偷懒日">${icon("moon")}</button>
           <button class="send" aria-label="发送">${icon("send")}</button>
         </div>
       </div></div>
@@ -254,32 +296,34 @@ export function renderChat(root) {
   }
 
   root.querySelector("[data-act=good]").addEventListener("click", (e) => quickGood(e.currentTarget));
-  root.querySelector("[data-act=rest]").addEventListener("click", async () => {
-    try {
-      setData(await api.record("rest", "今天想休息"));
-      setAgentMood("tired");
-      toast("今天是偷懒日，什么都不会清零");
-    } catch (err) { toast(err.message, "err"); }
-  });
-
   function quickGood(btn) {
-    const input = h("textarea", { class: "field", rows: "3", maxlength: "200", placeholder: "今天发生了什么好事？再小也算。" });
+    let kind = "good";
+    const body = h("div", { class: "qg", html: `<div class="tabs qg-tabs"><button class="on" data-k="good">${icon("star")}小确幸</button><button data-k="meme">${icon("chat")}内心戏</button><span class="ind"></span></div>
+      <textarea class="field" rows="3" maxlength="200" placeholder="${GOOD_PH.good}"></textarea>` });
+    const input = body.querySelector("textarea");
+    const tabs = body.querySelector(".tabs");
+    const place = () => { const on = tabs.querySelector("button.on"); Object.assign(tabs.querySelector(".ind").style, { left: on.offsetLeft + "px", width: on.offsetWidth + "px" }); };
+    tabs.querySelectorAll("[data-k]").forEach((b) => b.addEventListener("click", () => {
+      kind = b.dataset.k; input.placeholder = GOOD_PH[kind];
+      tabs.querySelectorAll("[data-k]").forEach((x) => x.classList.toggle("on", x === b)); place(); input.focus();
+    }));
     const s = sheet({
-      title: "收下一颗星", sticker: "star", body: input,
+      title: "记一笔好消息", sticker: "star", body,
       footer: [h("button", { class: "btn btn-main", onclick: async () => {
         const t = input.value.trim();
-        if (!t) return;
+        if (!t) return input.focus();
         try {
-          const out = await api.record("good", t);
+          const out = await api.record(kind, t);
           s.close();
           setData(out);
           setAgentMood("happy"); pulseAgent("bounce");
           if (out.xp?.amount) flyXP(btn, out.xp.amount);
           burstAt(btn, 30);
-          toast("收下了，星空里又亮了一颗");
+          toast(kind === "meme" ? "收下这段内心戏了" : "收下了，星空里又亮了一颗");
         } catch (e) { toast(e.message, "err"); }
-      } }, "收下")],
+      } }, "记下来")],
     });
+    requestAnimationFrame(place);
     setTimeout(() => input.focus(), 60);
   }
 }

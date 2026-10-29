@@ -213,7 +213,10 @@ function drawPanelBody(panel) {
     const inbox = (d.inbox || [])[0];
     const guesses = (d.memories || []).filter((m) => m.status === "guess").slice(0, 2);
     const digest = (d.digests || [])[0];
+    const ch = d.cheer;
     body.innerHTML = `
+      ${ch?.text ? `<div class="cheer ${ch.kind === "you" ? "you" : "quote"}"><div class="k">${icon(ch.kind === "you" ? "leaf" : "quote")}${esc(ch.label)}</div>
+        <div class="t">${esc(ch.text)}</div>${ch.source ? `<div class="src">${esc(ch.source)}</div>` : ""}</div>` : ""}
       <div class="sec-title" style="margin-bottom:2px">今日任务 <span class="more">${g.quests_done}/4</span></div>
       ${g.quests.map((q) => `<div class="quest ${q.done ? "done" : ""}">${tile(QUEST_TILE[q.id][0], QUEST_TILE[q.id][1], 34)}
         <div class="q-main"><div class="q-t">${q.done ? "✓ " : ""}${esc(q.label)}<span>${Math.min(q.got, q.need)}/${q.need}</span></div>

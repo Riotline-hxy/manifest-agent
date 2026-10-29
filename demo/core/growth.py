@@ -19,8 +19,8 @@ SOURCE_CAP = 30
 LEVEL_XP = 40
 
 SOURCES = {
-    "action": {"label": "行动", "cap": SOURCE_CAP, "amount": 10, "hint": "完成一小步", "quest": "完成 1 个小步"},
-    "good": {"label": "记录", "cap": SOURCE_CAP, "amount": 6, "hint": "好消息或轨迹上的瞬间", "quest": "记下 1 个瞬间或好消息"},
+    "action": {"label": "行动", "cap": SOURCE_CAP, "amount": 10, "hint": "完成小步、习惯打卡或到达里程碑", "quest": "完成 1 个小步或习惯"},
+    "good": {"label": "记录", "cap": SOURCE_CAP, "amount": 6, "hint": "小确幸、内心戏或计划里的瞬间", "quest": "记下 1 条好消息或瞬间"},
     "practice": {"label": "练习", "cap": SOURCE_CAP, "amount": 12, "hint": "场景 / 冥想 / 感恩", "quest": "做 1 次显化练习"},
     "checkin": {"label": "陪伴", "cap": SOURCE_CAP, "amount": 8, "hint": "每天来聊一次", "quest": "和小光聊一句"},
 }
@@ -238,14 +238,16 @@ BADGES = [
     ("remember_1", "记住我", "第一次让小光记住一件事", "记忆", "memory", "explicit_mem", 1, False),
     ("fix_1", "说清楚", "确认、否定或修改一条记忆", "记忆", "memory", "memory_fix", 1, False),
     ("digest_1", "被好好整理", "第一次日终整理", "记忆", "moon", "digests", 1, False),
-    ("step_1", "第一步", "完成第一个小步", "计划", "flag", "steps_done", 1, False),
-    ("step_7", "七次落地", "累计完成 7 个小步", "计划", "flag", "steps_done", 7, False),
-    ("step_30", "习惯成形", "累计完成 30 个小步", "计划", "flag", "steps_done", 30, False),
+    ("step_1", "第一步", "完成第一个小步或习惯打卡", "计划", "flag", "actions", 1, False),
+    ("step_7", "七次落地", "小步和习惯累计完成 7 次", "计划", "flag", "actions", 7, False),
+    ("step_30", "习惯成形", "小步和习惯累计完成 30 次", "计划", "flag", "actions", 30, False),
+    ("milestone_1", "第一站", "到达第一个里程碑", "计划", "flag", "milestones", 1, False),
     ("good_1", "第一颗星", "记下第一条好消息", "好消息", "star", "good", 1, False),
     ("good_10", "收集星星", "记下 10 条好消息", "好消息", "star", "good", 10, False),
     ("good_30", "星罐满了", "记下 30 条好消息", "好消息", "star", "good", 30, False),
-    ("rest_1", "休息也算", "第一次给自己放一天假", "陪伴", "moon", "rest", 1, False),
-    ("comeback", "回来了", "休息之后，又完成了一小步", "陪伴", "sun", "comeback", 1, False),
+    ("meme_1", "内心戏", "记下第一段内心戏", "好消息", "chat", "memes", 1, False),
+    ("rest_1", "好好休息", "第一次给自己放一天假", "陪伴", "moon", "rest", 1, False),
+    ("comeback", "回来了", "休息之后，又完成了一小步或一次打卡", "陪伴", "sun", "comeback", 1, False),
     ("days_7", "一周", "陪伴满 7 天", "陪伴", "sun", "days", 7, False),
     ("days_14", "半个月", "陪伴满 14 天", "陪伴", "sun", "days", 14, False),
     ("days_30", "一个月", "陪伴满 30 天", "陪伴", "sun", "days", 30, False),
@@ -271,7 +273,8 @@ def metrics(st, total: int | None = None, stage: dict | None = None) -> dict:
     rest_days = [r[0] for r in st.c.execute("SELECT DISTINCT day FROM record WHERE type='rest' ORDER BY day")]
     comeback = 0
     if rest_days:
-        comeback = q("SELECT COUNT(*) FROM step WHERE status='done' AND substr(done_at,1,10) > ?", rest_days[0])
+        comeback = (q("SELECT COUNT(*) FROM step WHERE status='done' AND substr(done_at,1,10) > ?", rest_days[0])
+                    + q("SELECT COUNT(*) FROM habit_log WHERE day > ?", rest_days[0]))
     stg = stage or stage_of(total if total is not None else total_xp(st), p.get("pet_branch") or "")
     return {
         "user_msgs": q("SELECT COUNT(*) FROM msg WHERE role='user'"),
@@ -279,6 +282,10 @@ def metrics(st, total: int | None = None, stage: dict | None = None) -> dict:
         "memory_fix": st.stat("memory_fix"),
         "digests": q("SELECT COUNT(*) FROM digest"),
         "steps_done": q("SELECT COUNT(*) FROM step WHERE status='done'"),
+        "actions": q("SELECT COUNT(*) FROM step WHERE status='done'") + q("SELECT COUNT(*) FROM habit_log")
+                   + q("SELECT COUNT(*) FROM milestone WHERE status='done'"),
+        "milestones": q("SELECT COUNT(*) FROM milestone WHERE status='done'"),
+        "memes": q("SELECT COUNT(*) FROM record WHERE type='meme'"),
         "good": q("SELECT COUNT(*) FROM record WHERE type='good'"),
         "rest": len(rest_days),
         "comeback": 1 if comeback else 0,
@@ -314,7 +321,7 @@ def badges(st, total: int | None = None, stage: dict | None = None, persist: boo
 
 
 def rules_text() -> str:
-    return ("经验规则：完成一小步 +10（行动），记一条好消息或在成长轨迹上留下一个瞬间 +6，完成一次显化练习 +12，"
+    return ("经验规则：完成一小步、习惯打卡或到达里程碑 +10（行动），记一件小确幸、一段内心戏或在蜕变计划里留下一个瞬间 +6，完成一次显化练习 +12，"
             "每天第一次来聊 +8（陪伴）。四类每类每天最多 30，每天总共最多 120；同一件事不重复计分。"
             f"每 {LEVEL_XP} 经验升一级。宠物小芽：100 经验孵化成团子，310 经验分化——"
             "行动最多长成焰尾狐，好消息最多长成花角鹿，练习最多长成云鲸，三样都不偏科会遇见一个隐藏形态；"

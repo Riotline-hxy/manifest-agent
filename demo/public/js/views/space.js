@@ -119,7 +119,7 @@ function digestTab(body, root) {
       <div class="night-ball"></div>
       <div class="night-copy">
         <h2>每天夜里，小光会安静地整理一遍</h2>
-        <p>不是每句话都记。只挑真正发生的事：新的偏好、你的更正、值得留下的瞬间。你明确让它记住的，不会因为时间久了被偷偷忘掉；它猜的，要你点头才算数。</p>
+        <p>小光只挑真正发生的事来记：新的偏好、你的更正、值得留下的瞬间。你明确让它记住的，不会因为时间久了被偷偷忘掉；它猜的，要你点头才算数。</p>
         <button class="btn btn-main" data-run>${icon("moon")}现在整理一下今天</button>
       </div>
     </section>
