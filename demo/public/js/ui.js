@@ -112,8 +112,8 @@ export function confirmSheet(title, text, okLabel = "确认", sticker = "moon") 
       title, sticker,
       body: h("p", { style: "font-size:15px;line-height:1.8;color:var(--text-2);margin:4px 0 6px" }, text),
       footer: [
-        h("button", { class: "btn btn-ghost", onclick: () => { s.close(); resolve(false); } }, "先不要"),
-        h("button", { class: "btn btn-main", onclick: () => { s.close(); resolve(true); } }, okLabel),
+        h("button", { class: "btn btn-ghost", onclick: () => { resolve(false); s.close(); } }, "先不要"),
+        h("button", { class: "btn btn-main", onclick: () => { resolve(true); s.close(); } }, okLabel),
       ],
       onClose: () => resolve(false),
     });

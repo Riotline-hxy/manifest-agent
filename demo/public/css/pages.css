@@ -334,4 +334,6 @@ details summary::-webkit-details-marker { display: none; }
   .me-pet { display: none; }
   .night { flex-direction: column; align-items: flex-start; }
   .set-row { flex-wrap: wrap; }
+  .set-row .sl { flex: 1 1 calc(100% - 60px); }
+  .set-row .seg, .set-row > .btn { margin-left: 54px; }
 }

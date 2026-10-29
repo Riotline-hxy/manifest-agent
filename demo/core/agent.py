@@ -54,7 +54,9 @@ PERSONA = """你是「{name}」，一个显化陪伴 agent。你只做一件事�
 绝不能据此说 TA 是「三分钟热度」「没毅力」。人格判断只能来自用户自己说的，或反复出现后由 TA 确认。
 
 工具使用：
-- 用户在**这一句**里说了一件小确幸 → log_good_news；说今天想休息 → log_lazy_day（记成休息日，计划里的习惯那天不用做）。只记这一句里新说的事，聊天记录里以前提过的事不要补记。
+- 用户在**这一句**里说了一件小确幸 → log_good_news；说今天想偷懒 / 休息 → log_lazy_day（当天的习惯和小步都暂停）。
+  调用后用轻松的口吻接住，比如「收到，今天给自己放个假吧，明天我们再继续」，再问一句要不要帮 TA 调整一下计划；界面会给出选项。
+- 用户明确说某个习惯太难、想调整 → adjust_habit（调低一档频率或先收起）；想把它拆小，就用 propose_plan 提议一个更小的版本。只记这一句里新说的事，聊天记录里以前提过的事不要补记。
 - 计划由三种东西组成：里程碑（路上看得见的站点，可以带日期）、习惯（重复做的事，每天或每周 N 次）、小步（做一次就完成的事）。
 - 用户想规划某个愿望怎么实现（包括界面发来的「帮我规划这条路」）→ 先看「正在看的愿望和它的路径」里已经有什么，
   再补齐缺的信息：第一次回复只问一个问题（比如每周能投入多少时间、现在最卡在哪），这一轮不调用任何工具；
@@ -141,8 +143,14 @@ TOOLS = [
         "name": "log_good_news", "description": "记录一件好事（再小也算）",
         "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}},
     {"type": "function", "function": {
-        "name": "log_lazy_day", "description": "用户今天想休息：记成休息日，计划里的习惯这天不用做，所有进度都保留",
-        "parameters": {"type": "object", "properties": {"note": {"type": "string"}}}}},
+        "name": "log_lazy_day", "description": "用户今天想偷懒 / 休息：记成偷懒日，当天的习惯和小步都暂停，所有进度都保留",
+        "parameters": {"type": "object", "properties": {"note": {"type": "string", "description": "用户说的原因，没说就留空"}}}}},
+    {"type": "function", "function": {
+        "name": "adjust_habit", "description": "用户明确说某个习惯太难、想调整时：调低频率，或先收起",
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string", "description": "习惯名称或其中的关键词"},
+            "action": {"type": "string", "enum": ["ease", "pause"], "description": "ease 调低一档频率 / pause 先收起"}},
+            "required": ["title", "action"]}}},
     {"type": "function", "function": {
         "name": "start_scene", "description": "开始一个引导场景，由界面一步步带用户完成",
         "parameters": {"type": "object", "properties": {
@@ -161,7 +169,7 @@ TOOLS = [
             "note": {"type": "string"}}, "required": ["care_style"]}}},
 ]
 
-TOOL_MOOD = {"propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
+TOOL_MOOD = {"adjust_habit": "satisfied", "propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
              "add_step": "satisfied", "remember": "recall", "start_scene": "curious",
              "get_growth": "focused", "knowledge_search": "searching", "set_care_style": "shy"}
 
@@ -190,6 +198,8 @@ def core_block(p: dict, store: Store) -> str:
         recent = journey.moments(store, cur["id"], limit=3)
         if recent:
             lines.append("这个愿望下最近的瞬间：" + "；".join(f"{m['day'][5:]} {clip(m['text'], 30)}" for m in recent))
+    if journey.is_resting(store):
+        lines.append("今天是 TA 的偷懒日：习惯和小步都暂停了。今天别推荐任务、别提醒要做的事，陪 TA 聊天、休息就好。")
     steps = [s for s in store.steps() if s["status"] == "todo"][:5]
     if steps:
         lines.append("待做的小步：" + "；".join(f"[{s['id']}] {s['title']}" for s in steps))
@@ -306,11 +316,26 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         store.log("record", "收下一条好消息")
         return {"ok": True, "record": r, "xp": xp, "count": store.counts()["good"]}
     if name == "log_lazy_day":
-        if store.c.execute("SELECT 1 FROM record WHERE type='rest' AND day=?", (day_key(),)).fetchone():
-            return {"ok": True, "already": True, "note": "今天已经是休息日了"}
-        r = store.add_record("rest", clip(str(args.get("note") or "今天休息"), 200))
-        store.log("record", "今天给自己放了假")
-        return {"ok": True, "record": r, "kept": store.counts()}
+        if journey.is_resting(store):
+            return {"ok": True, "already": True, "note": "今天已经是偷懒日了"}
+        note = clip(str(args.get("note") or "").strip(), 40)
+        r = store.add_record("rest", "今天偷个懒" + (f"：{note}" if note else ""))
+        store.log("rest", r["text"])
+        return {"ok": True, "record": r, "paused": [h["title"] for h in journey.habits(store)][:5],
+                "note": "当天的习惯和小步都暂停；宠物会陪 TA 一起睡。界面上会给出：明天继续 / 调整计划 / 聊聊天"}
+    if name == "adjust_habit":
+        h = journey.find_habit(store, str(args.get("title") or ""))
+        if not h:
+            return {"ok": False, "error": "没找到对应的习惯", "habits": [x["title"] for x in journey.habits(store)]}
+        if args.get("action") == "pause":
+            journey.edit_habit(store, h["id"], {"archived": True})
+            return {"ok": True, "habit": h["title"], "done": "先收起了，打卡记录都在"}
+        down = journey.ease_habit(h)
+        if not down:
+            return {"ok": False, "error": "已经是每周 1 次了，可以问 TA 要不要先收起"}
+        journey.edit_habit(store, h["id"], {"freq": down[0], "per_week": down[1]})
+        store.log("plan", f"把「{h['title']}」调轻了")
+        return {"ok": True, "habit": h["title"], "done": "调成" + journey.freq_text({"freq": down[0], "per_week": down[1]})}
     if name == "propose_plan":
         ws = journey.wishes(store)
         if not ws:

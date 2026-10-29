@@ -193,6 +193,11 @@ def state(st, consume: bool = True) -> dict:
     blist, new_badges = badges(st, total=total, stage=stg, persist=consume)
     quests = [{"id": k, "label": v["quest"], "got": by_src[k], "need": v["amount"],
                "done": by_src[k] >= min(v["amount"], v["cap"])} for k, v in SOURCES.items()]
+    # 偷懒日：行动这一项先暂停，算作完成，宝箱照样能开（不加经验）
+    if st.c.execute("SELECT 1 FROM record WHERE type='rest' AND day=?", (day_key(),)).fetchone():
+        for q in quests:
+            if q["id"] == "action" and not q["done"]:
+                q.update({"done": True, "rest": True, "label": "今天偷懒，行动先暂停", "got": q["need"]})
 
     return {
         "total": total,

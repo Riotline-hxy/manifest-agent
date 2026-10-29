@@ -9,6 +9,7 @@ import { petSVG } from "../pet.js";
 import { startScene } from "../scene.js";
 import { THEMES, AGENT_COLORS, applyTheme, agentColor, themeOf } from "../theme.js";
 import { themeCard, placeInd } from "../app.js";
+import { openAccount, logout } from "../account.js";
 
 const KIND = { identity: "身份", intent: "愿景", preference: "偏好", boundary: "边界", insight: "新发现", event: "事件", good_news: "好消息" };
 const SRC = (s) => s === "confirmed" ? "你确认过" : s === "onboarding" ? "建档时" : s?.startsWith("scene") ? "练习里" :
@@ -167,6 +168,8 @@ function settingsTab(body, root) {
     <div class="sec-title">小光的颜色</div>
     <div class="swatches" style="margin-bottom:28px">${AGENT_COLORS.map((c) => `<button class="swatch ${c === col ? "on" : ""}" data-color="${c}" style="background:${c}"></button>`).join("")}</div>
     <div class="settings card">
+      <div class="set-row">${tile("user", "var(--c-orange)", 40)}<div class="sl"><b>账号</b><small>${state.user?.kind === "guest" ? "现在是体验账号，注册后记录会一直留着" : `已登录：${esc(state.user?.username || "")}`}</small></div>
+        <button class="btn btn-sm btn-ghost" data-account>${state.user?.kind === "guest" ? "注册 / 退出" : "退出登录"}</button></div>
       <div class="set-row">${tile("compass", "var(--c-mint)", 40)}<div class="sl"><b>中断的时候，你希望我</b><small>三天没动时小光的反应方式</small></div>
         ${seg("care_style", [["nudge", "轻轻提醒"], ["analyze", "一起找原因"], ["quiet", "先别提"]], p.care_style)}</div>
       <div class="set-row">${tile("letter", "var(--c-sky)", 40)}<div class="sl"><b>主动消息</b><small>只在网页里出现；23:00–08:00 不打扰</small></div>
@@ -196,6 +199,7 @@ function settingsTab(body, root) {
     save({ agent_hue: b.dataset.color }, "小光换好颜色了");
   }));
   body.querySelectorAll(".seg").forEach((sg) => sg.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => save({ [sg.dataset.key]: b.dataset.v }, "改好了"))));
+  body.querySelector("[data-account]").addEventListener("click", () => (state.user?.kind === "guest" ? openAccount() : confirmLogout()));
   body.querySelector("[data-relearn]").addEventListener("click", () => startScene("relearn", { onFinish: () => renderSpace(root) }));
   body.querySelector("[data-rename]").addEventListener("click", () => {
     const input = h("input", { class: "field", maxlength: "8" });
@@ -218,4 +222,8 @@ function settingsTab(body, root) {
     toast(out.sent ? "小光发了一句话，去对话里看看" : out.reason);
     if (out.sent) go("chat");
   });
+}
+
+async function confirmLogout() {
+  if (await confirmSheet("退出登录？", "下次用用户名和密码就能回来，记录都在。", "退出", "back")) logout();
 }

@@ -776,6 +776,57 @@ class ApiTest(unittest.TestCase):
             st.set_profile({"cheer": {**out, "slot": "2000-01-01-am"}})     # 时段过去了 → 换一句
         self.assertNotEqual(c.req("GET", "/api/bootstrap")[1]["cheer"]["slot"], "2000-01-01-am")
 
+    # ---- 偷懒日 ------------------------------------------------------------------
+    def test_lazy_day_pauses_today_and_offers_adjust(self):
+        c, uid = self.member("rest_mode")
+        _, d = c.req("POST", "/api/wish", {"action": "add", "title": "规律健身", "category": "body"})
+        wid = d["journey"]["current"]
+        _, d = c.req("POST", "/api/habit", {"action": "add", "wish_id": wid, "title": "去健身房", "freq": "daily"})
+        hid = d["habit"]["id"]
+        # 单项暂停：这个习惯今天先不做；之后又做了，暂停自动取消
+        _, d = c.req("POST", "/api/habit", {"action": "skip", "id": hid})
+        self.assertTrue(d["journey"]["wishes"][0]["habits"][0]["skipped"])
+        _, d = c.req("POST", "/api/habit", {"action": "check", "id": hid})
+        h = d["journey"]["wishes"][0]["habits"][0]
+        self.assertEqual((h["skipped"], h["today"]), (False, True))
+        # 调轻一档：每天 → 每周 3 次 → 2 → 1，到 1 次就不能再调
+        for want in ("每周 3 次", "每周 2 次", "每周 1 次"):
+            _, d = c.req("POST", "/api/habit", {"action": "ease", "id": hid})
+            self.assertEqual(d["eased"], want)
+        self.assertEqual(c.req("POST", "/api/habit", {"action": "ease", "id": hid})[0], 400)
+        # 一键偷懒（带原因）：行动这项任务暂停并算作完成，休息记录留在时间线上
+        c2, uid = self.member("rest_mode2")       # 今天还没做任何行动的人
+        _, d = c2.req("POST", "/api/record", {"type": "rest", "text": "今天偷个懒：有点累"})
+        q = next(x for x in d["growth"]["quests"] if x["id"] == "action")
+        self.assertTrue(q["done"] and q.get("rest"))
+        self.assertIn("今天偷个懒：有点累", [a["text"] for a in d["activity"]])
+        c = c2
+        # 偷懒日小光不主动打扰（演示用的强制触发不受影响）
+        with Store(uid) as st:
+            st.set_profile({"onboarded": True, "last_chat_at": "", "last_proactive_at": ""})
+            self.assertEqual(scheduler.deliver(st)["reason"], "今天是偷懒日，不打扰")
+        # 不偷懒了：任务恢复
+        _, d = c.req("POST", "/api/record", {"type": "rest", "undo": True})
+        self.assertFalse(next(x for x in d["growth"]["quests"] if x["id"] == "action").get("rest"))
+
+    def test_chat_lazy_day_and_adjust_habit(self):
+        c, uid = self.onboarded("lazy_chat")
+        _, d = c.req("GET", "/api/bootstrap")
+        wid = d["journey"]["current"]
+        c.req("POST", "/api/habit", {"action": "add", "wish_id": wid, "title": "11 点放下手机", "freq": "daily"})
+        self.fake.turns = [[("tool_calls", [{"id": "c1", "name": "log_lazy_day", "arguments": '{"note":"加班太累"}'}])],
+                           [("text", "收到，今天给自己放个假吧。")],
+                           [("tool_calls", [{"id": "c2", "name": "adjust_habit", "arguments": '{"title":"放下手机","action":"ease"}'}])],
+                           [("text", "调成每周 3 次了。")]]
+        s, ev = c.sse("今天加班太累了，想偷个懒")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "log_lazy_day")
+        self.assertEqual(tool["result"]["record"]["text"], "今天偷个懒：加班太累")
+        s, ev = c.sse("放下手机那个每天做有点难，能不能少一点")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "adjust_habit")
+        self.assertEqual(tool["result"]["done"], "调成每周 3 次")
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["journey"]["wishes"][0]["habits"][0]["freq_text"], "每周 3 次")
+
 
 if __name__ == "__main__":
     unittest.main()

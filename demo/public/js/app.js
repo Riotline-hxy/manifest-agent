@@ -16,6 +16,8 @@ import { renderIdeas } from "./views/ideas.js";
 import { renderAcademy, renderArticle } from "./views/academy.js";
 import { renderReport } from "./views/report.js";
 import { renderSpace } from "./views/space.js";
+import { openAccount } from "./account.js";
+import { isResting, openLazy } from "./rest.js";
 
 const NAV = [
   [["chat", "对话", "chat"], ["plan", "蜕变计划", "flag"], ["goodnews", "好消息", "star"], ["growth", "成长进化", "sprout"]],
@@ -138,9 +140,10 @@ function drawRail() {
     }).join("")}`).join("")}
     <div class="spacer"></div>
     <button class="nav-item theme-btn" data-act="theme" aria-label="氛围">${icon("palette")}<span class="lbl">氛围与小光的颜色</span></button>
-    <button class="me-av" data-nav="space" title="${esc(d.profile?.nickname || "我")}">${esc((d.profile?.nickname || state.user?.username || "我").slice(0, 1))}</button>`;
+    <button class="me-av" data-act="account" title="我的账号">${esc((d.profile?.nickname || state.user?.username || "我").slice(0, 1))}</button>`;
   rail.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => go(b.dataset.nav)));
   rail.querySelector("[data-act=theme]").addEventListener("click", openThemeSheet);
+  rail.querySelector("[data-act=account]").addEventListener("click", openAccount);
 }
 
 // ---------------------------------------------------------------- 顶栏 ----
@@ -218,8 +221,9 @@ function drawPanelBody(panel) {
       ${ch?.text ? `<div class="cheer ${ch.kind === "you" ? "you" : "quote"}"><div class="k">${icon(ch.kind === "you" ? "leaf" : "quote")}${esc(ch.label)}</div>
         <div class="t">${esc(ch.text)}</div>${ch.source ? `<div class="src">${esc(ch.source)}</div>` : ""}</div>` : ""}
       <div class="sec-title" style="margin-bottom:2px">今日任务 <span class="more">${g.quests_done}/4</span></div>
-      ${g.quests.map((q) => `<div class="quest ${q.done ? "done" : ""}">${tile(QUEST_TILE[q.id][0], QUEST_TILE[q.id][1], 34)}
-        <div class="q-main"><div class="q-t">${q.done ? "✓ " : ""}${esc(q.label)}<span>${Math.min(q.got, q.need)}/${q.need}</span></div>
+      ${isResting() ? `<button class="p-rest" data-rest-panel>${petSVG(g.stage.art, { sleep: true, cls: "alive" })}<span><b>今天是偷懒日</b>${esc(g.pet_name)}陪你一起睡，任务不着急</span></button>` : ""}
+      ${g.quests.map((q) => `<div class="quest ${q.done ? "done" : ""} ${q.rest ? "rest" : ""}">${q.rest ? tile("moon", "var(--c-violet)", 34) : tile(QUEST_TILE[q.id][0], QUEST_TILE[q.id][1], 34)}
+        <div class="q-main"><div class="q-t">${q.done ? "✓ " : ""}${esc(q.label)}<span>${q.rest ? "暂停" : `${Math.min(q.got, q.need)}/${q.need}`}</span></div>
         <div class="bar sm ${q.done ? "good" : ""}"><i style="width:${Math.min(100, (q.got / q.need) * 100)}%"></i></div></div></div>`).join("")}
       <div class="chest-row">${chestSVG(g.quests_done === 4)}<span>${g.quests_done === 4 ? "今天四件小事都做到了。" : `再完成 ${4 - g.quests_done} 件，宝箱就开了。`}</span></div>
       ${inbox ? `<div class="p-card"><div class="k">小光留了话</div><div class="t">${esc(inbox.text)}</div></div>` : ""}
@@ -231,9 +235,9 @@ function drawPanelBody(panel) {
     const span = g.next ? g.next.at - g.prev_at : 1;
     const pct = g.next ? Math.round(((g.total - g.prev_at) / span) * 100) : 100;
     body.innerHTML = `<div class="pet-mini">
-      <div data-go="growth">${petSVG(g.stage.art, { cls: "alive" })}</div>
+      <div data-go="growth">${petSVG(g.stage.art, { cls: "alive", sleep: isResting() })}</div>
       <div class="nm">${esc(g.pet_name)} · ${esc(g.stage.name)}</div>
-      <div class="ln">${esc(g.stage.line)}</div>
+      <div class="ln">${isResting() ? "今天是偷懒日，它陪你一起睡。" : esc(g.stage.line)}</div>
       <div class="bar"><i style="width:${pct}%"></i></div>
       <div class="to">${g.next ? `再 <b>${g.to_next}</b> 经验到「${esc(g.next.name)}」` : "已经是成年形态了"}</div>
       <button class="btn btn-sm btn-ghost" data-go="growth" style="margin-top:14px">看进化图</button></div>`;
@@ -244,6 +248,7 @@ function drawPanelBody(panel) {
       || `<div class="empty"><p>还没有动静。</p></div>`;
   }
   body.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
+  body.querySelector("[data-rest-panel]")?.addEventListener("click", () => openLazy({ onDone: drawView }));
   body.querySelector("[data-go-digest]")?.addEventListener("click", () => { state.spaceTab = "digest"; state.route === "space" ? drawView() : go("space"); });
   body.querySelectorAll("[data-confirm],[data-reject]").forEach((b) => b.addEventListener("click", async () => {
     const action = b.dataset.confirm ? "confirm" : "reject";

@@ -14,7 +14,7 @@ const PAL = {
 };
 
 function eyes(x1, x2, y, { color = INK, h = 22, w = 11 } = {}) {
-  return `<g class="pe" style="transform-origin:${(x1 + x2) / 2}px ${y + h / 2}px">
+  return `<g class="pe" style="transform-origin:${(x1 + x2) / 2}px ${y + h / 2}px" data-e="${x1},${x2},${y + h / 2},${color}">
     <rect x="${x1 - w / 2}" y="${y}" width="${w}" height="${h}" rx="${w / 2}" fill="${color}" transform="rotate(-6 ${x1} ${y + h / 2})"/>
     <rect x="${x2 - w / 2}" y="${y}" width="${w}" height="${h}" rx="${w / 2}" fill="${color}" transform="rotate(6 ${x2} ${y + h / 2})"/>
     <circle cx="${x1 + 2}" cy="${y + 6}" r="2.6" fill="#fff" opacity=".85"/><circle cx="${x2 + 2}" cy="${y + 6}" r="2.6" fill="#fff" opacity=".85"/></g>`;
@@ -130,7 +130,11 @@ const FORMS = {
 
 export const FORM_OF = { "pet-egg": "egg", "pet-baby": "baby" };
 
-export function petSVG(form, { silhouette = false, cls = "" } = {}) {
+// 睡着的眼睛：两道向下弯的弧线
+const sleepyEyes = (x1, x2, y, color) => `<g class="pe-sleep">
+  <path d="M${x1 - 7},${y - 1} q7,7 14,0 M${x2 - 7},${y - 1} q7,7 14,0" stroke="${color}" stroke-width="3.6" stroke-linecap="round" fill="none"/></g>`;
+
+export function petSVG(form, { silhouette = false, cls = "", sleep = false } = {}) {
   form = FORM_OF[form] || form.replace(/^pet-/, "");
   const key = form.split("-")[0];
   const p = PAL[key] || PAL.baby;
@@ -141,10 +145,15 @@ export function petSVG(form, { silhouette = false, cls = "" } = {}) {
       .replace(/stroke="(?!none)[^"]*"/g, 'stroke="var(--sil)"').replace(/opacity="[^"]*"/g, "");
   } else {
     body = body.replace(/@face([\s\S]*?)@/g, "$1");
+    if (sleep) body = body.replace(/<g class="pe"[^>]*data-e="([^"]+)">[\s\S]*?<\/g>/g, (_, e) => {
+      const [x1, x2, y, c] = e.split(",");
+      return sleepyEyes(+x1, +x2, +y, c);
+    });
   }
-  return `<svg class="pet ${silhouette ? "sil" : ""} ${cls}" viewBox="0 0 200 200" aria-hidden="true">
+  const zzz = sleep ? `<g class="zzz" aria-hidden="true"><text x="140" y="70">z</text><text x="156" y="52">z</text><text x="170" y="34">Z</text></g>` : "";
+  return `<svg class="pet ${silhouette ? "sil" : ""} ${sleep ? "sleeping" : ""} ${cls}" viewBox="0 0 200 200" aria-hidden="true">
     <ellipse class="pet-shadow" cx="100" cy="186" rx="52" ry="7"/>
-    <g class="pet-body">${body}</g></svg>`;
+    <g class="pet-body">${body}</g>${zzz}</svg>`;
 }
 
 // ---------------------------------------------------------------- 植物 ----

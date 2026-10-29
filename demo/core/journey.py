@@ -382,6 +382,9 @@ def habits(st, wish_id: str | None = None, since: str | None = None, include_arc
         h["need"] = 7 if h["freq"] == "daily" else max(1, min(6, int(h["per_week"] or 1)))
         h["week"] = sum(1 for d in h["days"] if d >= wk)
         h["today"] = today.isoformat() in h["days"]
+        h["skips"] = [x[0] for x in st.c.execute(
+            "SELECT day FROM habit_skip WHERE habit_id=? AND day>=? ORDER BY day", (h["id"], since))]
+        h["skipped"] = today.isoformat() in h["skips"]
         h["total"] = st.c.execute("SELECT COUNT(*) FROM habit_log WHERE habit_id=?", (h["id"],)).fetchone()[0]
         h["freq_text"] = freq_text(h)
         out.append(h)
@@ -450,9 +453,39 @@ def check_habit(st, hid: str, day: str | None = None, undo: bool = False) -> tup
         else:
             created = st.c.execute("INSERT OR IGNORE INTO habit_log(id, habit_id, day, created_at) VALUES(?,?,?,?)",
                                    (new_id("hl"), hid, day, iso())).rowcount > 0
+            st.c.execute("DELETE FROM habit_skip WHERE habit_id=? AND day=?", (hid, day))   # 做了就不算跳过
     if created:
         st.log("plan", f"打卡：{r['title']}")
     return dict(r), created
+
+
+def skip_habit(st, hid: str, undo: bool = False) -> dict:
+    """单项暂停：这个习惯今天先不做。不影响其他习惯，也不影响任何进度。"""
+    r = st.c.execute("SELECT * FROM habit WHERE id=?", (hid,)).fetchone()
+    if not r:
+        raise ValueError("没有这个习惯")
+    day = day_key()
+    with st.lock:
+        if undo:
+            st.c.execute("DELETE FROM habit_skip WHERE habit_id=? AND day=?", (hid, day))
+        else:
+            st.c.execute("INSERT OR IGNORE INTO habit_skip(habit_id, day, created_at) VALUES(?,?,?)", (hid, day, iso()))
+    if not undo:
+        st.log("rest", f"「{r['title']}」今天先休息")
+    return dict(r)
+
+
+def ease_habit(h: dict) -> tuple[str, int] | None:
+    """调低一档：每天 → 每周 3 次 → 每周 2 次 → 每周 1 次。已经最低就返回 None。"""
+    if h["freq"] == "daily":
+        return "weekly", 3
+    if int(h["per_week"] or 1) > 1:
+        return "weekly", int(h["per_week"]) - 1
+    return None
+
+
+def is_resting(st, day: str | None = None) -> bool:
+    return bool(st.c.execute("SELECT 1 FROM record WHERE type='rest' AND day=?", (day or day_key(),)).fetchone())
 
 
 def find_habit(st, title: str) -> dict | None:

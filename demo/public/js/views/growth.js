@@ -4,6 +4,7 @@ import { state } from "../store.js";
 import { esc, icon, tile } from "../ui.js";
 import { countUp, medal } from "../fx.js";
 import { petSVG } from "../pet.js";
+import { isResting } from "../rest.js";
 
 const CATS = ["全部", "对话", "计划", "好消息", "练习", "记忆", "学堂", "报告", "陪伴", "成长"];
 const AFF = { action: ["flag", "var(--c-orange)"], good: ["star", "var(--c-lemon)"], practice: ["wind", "var(--c-mint)"] };
@@ -20,12 +21,12 @@ export function renderGrowth(root) {
     <div class="view-inner wide growth">
       <div class="page-head"><div><h1>成长进化</h1><p>只有真实做过的事会写进这本账</p></div></div>
       <section class="pet-hero card">
-        <div class="ph-stage"><span class="ph-glow"></span><div class="ph-pet">${petSVG(g.stage.art, { cls: "alive" })}</div></div>
+        <div class="ph-stage"><span class="ph-glow"></span><div class="ph-pet">${petSVG(g.stage.art, { cls: "alive", sleep: isResting() })}</div></div>
         <div class="ph-info">
           <div class="ph-tags"><span class="pill acc">Lv ${g.level.lv}</span>
             <span class="pill">${br ? `${esc(br.name)} · ${esc(br.tag)}` : "还没分化"}</span></div>
           <h2>${esc(g.pet_name)} · ${esc(g.stage.name)}</h2>
-          <p class="ph-line">${esc(g.stage.line)}</p>
+          <p class="ph-line">${isResting() ? `今天是偷懒日，${esc(g.pet_name)}陪你一起睡。经验和进化都不会因为休息减少。` : esc(g.stage.line)}</p>
           <div class="ph-xp"><span class="num big" data-count="${g.total}">0</span><span>累计经验</span></div>
           <div class="bar ph-bar"><i style="width:0" data-w="${pct}%"></i></div>
           <div class="ph-next">${g.next ? `再 <b>${g.to_next}</b> 经验，${g.next.id === "young" ? "小芽就会<b>分化</b>，长出自己的样子" : `到「${esc(g.next.name)}」`}` : "已经是成年形态了"}</div>

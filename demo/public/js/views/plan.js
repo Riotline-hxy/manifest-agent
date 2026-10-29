@@ -7,6 +7,7 @@ import { esc, toast, confirmSheet, icon, tile, sheet, h } from "../ui.js";
 import { flyXP, burstAt, confetti } from "../fx.js";
 import { agentMini } from "../ball.js";
 import { CATS, catOf, MOODS, curvePath, backdropSVG, figureSVG, visionSVG, playFx } from "../journey.js";
+import { restBannerHTML, bindRestBanner } from "../rest.js";
 
 const WEEK = "日一二三四五六";
 const BUCKETS = [1, 2, 3, 7, 14, 30];
@@ -97,10 +98,9 @@ export function renderPlan(root, { fresh = "" } = {}) {
       </section>
 
       <div class="j-path">
-        <section class="card j-todayc">
-          <header class="j-sec-h"><h3>今天</h3><span class="muted">${md(today)} ${wk(today)}</span><span class="sp"></span>
-            ${resting ? "" : `<button class="btn btn-quiet btn-sm" id="restToday">${icon("moon")}今天休息</button>`}</header>
-          ${resting ? `<div class="j-rest">${icon("moon")}<span>今天在休息，习惯不用做，明天再继续。</span><button class="btn btn-quiet btn-sm" id="unrest">不休息了</button></div>` : ""}
+        <section class="card j-todayc ${resting ? "resting" : ""}">
+          <header class="j-sec-h"><h3>今天</h3><span class="muted">${md(today)} ${wk(today)}</span>${resting ? `<span class="pill">${icon("moon")}偷懒日 · 暂停中</span>` : ""}</header>
+          ${restBannerHTML()}
           ${hbs.length ? `<div class="j-group">习惯 <small>重复做的事</small></div>
             <div class="habits">${hbs.map((hb, i) => habitRow(hb, J, i)).join("")}</div>` : ""}
           <div class="j-group">小步 <small>做一次就完成的事</small></div>
@@ -183,15 +183,15 @@ export function renderPlan(root, { fresh = "" } = {}) {
     go("chat");
   }));
 
-  const restBtn = root.querySelector("#restToday");
-  restBtn?.addEventListener("click", async () => {
-    try { setData(await api.record("rest", "今天休息")); toast("好，今天好好休息", "", "moon"); renderPlan(root); }
-    catch (e) { toast(e.message, "err"); }
-  });
-  root.querySelector("#unrest")?.addEventListener("click", async () => {
-    try { setData(await api.rest(true)); renderPlan(root); }
-    catch (e) { toast(e.message, "err"); }
-  });
+  bindRestBanner(root, () => renderPlan(root));
+  root.querySelectorAll("[data-hskip]").forEach((b) => b.addEventListener("click", async () => {
+    const hb = hbs.find((x) => x.id === b.dataset.hskip);
+    try {
+      setData(await api.habit(hb.skipped ? "unskip" : "skip", { id: hb.id }));
+      if (!hb.skipped) toast(`「${hb.title}」今天先休息，明天见`, "", "moon");
+      renderPlan(root);
+    } catch (e) { toast(e.message, "err"); }
+  }));
 
   root.querySelectorAll("[data-hcheck]").forEach((b) => b.addEventListener("click", async () => {
     const hb = hbs.find((x) => x.id === b.dataset.hcheck);
@@ -276,15 +276,17 @@ function habitRow(hb, J, i) {
   const ws = J.week_start;
   const dots = Array.from({ length: 7 }, (_, k) => {
     const d = addDays(ws, k);
-    const cls = hb.days.includes(d) ? "on" : (J.rest_days || []).includes(d) ? "rest" : d === J.today ? "now" : d > J.today ? "later" : "";
+    const cls = hb.days.includes(d) ? "on" : (J.rest_days || []).includes(d) || (hb.skips || []).includes(d) ? "rest" : d === J.today ? "now" : d > J.today ? "later" : "";
     return `<i class="${cls}" title="${md(d)} ${wk(d)}"></i>`;
   }).join("");
   const met = hb.week >= hb.need;
-  return `<div class="hrow ${hb.today ? "done" : ""}" style="--i:${i}">
+  const resting = (J.rest_days || []).includes(J.today);
+  return `<div class="hrow ${hb.today ? "done" : ""} ${hb.skipped && !hb.today ? "skipped" : ""}" style="--i:${i}">
     <button class="check" data-hcheck="${esc(hb.id)}" aria-pressed="${hb.today}" aria-label="${hb.today ? "撤销今天的打卡" : "今天做了"}：${esc(hb.title)}">${icon("check")}</button>
     <div class="h-main"><div class="h-t">${esc(hb.title)}</div>
-      <div class="h-s">${esc(hb.freq_text)} · 本周 ${hb.week}/${hb.need}${met && hb.freq === "weekly" ? ` <span class="pill good">这周做到了</span>` : ""}</div></div>
+      <div class="h-s">${esc(hb.freq_text)} · 本周 ${hb.week}/${hb.need}${met && hb.freq === "weekly" ? ` <span class="pill good">这周做到了</span>` : ""}${hb.skipped && !hb.today ? ` <span class="pill">${icon("moon")}今天先休息</span>` : ""}</div></div>
     <div class="h-week" aria-label="本周打卡">${dots}</div>
+    ${hb.today || resting ? "" : `<button class="icon-btn sm ${hb.skipped ? "on" : ""}" data-hskip="${esc(hb.id)}" aria-label="${hb.skipped ? "取消：今天先不做" : "今天先不做"}：${esc(hb.title)}" title="${hb.skipped ? "取消今天先不做" : "今天先不做"}">${icon("moon")}</button>`}
     <button class="icon-btn sm" data-hedit="${esc(hb.id)}" aria-label="编辑习惯">${icon("settings")}</button>
   </div>`;
 }

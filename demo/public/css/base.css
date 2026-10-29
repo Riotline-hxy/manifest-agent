@@ -169,6 +169,13 @@ h1, h2, h3, h4 { font-weight: 700; margin: 0; letter-spacing: -0.01em; }
 @keyframes pet-bob { 0%,100% { transform: translateY(0) scale(1, 1); } 50% { transform: translateY(-6px) scale(1.01, .99); } }
 @keyframes shadow-bob { 50% { transform: scaleX(.88); opacity: .7; } }
 @keyframes blink { 0%, 93%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+.pet.sleeping .pet-body { animation: pet-sleep 4.8s ease-in-out infinite; }
+.pet.sleeping .pe { animation: none; }
+@keyframes pet-sleep { 50% { transform: scale(1.025, .975); } }
+.pet .zzz text { fill: var(--text-2); font-family: var(--font); font-weight: 900; font-size: 18px; opacity: 0; animation: zzz 3.6s ease-in-out infinite; }
+.pet .zzz text:nth-child(2) { font-size: 22px; animation-delay: 1.2s; }
+.pet .zzz text:nth-child(3) { font-size: 26px; animation-delay: 2.4s; }
+@keyframes zzz { 0% { opacity: 0; transform: translate(-6px, 10px); } 30% { opacity: .8; } 100% { opacity: 0; transform: translate(8px, -12px); } }
 .pet.sil .pet-shadow { opacity: .5; }
 
 @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }

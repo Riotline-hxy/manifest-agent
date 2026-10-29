@@ -6,10 +6,11 @@ import { esc, richText, fmtDay, fmtTime, toast, icon, tile, sheet, h } from "../
 import { mountBall, setAgentMood, pulseAgent, agentMini, MOOD_TEXT } from "../ball.js";
 import { flyXP, burstAt } from "../fx.js";
 import { startScene } from "../scene.js";
+import { openLazy, adjustSheet, isResting } from "../rest.js";
 
 const TOOL = {
   add_step: ["flag", "var(--c-orange)", "加进计划"], complete_step: ["checkc", "var(--c-orange)", "完成一小步"],
-  log_good_news: ["star", "var(--c-lemon)", "收下小确幸"], log_lazy_day: ["moon", "var(--c-violet)", "今天休息"],
+  log_good_news: ["star", "var(--c-lemon)", "收下小确幸"], log_lazy_day: ["moon", "var(--c-violet)", "今天偷个懒"], adjust_habit: ["leaf", "var(--c-mint)", "调整了习惯"],
   propose_plan: ["flag", "var(--c-orange)", "小光提议的计划"], add_habit: ["clock", "var(--c-mint)", "加了一个习惯"],
   checkin_habit: ["checkc", "var(--c-mint)", "习惯打卡"],
   remember: ["memory", "var(--c-violet)", "记住了"], correct_memory: ["edit", "var(--c-violet)", "改掉旧记忆"],
@@ -97,9 +98,11 @@ function toolCard(name, args, result) {
     case "add_step": title = result.step?.title || args.title || ""; note = "写进蜕变计划了"; break;
     case "complete_step": title = ok ? result.step?.title : "没找到对应的一小步"; note = ok ? "打勾了，花园里多了一株" : "没有写入任何完成记录"; break;
     case "log_good_news": title = ok ? result.record?.text : "没有记下来"; note = ok ? `第 ${result.count} 颗星` : result.error; break;
-    case "log_lazy_day": title = result?.already ? "今天已经在休息了" : "今天给自己放个假"; note = "计划里的习惯今天不用做"; break;
+    case "log_lazy_day": title = result?.already ? "今天已经在偷懒了" : (result?.record?.text || "").split("：")[1] || "给自己放个假"; note = "习惯和小步都先暂停，小芽陪你一起睡";
+      foot = ok ? `<button class="btn btn-sm btn-ghost" data-lazy-pick="rest">明天继续</button><button class="btn btn-sm btn-ghost" data-lazy-pick="adjust">调整一下计划</button><button class="btn btn-sm btn-quiet" data-lazy-pick="chat">就想聊聊天</button>` : ""; break;
     case "propose_plan": title = ok ? `给「${result.wish_title}」的一套安排` : "没能提议"; note = ok ? "勾掉不想要的，再加进计划" : result.error;
       foot = ok ? " " : ""; break;
+    case "adjust_habit": title = ok ? result.habit : "没找到这个习惯"; note = ok ? result.done : result.error; break;
     case "add_habit": title = ok ? result.habit.title : "没有加上"; note = ok ? `${result.habit.freq_text} · 放进「${result.wish_title}」了` : result.error; break;
     case "checkin_habit": title = ok ? result.habit.title : "没找到这个习惯"; note = ok ? (result.already ? "今天已经打过卡了" : `本周 ${result.habit.week}/${result.habit.need}`) : "没有写入打卡"; break;
     case "remember": title = ok ? result.memory?.text : "没有写入"; note = ok ? "长期记住了，在「我的空间」可以改" : result.error; break;
@@ -143,6 +146,13 @@ function toolCard(name, args, result) {
   el.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
   if (ok && name === "propose_moment") proposalFoot(el, result);
   if (ok && name === "propose_plan") planFoot(el, result);
+  el.querySelectorAll("[data-lazy-pick]").forEach((b) => b.addEventListener("click", () => {
+    const pick = b.dataset.lazyPick;
+    const f = el.querySelector(".tool-f");
+    if (pick === "adjust") { adjustSheet(); return; }
+    f.innerHTML = `<span class="muted">${pick === "rest" ? "好，明天我们再继续。" : "好，想说什么都行，我听着。"}</span>`;
+    if (pick === "chat") document.querySelector(".composer textarea")?.focus();
+  }));
   if (amount) setTimeout(() => flyXP(el.querySelector(".tool-xp"), amount), 250);
   if (ok && ["log_good_news", "complete_step", "checkin_habit"].includes(name)) setTimeout(() => burstAt(el.querySelector(".tile"), 26), 150);
   return el;
@@ -192,6 +202,7 @@ export function renderChat(root) {
         <div class="inbox">
           <button class="ib" data-act="good" title="记一条好消息">${icon("star")}</button>
           <textarea rows="1" placeholder="给${esc(p.agent_name || "小光")}发消息" aria-label="消息"></textarea>
+          <button class="ib ${isResting() ? "on" : ""}" data-act="lazy" title="${isResting() ? "今天在偷懒" : "今天偷个懒"}">${icon("moon")}</button>
           <button class="send" aria-label="发送">${icon("send")}</button>
         </div>
       </div></div>
@@ -296,6 +307,7 @@ export function renderChat(root) {
   }
 
   root.querySelector("[data-act=good]").addEventListener("click", (e) => quickGood(e.currentTarget));
+  root.querySelector("[data-act=lazy]").addEventListener("click", () => openLazy({ onDone: () => { setAgentMood("tired"); renderChat(root); } }));
   function quickGood(btn) {
     let kind = "good";
     const body = h("div", { class: "qg", html: `<div class="tabs qg-tabs"><button class="on" data-k="good">${icon("star")}小确幸</button><button data-k="meme">${icon("chat")}内心戏</button><span class="ind"></span></div>

@@ -160,3 +160,24 @@
 @keyframes chest-shake { 20%,60% { transform: rotate(-6deg); } 40%,80% { transform: rotate(6deg); } }
 .xp-fly { position: fixed; z-index: 450; pointer-events: none; display: flex; align-items: baseline; gap: 2px; padding: 4px 10px; border-radius: 12px; background: var(--accent); color: var(--accent-ink); box-shadow: 0 0 24px var(--accent-soft); font-family: "Nunito", var(--font); font-weight: 900; font-size: 19px; }
 .xp-fly small { font-size: 11px; }
+
+/* 账号 */
+.acct-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.acct-av { width: 52px; height: 52px; border-radius: 17px; display: grid; place-items: center; background: var(--btn); color: var(--btn-ink); font-weight: 900; font-size: 22px; box-shadow: 0 3px 0 var(--btn-deep); }
+.acct-head b { display: block; font-size: 17px; }
+.acct-head small { font-size: 12.5px; color: var(--text-3); font-weight: 700; }
+.acct-guest { padding: 14px; border-radius: 16px; background: var(--surface-2); display: grid; gap: 8px; margin-bottom: 12px; }
+.acct-guest p { margin: 0 0 2px; font-size: 13.5px; line-height: 1.65; color: var(--text-2); }
+.acct-guest .field { background: var(--surface); }
+.acct-rows { display: grid; gap: 6px; }
+.acct-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); font-weight: 800; font-size: 14.5px; text-align: left; transition: background .2s; }
+.acct-row span { flex: 1; }
+.acct-row .ic-svg { width: 18px; height: 18px; color: var(--text-3); }
+.acct-row:hover { background: var(--surface-2); }
+.acct-row.danger, .acct-row.danger .ic-svg { color: var(--danger); }
+.p-rest { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 12px 8px 4px; margin-bottom: 12px; border-radius: 18px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--c-violet) 18%, transparent), transparent 80%), var(--surface-2); font-size: 12.5px; color: var(--text-2); font-weight: 700; line-height: 1.5; }
+.p-rest .pet { width: 64px; height: 64px; flex: none; }
+.p-rest b { display: block; font-size: 14px; color: var(--text); }
+.quest.rest .q-t { color: var(--c-violet); }
+.quest.rest .bar i { background: var(--c-violet); }

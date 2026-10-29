@@ -118,6 +118,8 @@ class Store:
               archived INTEGER DEFAULT 0, created_at TEXT);
             CREATE TABLE IF NOT EXISTS habit_log(
               id TEXT PRIMARY KEY, habit_id TEXT, day TEXT, created_at TEXT, UNIQUE(habit_id, day));
+            CREATE TABLE IF NOT EXISTS habit_skip(
+              habit_id TEXT, day TEXT, created_at TEXT, UNIQUE(habit_id, day));
             CREATE TABLE IF NOT EXISTS milestone(
               id TEXT PRIMARY KEY, wish_id TEXT, title TEXT, due_day TEXT, status TEXT,
               done_at TEXT, created_at TEXT);

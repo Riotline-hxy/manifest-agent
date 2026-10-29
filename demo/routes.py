@@ -175,9 +175,9 @@ def record(h, u, b, q):
         if type_ == "rest" and b.get("undo"):
             with st.lock:
                 st.c.execute("DELETE FROM record WHERE type='rest' AND day=?", (day_key(),))
-            st.log("record", "今天不休息了")
+            st.log("rest", "今天不偷懒了")
             return 200, bootstrap(st)
-        text = clip(str(b.get("text") or ""), 200).strip() or ("今天休息" if type_ == "rest" else "")
+        text = clip(str(b.get("text") or ""), 200).strip() or ("今天偷个懒" if type_ == "rest" else "")
         if not text:
             raise ApiError(400, "写点什么")
         if type_ == "rest" and st.c.execute("SELECT 1 FROM record WHERE type='rest' AND day=?", (day_key(),)).fetchone():
@@ -186,7 +186,8 @@ def record(h, u, b, q):
         xp = None
         if type_ in ("good", "meme"):
             xp = growth.award(st, "good", ref="rec:" + r["id"], note="小确幸" if type_ == "good" else "内心戏")
-        st.log("record", {"good": "记下一件小确幸", "meme": "记下一段内心戏", "rest": "今天给自己放了假"}[type_])
+        st.log("rest" if type_ == "rest" else "record",
+               {"good": "记下一件小确幸", "meme": "记下一段内心戏", "rest": "今天偷个懒：" + text.replace("今天偷个懒：", "")}[type_])
         return 200, {"xp": xp, "record": r, **bootstrap(st)}
 
 
@@ -203,6 +204,18 @@ def habit_api(h, u, b, q):
                 if created:
                     day = b.get("day") or day_key()
                     out["xp"] = growth.award(st, "action", ref=f"habit:{hb['id']}:{day}", note="打卡：" + hb["title"])
+            elif act in ("skip", "unskip"):
+                journey.skip_habit(st, str(b.get("id") or ""), undo=act == "unskip")
+            elif act == "ease":
+                hb = next((x for x in journey.habits(st) if x["id"] == str(b.get("id") or "")), None)
+                if not hb:
+                    raise ApiError(404, "没有这个习惯")
+                down = journey.ease_habit(hb)
+                if not down:
+                    raise ApiError(400, "已经是每周 1 次了，可以先收起它")
+                journey.edit_habit(st, hb["id"], {"freq": down[0], "per_week": down[1]})
+                st.log("plan", f"把「{hb['title']}」调轻了：{journey.freq_text({'freq': down[0], 'per_week': down[1]})}")
+                out["eased"] = journey.freq_text({"freq": down[0], "per_week": down[1]})
             elif act == "edit":
                 if not journey.edit_habit(st, str(b.get("id") or ""), b):
                     raise ApiError(404, "没有这个习惯")

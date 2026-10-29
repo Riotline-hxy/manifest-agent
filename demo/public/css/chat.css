@@ -95,3 +95,4 @@
 .qg-tabs { margin-bottom: 10px; }
 .qg-tabs button { display: inline-flex; align-items: center; gap: 6px; }
 .qg-tabs .ic-svg { width: 15px; height: 15px; }
+.inbox .ib.on { color: var(--c-violet); background: color-mix(in srgb, var(--c-violet) 14%, transparent); }

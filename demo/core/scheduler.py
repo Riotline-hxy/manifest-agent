@@ -15,7 +15,7 @@ import time
 
 from . import digest, llm
 from .store import Store, UID_RE
-from .util import DATA, clip, hours_since, iso, now
+from .util import DATA, clip, day_key, hours_since, iso, now
 
 IDLE_HOURS = {"more": 12, "normal": 24, "less": 60}
 QUIET = (23, 8)
@@ -49,8 +49,8 @@ def pick_cue(store: Store) -> dict:
     """What to talk about, in priority order (template copy from creative §C)."""
     p = store.profile()
     recs = store.records(5)
-    if recs and recs[0]["type"] == "rest":
-        return {"cue": "after_rest", "text": "昨天慢了也没关系。要不要从灵感区抽一张卡？"}
+    if recs and recs[0]["type"] == "rest" and recs[0]["day"] != day_key():
+        return {"cue": "after_rest", "text": "昨天好好歇了一天，小芽也睡饱了。今天想从哪件小事开始？"}
     todo = [s for s in store.steps() if s["status"] == "todo"]
     if todo:
         return {"cue": "step", "text": f"「{clip(todo[0]['title'], 18)}」还在等你。今天只做开头五分钟，也算。"}
@@ -82,6 +82,8 @@ def deliver(store: Store, force: bool = False) -> dict:
     ok, why = should_reach_out(p, bool(store.inbox(unseen_only=True)))
     if not ok and not force:
         return {"sent": False, "reason": why}
+    if not force and store.c.execute("SELECT 1 FROM record WHERE type='rest' AND day=?", (day_key(),)).fetchone():
+        return {"sent": False, "reason": "今天是偷懒日，不打扰"}
     msg = compose(store)
     item = store.add_inbox(msg["text"], msg["cue"])
     store.add_msg("assistant", msg["text"], {"proactive": True, "cue": msg["cue"], "inbox_id": item["id"]})
