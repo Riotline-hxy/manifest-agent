@@ -119,6 +119,7 @@ export function togglePanel(force) {
   const app = root.querySelector(".app");
   const on = force ?? !app.classList.contains("panel-open");
   app.classList.toggle("panel-open", on);
+  if (on) cheerPick = null;
   localStorage.setItem("xg-panel", on ? "1" : "0");
   drawPanel(true);
   drawTop();
@@ -247,20 +248,14 @@ export function placeInd(tabs) {
   Object.assign(tabs.querySelector(".ind").style, { left: on.offsetLeft + "px", width: on.offsetWidth + "px" });
 }
 
-// 「小光的一句话」：留言、昨晚整理时的发现、最近的你 / 送你一句。按优先级排，第一句最该看，小圆点可以翻到其他几句。
-let sayIndex = 0;
-function sayLines(d) {
-  const out = [];
-  const msg = (d.inbox || []).slice(-1)[0];
-  if (msg) out.push({ kind: "say-msg", icon: msg.cue === "task" ? "clock" : "letter", label: msg.cue === "task" ? "到点啦" : "想跟你说", text: msg.text, go: "chat" });
-  const dg = (d.digests || [])[0];
-  if (dg && dg.by_model && dg.summary) {
-    const ago = Math.round((Date.now() - Date.parse(dg.day + "T12:00:00+08:00")) / 864e5);
-    if (ago <= 2) out.push({ kind: "say-night", icon: "moon", label: ago <= 1 ? "昨晚整理时" : "前天夜里整理时", text: dg.summary, go: "digest" });
-  }
-  const ch = d.cheer;
-  if (ch?.text) out.push({ kind: ch.kind === "you" ? "say-you" : "say-quote", icon: ch.kind === "you" ? "leaf" : "quote", label: ch.label, text: ch.text, source: ch.source });
-  return out;
+// 面板顶部的一句话：「最近的你」或「对自己说」的肯定语。每次打开面板随机一句，点一下换一句。
+let cheerPick = null;
+function pickCheer(d, prev = null) {
+  const ch = d.cheer || {};
+  const aff = (ch.affirm || []).filter((t) => t !== prev?.text);
+  const you = ch.you?.text && prev?.kind !== "you" ? { kind: "you", text: ch.you.text } : null;
+  if (you && (!aff.length || Math.random() < 0.4)) return you;
+  return aff.length ? { kind: "affirm", text: aff[Math.floor(Math.random() * aff.length)] } : you;
 }
 
 function drawPanelBody(panel) {
@@ -270,14 +265,12 @@ function drawPanelBody(panel) {
   if (!g.stage) return;
   if (panelTab === "today") {
     const guesses = (d.memories || []).filter((m) => m.status === "guess").slice(0, 2);
-    const lines = sayLines(d);
-    const li = Math.min(sayIndex, Math.max(0, lines.length - 1));
-    const L = lines[li];
+    cheerPick = cheerPick || pickCheer(d);
+    const L = cheerPick;
     body.innerHTML = `
-      ${L ? `<div class="cheer ${L.kind} ${lines.length > 1 ? "flip" : ""}" ${lines.length > 1 ? `data-say-next role="button" tabindex="0" aria-label="换一句（${li + 1}/${lines.length}）"` : ""}>
-        <div class="k">${icon(L.icon)}${esc(L.label)}${lines.length > 1 ? `<span class="say-dots" aria-hidden="true">${lines.map((x, i) => `<i class="${i === li ? "on" : ""}"></i>`).join("")}</span>` : ""}</div>
-        <div class="t">${esc(L.text)}</div>${L.source ? `<div class="src">${esc(L.source)}</div>` : ""}
-        ${L.go ? `<button class="say-go" data-say-go="${L.go}">${L.go === "chat" ? "去回一句" : "看看整理了什么"}${icon("arrow")}</button>` : ""}</div>` : ""}
+      ${L ? `<div class="cheer say-${L.kind} flip" data-say-next role="button" tabindex="0" aria-label="换一句">
+        <div class="k">${icon(L.kind === "you" ? "leaf" : "heart")}${L.kind === "you" ? "最近的你" : "对自己说"}</div>
+        <div class="t">${esc(L.text)}</div></div>` : ""}
       <div class="sec-title" style="margin-bottom:2px">今日任务 <span class="more">${g.quests_done}/4</span></div>
       ${isResting() ? `<button class="p-rest" data-rest-panel>${petSVG(g.stage.art, { sleep: true, cls: "alive" })}<span><b>今天是偷懒日</b>${esc(g.pet_name)}陪你一起睡，任务不着急</span></button>` : ""}
       ${g.quests.map((q) => `<div class="quest ${q.done ? "done" : ""} ${q.rest ? "rest" : ""}">${q.rest ? tile("moon", "var(--c-violet)", 34) : tile(QUEST_TILE[q.id][0], QUEST_TILE[q.id][1], 34)}
@@ -313,21 +306,11 @@ function drawPanelBody(panel) {
   body.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
   body.querySelector("[data-rest-panel]")?.addEventListener("click", () => openLazy({ onDone: drawView }));
   bindRoutines(body);
-  // 点一下卡片就换下一句；「去看看」按钮单独跳转
-  const next = () => {
-    sayIndex = (Math.min(sayIndex, lines0.length - 1) + 1) % lines0.length;
-    drawPanelBody(panel);
-    body.querySelector(".cheer")?.classList.add("swap");
-  };
-  const lines0 = sayLines(d);
+  // 点一下换一句
   const card = body.querySelector("[data-say-next]");
+  const next = () => { cheerPick = pickCheer(d, cheerPick); drawPanelBody(panel); body.querySelector(".cheer")?.classList.add("swap"); };
   card?.addEventListener("click", next);
   card?.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); next(); } });
-  body.querySelector("[data-say-go]")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const t = e.currentTarget.dataset.sayGo;
-    if (t === "digest") { state.spaceTab = "digest"; state.route === "space" ? drawView() : go("space"); } else go(t);
-  });
   body.querySelector("[data-go-digest]")?.addEventListener("click", () => { state.spaceTab = "digest"; state.route === "space" ? drawView() : go("space"); });
   body.querySelectorAll("[data-confirm],[data-reject]").forEach((b) => b.addEventListener("click", async () => {
     const action = b.dataset.confirm ? "confirm" : "reject";

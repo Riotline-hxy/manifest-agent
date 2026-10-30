@@ -756,28 +756,26 @@ class ApiTest(unittest.TestCase):
         tool = next(d for e, d in ev if e == "tool" and d["name"] == "checkin_habit")
         self.assertEqual(tool["result"]["habit"]["week"], 1)
 
-    def test_cheer_rotates_every_half_day(self):
+    def test_cheer_you_and_affirmations(self):
         from core import cheer
         c, uid = self.member("cheer")
         _, d = c.req("GET", "/api/bootstrap")
         ch = d["cheer"]
-        self.assertEqual((ch["kind"], ch["slot"]), ("quote", cheer.slot()))
-        self.assertIn(ch["text"], [q[0] for q in cheer.QUOTES])
-        self.assertEqual(c.req("GET", "/api/bootstrap")[1]["cheer"]["text"], ch["text"])   # 同一时段不变
+        self.assertIsNone(ch["you"])                                   # 没材料就没有「最近的你」
+        self.assertIn("我值得拥有精彩的人生。", ch["affirm"])
+        self.assertTrue(all(t.startswith(("我", "好事", "今天", "事情", "平静", "机会")) for t in ch["affirm"]))
+        c.req("POST", "/api/wish", {"action": "add", "title": "身体好一点", "category": "body"})
+        self.assertIn("我的身体是一个奇迹。", c.req("GET", "/api/bootstrap")[1]["cheer"]["affirm"])
+        self.assertNotIn("我身边有爱我的人。", c.req("GET", "/api/bootstrap")[1]["cheer"]["affirm"])   # 关系类只给有关系愿望的人
         with Store(uid) as st:
             st.add_record("good", "楼下的猫让我摸了")
             st.add_record("meme", "今天的我：社恐但嘴硬")
             self.fake.json_out = {"text": "这不是小事，而是你在照顾自己。"}
-            self.assertIsNone(cheer.refresh(uid, cheer.slot()))              # 「不是……而是」的句子不用
+            self.assertIsNone(cheer.refresh(uid))                       # 「不是……而是」的句子不用
             self.fake.json_out = {"text": "这几天你一直在留意身边的小可爱。"}
-            out = cheer.refresh(uid, cheer.slot())
-        self.assertEqual(out["kind"], "you")
-        self.assertEqual(c.req("GET", "/api/bootstrap")[1]["cheer"]["text"], "这几天你一直在留意身边的小可爱。")
-        with Store(uid) as st:
-            st.set_profile({"cheer": {**out, "slot": "2000-01-01-am"}})     # 时段过去了 → 换一句
-        self.assertNotEqual(c.req("GET", "/api/bootstrap")[1]["cheer"]["slot"], "2000-01-01-am")
+            self.assertEqual(cheer.refresh(uid)["kind"], "you")
+        self.assertEqual(c.req("GET", "/api/bootstrap")[1]["cheer"]["you"]["text"], "这几天你一直在留意身边的小可爱。")
 
-    # ---- 偷懒日 ------------------------------------------------------------------
     def test_lazy_day_pauses_today_and_offers_adjust(self):
         c, uid = self.member("rest_mode")
         _, d = c.req("POST", "/api/wish", {"action": "add", "title": "规律健身", "category": "body"})

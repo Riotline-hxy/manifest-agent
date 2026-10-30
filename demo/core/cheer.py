@@ -1,41 +1,50 @@
-"""小光面板顶部的一句话，每 12 小时换一次（0 点和 12 点各一个时段）。
+"""小光面板顶部的一句话。只有两种，打开面板时随机给一句，点一下换一句：
 
-两种：
-  - 「最近的你」：从最近 7 天真实发生的事里写一句，只用材料里的事实；
-  - 「送你一句」：从下面这份核对过出处的名句里挑，按用户的愿望类别优先。
-先立刻给出一句（名句或模板），模型可用且最近有材料时，在后台把这个时段换成「最近的你」。
+  - 「最近的你」：从最近 7 天真实发生的事里写一句（第二人称），每 12 小时（0 点 / 12 点）在后台更新一次；
+  - 「对自己说」：第一人称的内心肯定语（affirmation），像「我值得拥有精彩的人生。」，按用户的愿望类别挑。
+
+没有足够材料时没有「最近的你」，只显示肯定语。
 """
 from __future__ import annotations
 
-import hashlib
 import os
 import threading
 from datetime import timedelta
 
 from . import llm
 from .store import Store
-from .util import clip, day_key, iso, now
+from .util import clip, day_key, iso, now, parse_iso
 
-# (句子, 出处, 适合的愿望类别)
-QUOTES = [
-    ("千里之行，始于足下。", "《道德经》", ("other", "body", "wealth")),
-    ("不积跬步，无以至千里。", "荀子《劝学》", ("wealth", "body", "confidence")),
-    ("锲而不舍，金石可镂。", "荀子《劝学》", ("wealth", "body")),
-    ("博观而约取，厚积而薄发。", "苏轼《稼说送张琥》", ("wealth",)),
-    ("莫听穿林打叶声，何妨吟啸且徐行。", "苏轼《定风波》", ("calm", "confidence")),
-    ("竹杖芒鞋轻胜马，谁怕？一蓑烟雨任平生。", "苏轼《定风波》", ("confidence", "freedom")),
-    ("此心安处是吾乡。", "苏轼《定风波·常羡人间琢玉郎》", ("calm", "relation")),
-    ("人生如逆旅，我亦是行人。", "苏轼《临江仙·送钱穆父》", ("freedom", "calm")),
-    ("行到水穷处，坐看云起时。", "王维《终南别业》", ("calm", "freedom")),
-    ("长风破浪会有时，直挂云帆济沧海。", "李白《行路难》", ("wealth", "confidence")),
-    ("山重水复疑无路，柳暗花明又一村。", "陆游《游山西村》", ("other", "calm")),
-    ("路漫漫其修远兮，吾将上下而求索。", "屈原《离骚》", ("wealth", "other")),
-    ("天行健，君子以自强不息。", "《周易》", ("body", "wealth")),
-    ("知者不惑，仁者不忧，勇者不惧。", "《论语·子罕》", ("confidence", "calm")),
-    ("好的开始是成功的一半。", "亚里士多德", ("other", "body")),
-    ("最好的出路，永远是穿过去。", "罗伯特·弗罗斯特", ("confidence", "other")),
-    ("我不怕暴风雨，因为我正在学习如何驾驶我的船。", "路易莎·梅·奥尔科特《小妇人》", ("confidence", "freedom")),
-    ("生活中没有什么可怕的东西，只有需要理解的东西。", "居里夫人", ("calm", "confidence")),
+# (肯定语, 适合的愿望类别；general 对谁都合适)
+AFFIRMATIONS = [
+    ("我值得拥有精彩的人生。", "general"),
+    ("好事正在向我靠近。", "general"),
+    ("我正在一点点成为想成为的人。", "general"),
+    ("今天的我已经足够好。", "general"),
+    ("我欣赏今天认真生活的自己。", "general"),
+    ("我的努力正在悄悄累积。", "general"),
+    ("我相信自己的节奏。", "general"),
+    ("事情会按照所需的方式得到解决。", "general"),
+    ("我允许自己慢慢来。", "calm"),
+    ("平静一直在我心里，我随时可以回到那里。", "calm"),
+    ("我可以放下今天放不下的事。", "calm"),
+    ("我允许自己好好休息。", "calm"),
+    ("我说出的想法值得被听见。", "confidence"),
+    ("我对自己有耐心，也有信心。", "confidence"),
+    ("我敢于尝试，也接纳不完美的自己。", "confidence"),
+    ("我配得上被温柔对待。", "confidence"),
+    ("我的身体在照顾我，我也在照顾它。", "body"),
+    ("我的身体是一个奇迹。", "body"),
+    ("我每天都在给身体一点好的东西。", "body"),
+    ("我有能力创造更多的选择。", "wealth"),
+    ("机会会在我准备好的时候出现。", "wealth"),
+    ("我做的事情正在变得有价值。", "wealth"),
+    ("我在关系里可以安心说出自己的需要。", "relation"),
+    ("我值得被理解，也愿意理解别人。", "relation"),
+    ("我身边有爱我的人。", "relation"),
+    ("我正在创造自己喜欢的生活。", "freedom"),
+    ("我有选择，也有改变的力量。", "freedom"),
+    ("我愿意给新的可能一个开始。", "freedom"),
 ]
 
 PROMPT = """你是陪伴型 agent「小光」。根据这个人最近 7 天真实发生的事，写一句给 TA 的话，放在「最近的你」下面。
@@ -47,6 +56,7 @@ PROMPT = """你是陪伴型 agent「小光」。根据这个人最近 7 天真�
 - 材料太少写不出具体的话，就返回 {"skip": true}。
 只输出 JSON：{"text":"..."} 或 {"skip": true}"""
 
+YOU_KEEP_DAYS = 3        # 「最近的你」超过 3 天没更新就不再显示
 _inflight: set[tuple[str, str]] = set()
 _guard = threading.Lock()
 
@@ -75,26 +85,26 @@ def material(st: Store) -> list[str]:
     return out
 
 
-def pick_quote(st: Store, s: str, avoid: str = "") -> dict:
-    cats = [r[0] for r in st.c.execute("SELECT category FROM wish WHERE archived=0")]
-    pool = [q for q in QUOTES if any(c in q[2] for c in cats)] or QUOTES
-    pool = [q for q in pool if q[0] != avoid] or pool
-    i = int(hashlib.sha1((st.uid + s).encode()).hexdigest(), 16) % len(pool)
-    text, src, _ = pool[i]
-    return {"slot": s, "kind": "quote", "label": "送你一句", "text": text, "source": src, "at": iso()}
+def affirmations(st: Store) -> list[str]:
+    cats = {r[0] for r in st.c.execute("SELECT category FROM wish WHERE archived=0")}
+    return [t for t, c in AFFIRMATIONS if c == "general" or c in cats]
 
 
 def get(st: Store, spawn: bool = True) -> dict:
-    s = slot()
+    """{"you": {"text", "at"} 或 None, "affirm": [...]}。进入新时段时在后台重写「最近的你」。"""
     c = st.profile().get("cheer") or {}
-    if c.get("slot") == s and c.get("text"):
-        return c
-    c = pick_quote(st, s, avoid=c.get("text") or "")
-    st.set_profile({"cheer": c})
-    # 后台改写和定时任务同开关（测试、本地调试时关掉）
-    if spawn and os.environ.get("MANIFEST_SCHEDULER", "1") != "0" and len(material(st)) >= 2:
-        _spawn(st.uid, s)
-    return c
+    s = slot()
+    if c.get("slot") != s:
+        st.set_profile({"cheer": {**c, "slot": s}})
+        # 后台改写和定时任务同开关（测试、本地调试时关掉）
+        if spawn and os.environ.get("MANIFEST_SCHEDULER", "1") != "0" and len(material(st)) >= 2:
+            _spawn(st.uid, s)
+    you = None
+    if c.get("kind") == "you" and c.get("text"):
+        at = parse_iso(c.get("at"))
+        if at and (now() - at).days < YOU_KEEP_DAYS:
+            you = {"text": c["text"], "at": c["at"]}
+    return {"you": you, "affirm": affirmations(st)}
 
 
 def _spawn(uid: str, s: str) -> None:
@@ -113,7 +123,7 @@ def _spawn(uid: str, s: str) -> None:
     threading.Thread(target=work, daemon=True).start()
 
 
-def refresh(uid: str, s: str) -> dict | None:
+def refresh(uid: str, s: str | None = None) -> dict | None:
     with Store(uid) as st:
         mat = material(st)
         if len(mat) < 2:
@@ -126,9 +136,6 @@ def refresh(uid: str, s: str) -> dict | None:
         text = clip(str((out or {}).get("text") or "").strip(), 40)
         if not out or out.get("skip") or not text or "不是" in text:
             return None
-        cur = st.profile().get("cheer") or {}
-        if cur.get("slot") != s:      # 时段已经过去了
-            return None
-        c = {"slot": s, "kind": "you", "label": "最近的你", "text": text, "source": "", "at": iso()}
+        c = {"slot": s or slot(), "kind": "you", "text": text, "at": iso()}
         st.set_profile({"cheer": c})
         return c

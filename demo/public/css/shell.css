@@ -267,13 +267,8 @@
 
 .act-day { font-size: 12px; font-weight: 900; color: var(--text-3); margin: 14px 2px 4px; }
 .act-day:first-child { margin-top: 2px; }
-.say-dots { margin-left: auto; display: inline-flex; gap: 5px; }
-.say-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line-2); transition: all .2s; }
-.say-dots i.on { width: 14px; border-radius: 3px; background: var(--accent); }
 .cheer.flip { cursor: pointer; user-select: none; transition: transform .15s; }
 .cheer.flip:active { transform: scale(.98); }
 .cheer.swap .t { animation: rise .35s var(--spring); }
-.say-go { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; font-size: 12.5px; font-weight: 800; color: var(--accent); padding: 4px 10px 4px 0; }
-.say-go .ic-svg { width: 14px; height: 14px; }
-.cheer.say-night .k .ic-svg { color: var(--c-violet); }
-.cheer.say-msg .k .ic-svg { color: var(--c-sky); }
+.cheer.say-affirm .k .ic-svg { color: var(--c-pink); }
+.cheer.say-affirm .t { letter-spacing: .02em; }
