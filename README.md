@@ -21,6 +21,12 @@ python server.py 8765
 
 模型配置在 `config/llm.json`（`baseUrl` / `model` / `reasoning`），也可以用环境变量 `MODELFLARE_MODEL` 覆盖。
 
+## 管理后台
+
+https://manifest.noryx.cn/admin （本地：http://127.0.0.1:8765/admin）。口令是服务器 `/opt/manifest-agent/.env` 里的 `MANIFEST_ADMIN_KEY`；没设这个变量时后台整个关闭。登录后 12 小时有效，换掉口令所有后台登录立即失效。
+
+只读：用户数与活跃、每天新用户 / 消息 / 模型 tokens、首页体验漏斗、服务器状态、用户列表和单个用户的数量与操作记录。看不到对话和记忆原文。运行计数存在 `data/metrics.db`（只有数字）。
+
 ## 测试
 
 ```bash
@@ -46,6 +52,8 @@ demo/
     scheduler.py     后台线程：03:00 后整理昨天、主动消息
     report.py        14/30 天蜕变报告
     onboarding.py    建档、示例账号数据（/api/auth/guest，首页已不再使用）
+    admin.py         管理后台的只读统计（读用户库只读打开）
+    metrics.py       按天的运行计数：请求、对话并发、模型 tokens、体验漏斗
     trial.py         首页引导式体验（/api/trial/chat，无状态，模型不可用时有写好的回应）
   public/
     index.html

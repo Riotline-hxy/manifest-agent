@@ -15,6 +15,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from . import metrics
 from .util import ROOT
 
 CONFIG_PATH = ROOT.parent / "config" / "llm.json"
@@ -57,10 +58,21 @@ def _request(body: dict, stream: bool, timeout: float):
     try:
         return urllib.request.urlopen(req, timeout=timeout)
     except urllib.error.HTTPError as e:
+        metrics.bump("llm_err")
         detail = e.read()[:300].decode("utf-8", "replace")
         raise LLMError(f"HTTP {e.code}: {detail}") from None
     except (urllib.error.URLError, TimeoutError, OSError) as e:
+        metrics.bump("llm_err")
         raise LLMError(f"network: {e}") from None
+
+
+def _note_usage(usage) -> None:
+    metrics.bump("llm_calls")
+    if isinstance(usage, dict):
+        metrics.bump("llm_tokens", int(usage.get("total_tokens") or 0))
+        metrics.bump("llm_tokens_in", int(usage.get("prompt_tokens") or 0))
+        metrics.bump("llm_tokens_out", int(usage.get("completion_tokens") or 0))
+        metrics.bump("llm_tokens_cached", int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0))
 
 
 def _body(messages, tools=None, model=None, reasoning=None, stream=True, temperature=None, json_mode=False):
@@ -112,6 +124,7 @@ def stream_chat(messages, tools=None, model=None, reasoning=None, timeout=None):
                         slot["arguments"] += fn["arguments"]
                 if ch.get("finish_reason"):
                     finish = ch["finish_reason"]
+    _note_usage(usage)
     if calls:
         yield ("tool_calls", [calls[i] for i in sorted(calls)])
     yield ("done", {"finish_reason": finish, "usage": usage})
@@ -124,6 +137,7 @@ def complete_json(messages, model=None, timeout=40) -> dict | None:
         resp = _request(_body(messages, model=model, reasoning="low", stream=False, json_mode=True), False, timeout)
         with resp:
             d = json.loads(resp.read())
+        _note_usage(d.get("usage"))
         text = d["choices"][0]["message"].get("content") or ""
     except (LLMError, KeyError, IndexError, ValueError):
         return None

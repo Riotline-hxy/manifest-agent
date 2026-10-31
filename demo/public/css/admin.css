@@ -1,0 +1,108 @@
+/* 管理后台：深空主题，复用卡片 / 按钮 / chip，只加版式和图表 */
+body.admin-body { overflow: auto; }
+#admin { min-height: 100vh; }
+
+.adm-login { width: min(400px, calc(100% - 32px)); margin: 16vh auto 0; padding: 32px 28px; display: grid; gap: 12px; justify-items: start; }
+.adm-login h1 { font-size: 24px; margin: 6px 0 0; }
+.adm-login p { margin: 0; color: var(--text-2); font-size: 14px; }
+.adm-login .btn { justify-self: stretch; }
+.adm-err { color: var(--danger) !important; min-height: 20px; }
+.adm-empty { padding: 20vh 20px; text-align: center; color: var(--text-2); }
+
+.adm-top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 14px 28px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.adm-logo { display: flex; align-items: center; gap: 8px; font-size: 17px; margin-right: 8px; }
+.adm-logo .ic-svg { width: 20px; height: 20px; color: var(--accent); }
+.adm-range { display: flex; gap: 6px; }
+.adm-range .chip { height: 30px; }
+.adm-top .spacer, .adm-users-head .spacer { flex: 1; }
+.adm-stamp { font-size: 12.5px; color: var(--text-3); font-weight: 700; }
+
+.adm { width: min(1240px, 100%); margin: 0 auto; padding: 22px 28px 60px; display: grid; gap: 16px;
+  grid-template-columns: 260px 1fr; }
+.adm > section:not(.adm-hero):not(.adm-stats) { grid-column: 1 / -1; }
+.adm-hero { padding: 22px; display: flex; flex-direction: column; justify-content: center; }
+.hero-n { font-size: 56px; line-height: 1.05; font-variant-numeric: proportional-nums; }
+.hero-k { font-size: 15px; font-weight: 800; margin-top: 4px; }
+.hero-sub { font-size: 13px; color: var(--text-3); margin-top: 2px; }
+.adm-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.adm-stat { padding: 14px 16px; }
+.st-k { font-size: 12.5px; color: var(--text-2); font-weight: 800; }
+.st-v { font-size: 26px; line-height: 1.25; }
+.st-sub { font-size: 12px; color: var(--text-3); line-height: 1.5; }
+
+.adm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.adm-card { padding: 18px 20px; min-width: 0; }
+.adm-card h3 { font-size: 16px; margin: 0; }
+.adm-sub { font-size: 12.5px; color: var(--text-3); margin: 2px 0 12px; }
+.adm-none { color: var(--text-3); font-size: 13.5px; text-align: center; padding: 18px 0; }
+
+/* 柱状图 */
+.chart { position: relative; }
+.chart .plot { position: relative; }
+.chart svg { display: block; overflow: visible; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .tick { fill: var(--text-3); font-size: 11px; font-weight: 700; font-family: var(--font); }
+.chart .hit { fill: transparent; cursor: default; outline: none; }
+.chart .hit.on { fill: var(--surface-2); }
+.legend { display: flex; gap: 14px; margin-bottom: 8px; font-size: 12.5px; color: var(--text-2); font-weight: 700; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; }
+.tip { position: absolute; top: -6px; transform: translate(-50%, -100%); pointer-events: none; z-index: 3; min-width: 100px;
+  padding: 8px 10px; border-radius: 12px; background: var(--solid-2); border: 1px solid var(--line-2); box-shadow: var(--shadow); font-size: 12.5px; }
+.tip-d { color: var(--text-3); font-weight: 800; margin-bottom: 2px; }
+.tip-r { display: flex; align-items: center; gap: 6px; }
+.tip-r i { width: 12px; height: 2px; border-radius: 1px; }
+.tip-r b { font-family: "Nunito", var(--font); font-size: 14px; color: var(--text); }
+.tip-r span { color: var(--text-2); }
+.adm-data { margin-top: 8px; font-size: 12.5px; }
+.adm-data summary { cursor: pointer; color: var(--text-3); font-weight: 800; width: max-content; }
+.adm-data summary:hover { color: var(--text); }
+.adm-data table { width: 100%; border-collapse: collapse; margin-top: 6px; max-height: 240px; }
+.adm-data td, .adm-data th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; }
+.r { text-align: right !important; }
+
+/* 横向条 */
+.hb { display: grid; grid-template-columns: 7.5em 1fr; align-items: center; gap: 10px; margin: 8px 0; }
+.hb-l { font-size: 13px; color: var(--text-2); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-t { display: flex; align-items: center; gap: 8px; }
+.hb-t i { height: 16px; border-radius: 0 4px 4px 0; display: block; }
+.hb-t b { font-size: 13px; }
+
+/* 服务器 / 详情里的键值 */
+.adm-sys { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 2px 24px; }
+.kv { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.kv span { color: var(--text-3); font-weight: 700; flex: none; }
+.kv b { text-align: right; font-weight: 700; }
+
+/* 用户表 */
+.adm-users-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.adm-search { width: 200px; height: 36px; padding: 6px 12px; font-size: 13.5px; }
+.adm-table-wrap { overflow-x: auto; margin: 0 -6px; }
+.adm-table { width: 100%; border-collapse: collapse; font-size: 13.5px; white-space: nowrap; }
+.adm-table th { text-align: left; font-size: 12px; color: var(--text-3); font-weight: 800; padding: 8px 8px; border-bottom: 1px solid var(--line-2); }
+.adm-table td { padding: 10px 8px; border-bottom: 1px solid var(--line); }
+.adm-table tbody tr { cursor: pointer; transition: background .15s; outline: none; }
+.adm-table tbody tr:hover, .adm-table tbody tr:focus-visible { background: var(--surface-2); }
+.adm-table .clip { max-width: 180px; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+
+/* 单个用户 */
+.sheet:has(.adm-user) { width: min(720px, 100vw); }
+.adm-user h4 { font-size: 13px; color: var(--text-3); margin: 18px 0 6px; }
+.adm-mini-stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.adm-mini-stats div { display: flex; flex-direction: column; padding: 10px; border-radius: 12px; background: var(--surface); }
+.adm-mini-stats b { font-size: 20px; }
+.adm-mini-stats span { font-size: 12px; color: var(--text-3); font-weight: 700; }
+.adm-acts { list-style: none; padding: 0; margin: 0; max-height: 280px; overflow-y: auto; }
+.adm-acts li { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.adm-acts .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.adm-acts time { color: var(--text-4); font-size: 12px; flex: none; }
+
+@media (max-width: 900px) {
+  .adm { grid-template-columns: 1fr; padding: 16px 14px 40px; }
+  .adm-top { padding: 12px 14px; }
+  .adm-stats { grid-template-columns: 1fr 1fr; }
+  .adm-grid { grid-template-columns: 1fr; }
+  .adm-mini-stats { grid-template-columns: repeat(3, 1fr); }
+  .adm-search { width: 100%; }
+}

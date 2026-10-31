@@ -5,7 +5,7 @@ the only source of the user id.
 """
 from __future__ import annotations
 
-from core import academy, auth, digest, growth, journey, llm, onboarding, report, scenes, scheduler, tasks, trial
+from core import academy, admin, auth, digest, metrics, growth, journey, llm, onboarding, report, scenes, scheduler, tasks, trial
 from core.store import Store
 from core.util import clip, day_key, iso
 from core.api import VERSION, ApiError, bootstrap, public_user
@@ -30,6 +30,7 @@ def register(h, u, b, q):
     cur = auth.session_user(h._token())
     if cur and cur["kind"] == "guest":  # upgrade in place; keeps everything the guest did
         return 200, {"user": public_user(auth.claim_guest(cur["id"], b.get("username"), b.get("password")))}
+    metrics.bump("signup")
     return _logged_in(h, auth.register(b.get("username"), b.get("password")), 201)
 
 
@@ -63,6 +64,52 @@ def trial_chat(h, u, b, q):
         raise ApiError(400, str(e))
 
 
+# ---- 管理后台（只读；登录用 MANIFEST_ADMIN_KEY，cookie 与用户会话分开） ----
+def _admin(h):
+    if not admin.key():
+        raise ApiError(404, "后台未开启")
+    if not admin.check_token(h._token(admin.COOKIE)):
+        raise ApiError(401, "请先登录后台")
+
+
+def admin_login(h, u, b, q):
+    if not admin.key():
+        raise ApiError(404, "后台未开启：在服务器 .env 里设置 MANIFEST_ADMIN_KEY")
+    k = "admin:" + h._ip()
+    if auth.too_many(k, 5):
+        raise ApiError(429, "试太多次了，十分钟后再来")
+    if not admin.check_key(b.get("key")):
+        auth.note_fail(k)
+        raise ApiError(401, "口令不对")
+    return 200, {"ok": True}, {"Set-Cookie": h._admin_cookie(admin.make_token())}
+
+
+def admin_logout(h, u, b, q):
+    return 200, {"ok": True}, {"Set-Cookie": h._admin_cookie(None)}
+
+
+def admin_overview(h, u, b, q):
+    _admin(h)
+    try:
+        days = int((q.get("days") or ["30"])[0])
+    except ValueError:
+        days = 30
+    return 200, admin.overview(days)
+
+
+def admin_users(h, u, b, q):
+    _admin(h)
+    return 200, {"users": admin.users()}
+
+
+def admin_user(h, u, b, q):
+    _admin(h)
+    r = admin.user(str((q.get("id") or [""])[0]))
+    if not r:
+        raise ApiError(404, "没有这个用户")
+    return 200, r
+
+
 def rename(h, u, b, q):
     user = auth.rename(u["id"], str(b.get("username") or ""))
     with Store(u["id"]) as st:
@@ -91,6 +138,9 @@ def onboard(h, u, b, q):
         p = st.profile()
         carry = b.get("carry") if isinstance(b.get("carry"), dict) else {}
         first = clip(str(carry.get("step") or ""), 40).strip()
+        metrics.bump("onboard")
+        if first:
+            metrics.bump("trial_signup")
         for text in (carry.get("remember") or [])[:3]:
             text = clip(str(text), 40).strip()
             if text:
@@ -529,6 +579,11 @@ ROUTES = {
     ("POST", "/api/auth/login"): (login, False),
     ("POST", "/api/auth/guest"): (guest, False),
     ("POST", "/api/trial/chat"): (trial_chat, False),
+    ("POST", "/api/admin/login"): (admin_login, False),
+    ("POST", "/api/admin/logout"): (admin_logout, False),
+    ("GET", "/api/admin/overview"): (admin_overview, False),
+    ("GET", "/api/admin/users"): (admin_users, False),
+    ("GET", "/api/admin/user"): (admin_user, False),
     ("POST", "/api/auth/logout"): (logout, False),
     ("POST", "/api/auth/rename"): (rename, True),
     ("GET", "/api/bootstrap"): (boot, True),

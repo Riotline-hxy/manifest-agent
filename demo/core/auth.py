@@ -22,43 +22,55 @@ SESSION_DAYS = 30
 PBKDF2_ITER = 200_000
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_一-鿿]{2,20}$")
 
-_lock = threading.Lock()
-_conn: sqlite3.Connection | None = None
+_lock = threading.Lock()          # serialises writes that must check-then-insert
+_schema_lock = threading.Lock()
+_local = threading.local()
+_gen = 0                          # bumped by reset_for_tests so every thread reconnects
+_schema_gen = -1
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS users(
+  id TEXT PRIMARY KEY,
+  username TEXT UNIQUE COLLATE NOCASE,
+  pw_hash TEXT,
+  kind TEXT NOT NULL DEFAULT 'member',   -- member | guest
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions(
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+"""
 
 
 def db() -> sqlite3.Connection:
-    global _conn
-    if _conn is None:
+    """One connection per thread. A single connection shared by the request
+    threads mixed up concurrent session lookups (random 401s / 500s under load)."""
+    global _schema_gen
+    c = getattr(_local, "conn", None)
+    if c is None or _local.gen != _gen:
         DATA.mkdir(parents=True, exist_ok=True)
-        _conn = sqlite3.connect(DATA / "auth.db", check_same_thread=False, isolation_level=None)
-        _conn.row_factory = sqlite3.Row
-        _conn.execute("PRAGMA journal_mode=WAL")
-        _conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS users(
-              id TEXT PRIMARY KEY,
-              username TEXT UNIQUE COLLATE NOCASE,
-              pw_hash TEXT,
-              kind TEXT NOT NULL DEFAULT 'member',   -- member | guest
-              created_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS sessions(
-              token_hash TEXT PRIMARY KEY,
-              user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-              created_at TEXT NOT NULL,
-              expires_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
-            """
-        )
-    return _conn
+        c = sqlite3.connect(DATA / "auth.db", isolation_level=None, timeout=10)
+        c.row_factory = sqlite3.Row
+        c.execute("PRAGMA journal_mode=WAL")
+        with _schema_lock:
+            if _schema_gen != _gen:
+                c.executescript(SCHEMA)
+                _schema_gen = _gen
+        _local.conn, _local.gen = c, _gen
+    return c
 
 
 def reset_for_tests() -> None:
-    global _conn
-    if _conn is not None:
-        _conn.close()
-    _conn = None
+    global _gen
+    c = getattr(_local, "conn", None)
+    if c is not None:
+        c.close()
+        _local.conn = None
+    _gen += 1
     _attempts.clear()
 
 

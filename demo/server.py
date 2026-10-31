@@ -14,12 +14,13 @@ import mimetypes
 import os
 import sys
 import threading
+import time
 import traceback
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from core import agent, auth, llm, onboarding, report, scenes, scheduler
+from core import admin, agent, auth, llm, metrics, onboarding, report, scenes, scheduler
 from core.api import VERSION, ApiError
 from core.store import Store
 from core.util import PUBLIC, ROOT, clip, dumps, iso, load_dotenv
@@ -52,13 +53,19 @@ class Handler(BaseHTTPRequestHandler):
     def _ip(self) -> str:
         return (self.headers.get("X-Forwarded-For") or self.client_address[0]).split(",")[0].strip()
 
-    def _token(self) -> str | None:
+    def _token(self, name: str = COOKIE) -> str | None:
         c = cookies.SimpleCookie()
         try:
             c.load(self.headers.get("Cookie") or "")
         except cookies.CookieError:
             return None
-        return c[COOKIE].value if COOKIE in c else None
+        return c[name].value if name in c else None
+
+    def _admin_cookie(self, token: str | None) -> str:
+        attrs = "; Path=/; HttpOnly; SameSite=Strict" + ("; Secure" if self._secure() else "")
+        if token is None:
+            return f"{admin.COOKIE}=; Max-Age=0" + attrs
+        return f"{admin.COOKIE}={token}; Max-Age={admin.TOKEN_HOURS * 3600}" + attrs
 
     def _set_cookie(self, token: str | None) -> str:
         attrs = "; Path=/; HttpOnly; SameSite=Lax" + ("; Secure" if self._secure() else "")
@@ -126,6 +133,7 @@ class Handler(BaseHTTPRequestHandler):
     def _dispatch(self, method: str):
         url = urlparse(self.path)
         path = url.path
+        t0 = time.time()
         try:
             if not path.startswith("/api/"):
                 if method != "GET":
@@ -142,6 +150,11 @@ class Handler(BaseHTTPRequestHandler):
             out = fn(self, user, body, parse_qs(url.query))
             if out is not None:
                 self._json(*out)
+                ms = int((time.time() - t0) * 1000)
+                metrics.bump("req")
+                metrics.bump("req_ms", ms)
+                if ms > 1000:
+                    metrics.bump("req_slow")
         except ApiError as e:
             self._json(e.status, {"error": e.message})
         except auth.AuthError as e:
@@ -158,6 +171,8 @@ class Handler(BaseHTTPRequestHandler):
     def _static(self, path: str):
         if path in ("", "/"):
             path = "/index.html"
+        elif path in ("/admin", "/admin/"):
+            path = "/admin.html"
         f = (PUBLIC / path.lstrip("/")).resolve()
         if PUBLIC.resolve() not in f.parents or not f.is_file():
             raise ApiError(404, "not found")
@@ -182,7 +197,7 @@ class Handler(BaseHTTPRequestHandler):
                       {"Cache-Control": "no-store", "X-Accel-Buffering": "no", "Connection": "close"})
         self.end_headers()
         self.close_connection = True
-        with Store(u["id"]) as st:
+        with Store(u["id"]) as st, metrics.chat_span():
             for event, data in agent.chat(st, text):
                 try:
                     self.wfile.write(f"event: {event}\ndata: {dumps(data)}\n\n".encode())
@@ -194,14 +209,18 @@ class Handler(BaseHTTPRequestHandler):
 from routes import ROUTES  # noqa: E402
 
 
+class Server(ThreadingHTTPServer):
+    daemon_threads = True
+    request_queue_size = 128  # 默认只排 5 个，同一瞬间来的连接多了会被拒
+
+
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 8765))
     host = os.environ.get("HOST", "127.0.0.1")
     auth.db()
     if os.environ.get("MANIFEST_SCHEDULER", "1") != "0":
         scheduler.start_background()
-    srv = ThreadingHTTPServer((host, port), Handler)
-    srv.daemon_threads = True
+    srv = Server((host, port), Handler)
     print(f"显伴 v{VERSION} · http://{host}:{port}  model={llm.config()['model']}  key={'yes' if llm.api_key() else 'NO (replies will fail)'}")
     try:
         srv.serve_forever()

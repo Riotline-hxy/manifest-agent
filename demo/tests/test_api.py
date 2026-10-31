@@ -22,6 +22,7 @@ TMP = tempfile.mkdtemp(prefix="xb_test_")
 os.environ["MANIFEST_DATA"] = TMP
 os.environ["MANIFEST_SCHEDULER"] = "0"
 os.environ["MODELFLARE_API_KEY"] = "test-key"
+os.environ["MANIFEST_ADMIN_KEY"] = "test-admin"
 sys.path.insert(0, DEMO)
 
 import server  # noqa: E402
@@ -228,6 +229,34 @@ class ApiTest(unittest.TestCase):
         self.assertIn("11 点把手机放到书桌上", [x["title"] for x in d["steps"]])
         self.assertIn("你常刷手机到一两点", [m["text"] for m in d["memories"]])
         self.assertIn("11 点把手机放到书桌上", d["messages"][-1]["content"])
+
+    def test_admin_is_locked_and_shows_counts_not_content(self):
+        c, uid = self.onboarded("adm_user")
+        self.fake.turns = [[("text", "嗯，我在。")]]
+        c.sse("我的秘密是我怕黑")
+        a = Client(self.port)
+        self.assertEqual(a.req("GET", "/api/admin/overview")[0], 401)
+        self.assertEqual(c.req("GET", "/api/admin/users")[0], 401)       # a user session is not an admin session
+        self.assertEqual(a.req("POST", "/api/admin/login", {"key": "nope"})[0], 401)
+        s, _ = a.req("POST", "/api/admin/login", {"key": "test-admin"})
+        self.assertEqual(s, 200)
+        s, ov = a.req("GET", "/api/admin/overview?days=7")
+        self.assertEqual(s, 200, ov)
+        self.assertGreaterEqual(ov["users"]["members"], 1)
+        self.assertEqual(len(ov["series"]), 7)
+        self.assertGreaterEqual(ov["series"][-1]["msgs"], 1)
+        s, us = a.req("GET", "/api/admin/users")
+        row = next(u for u in us["users"] if u["id"] == uid)
+        self.assertEqual((row["username"], row["msgs"], row["profile"]["intent_primary"]), ("adm_user", 1, "健康作息"))
+        s, one = a.req("GET", f"/api/admin/user?id={uid}")
+        self.assertEqual(s, 200)
+        blob = json.dumps([us, one], ensure_ascii=False)
+        self.assertNotIn("怕黑", blob)                                     # no chat content in the admin API
+        self.assertNotIn("pw_hash", blob)
+        self.assertEqual(a.req("GET", "/api/admin/user?id=u_0000000000000000")[0], 404)
+        a.req("POST", "/api/admin/logout")
+        self.assertEqual(a.req("GET", "/api/admin/users")[0], 401)
+        self.assertEqual(c.req("GET", "/admin", raw=True)[0], 200)
 
     def test_static_path_traversal_blocked(self):
         c = Client(self.port)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from . import llm
+from . import llm, metrics
 from .util import clip
 
 MAX_ROUNDS = 3
@@ -88,14 +88,19 @@ def chat(goal: str, history, finish: bool = False, smaller: bool = False) -> dic
              else "这一轮必须给出 step。" if want_step
              else "如果 TA 已经说得很清楚，这一轮就可以给 step；否则先问。")
     sys_msg = PROMPT.format(goal=goal, max=MAX_ROUNDS, n=n, extra=extra)
+    if n == 1:
+        metrics.bump("trial_start")
     out = llm.complete_json([{"role": "system", "content": sys_msg}, *msgs], timeout=30)
     if not out or not str(out.get("reply") or "").strip() or (want_step and not isinstance(out.get("step"), dict)):
+        metrics.bump("trial_fallback")
         out = _fallback(goal, n, want_step)
     step = out.get("step") if isinstance(out.get("step"), dict) else None
     if step and not str(step.get("title") or "").strip():
         step = None
     res = {"reply": clip(str(out["reply"]).strip(), 300), "step": None, "round": n, "max": MAX_ROUNDS}
     if step:
+        if not smaller:
+            metrics.bump("trial_step")
         res["step"] = {"title": clip(str(step.get("title")).strip(), 30), "when": clip(str(step.get("when") or "今天"), 12),
                        "why": clip(str(step.get("why") or ""), 50)}
         res["remember"] = [clip(str(x).strip(), 20) for x in (out.get("remember") or []) if str(x).strip()][:3]
