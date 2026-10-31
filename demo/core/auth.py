@@ -23,10 +23,8 @@ PBKDF2_ITER = 200_000
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_一-鿿]{2,20}$")
 
 _lock = threading.Lock()          # serialises writes that must check-then-insert
-_schema_lock = threading.Lock()
-_local = threading.local()
-_gen = 0                          # bumped by reset_for_tests so every thread reconnects
-_schema_gen = -1
+_conn: "_Locked | None" = None
+_conn_lock = threading.Lock()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
@@ -46,31 +44,70 @@ CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 """
 
 
-def db() -> sqlite3.Connection:
-    """One connection per thread. A single connection shared by the request
-    threads mixed up concurrent session lookups (random 401s / 500s under load)."""
-    global _schema_gen
-    c = getattr(_local, "conn", None)
-    if c is None or _local.gen != _gen:
-        DATA.mkdir(parents=True, exist_ok=True)
-        c = sqlite3.connect(DATA / "auth.db", isolation_level=None, timeout=10)
-        c.row_factory = sqlite3.Row
-        c.execute("PRAGMA journal_mode=WAL")
-        with _schema_lock:
-            if _schema_gen != _gen:
-                c.executescript(SCHEMA)
-                _schema_gen = _gen
-        _local.conn, _local.gen = c, _gen
-    return c
+class _Rows:
+    """A finished query: rows are fetched while the lock is held."""
+
+    def __init__(self, cur: sqlite3.Cursor):
+        self._rows = cur.fetchall()
+        self._i = 0
+        self.rowcount, self.lastrowid = cur.rowcount, cur.lastrowid
+
+    def fetchone(self):
+        if self._i >= len(self._rows):
+            return None
+        self._i += 1
+        return self._rows[self._i - 1]
+
+    def fetchall(self):
+        rest, self._i = self._rows[self._i:], len(self._rows)
+        return rest
+
+    def __iter__(self):
+        return iter(self.fetchall())
+
+
+class _Locked:
+    """One shared connection, one statement at a time. Every request thread
+    looks up its session here; sharing a bare connection mixed up concurrent
+    lookups (random 401 / 500), and a connection per thread ran the process out
+    of file handles under load (3 per WAL connection, 1024 per process)."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self._c = conn
+        self._lk = threading.RLock()
+
+    def execute(self, sql: str, params=()) -> _Rows:
+        with self._lk:
+            return _Rows(self._c.execute(sql, params))
+
+    def executescript(self, script: str) -> None:
+        with self._lk:
+            self._c.executescript(script)
+
+    def close(self) -> None:
+        with self._lk:
+            self._c.close()
+
+
+def db() -> _Locked:
+    global _conn
+    with _conn_lock:
+        if _conn is None:
+            DATA.mkdir(parents=True, exist_ok=True)
+            c = sqlite3.connect(DATA / "auth.db", check_same_thread=False, isolation_level=None, timeout=10)
+            c.row_factory = sqlite3.Row
+            c.execute("PRAGMA journal_mode=WAL")
+            c.executescript(SCHEMA)
+            _conn = _Locked(c)
+        return _conn
 
 
 def reset_for_tests() -> None:
-    global _gen
-    c = getattr(_local, "conn", None)
-    if c is not None:
-        c.close()
-        _local.conn = None
-    _gen += 1
+    global _conn
+    with _conn_lock:
+        if _conn is not None:
+            _conn.close()
+        _conn = None
     _attempts.clear()
 
 
