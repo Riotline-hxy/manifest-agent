@@ -183,6 +183,8 @@ def overview(days: int = 30) -> dict:
         d = (r["created_at"] or "")[:10]
         if d in by_day:
             by_day[d]["new_member" if r["kind"] == "member" else "new_guest"] += 1
+        if r["kind"] != "member":  # 旧的体验账号带 15 天示例数据，算进来会虚高
+            continue
         for d in r["active_days"]:
             if d in by_day:
                 by_day[d]["active"] += 1
@@ -194,11 +196,12 @@ def overview(days: int = 30) -> dict:
         by_day[d].update(tokens=mm.get("llm_tokens", 0), cached=mm.get("llm_tokens_cached", 0), llm_calls=mm.get("llm_calls", 0), llm_err=mm.get("llm_err", 0),
                          req=mm.get("req", 0), chat=mm.get("chat", 0))
 
+    members = [r for r in rows if r["kind"] == "member"]
+
     def active_within(n):
         cut = _days(n)[0]
-        return sum(1 for r in rows if any(d >= cut for d in r["active_days"]))
+        return sum(1 for r in members if any(d >= cut for d in r["active_days"]))
 
-    members = [r for r in rows if r["kind"] == "member"]
     funnel_keys = [("trial_start", "开始体验"), ("trial_step", "拿到一小步"), ("trial_signup", "注册并带走"), ("onboard", "完成建档")]
     totals = {k: sum(m.get(d, {}).get(k, 0) for d in span) for k, _ in funnel_keys}
     return {

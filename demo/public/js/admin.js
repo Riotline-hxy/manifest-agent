@@ -90,17 +90,17 @@ function draw(ov) {
         <div class="hero-sub">已建档 ${u.onboarded} · 另有体验账号 ${u.guests}</div>
       </section>
       <section class="adm-stats">
-        ${stat("今天活跃", a.today, "发过消息或做过操作")}
+        ${stat("今天活跃", a.today, "注册用户里发过消息或做过操作的")}
         ${stat("7 天活跃", a.week, "")}
         ${stat("30 天活跃", a.month, "")}
         ${stat("回访过", u.returning, "注册用户里活跃过 2 天以上的")}
-        ${stat("今天的消息", ov.msgs_today, "用户发给小光的")}
+        ${stat("今天的消息", ov.msgs_today, "注册用户发给小光的")}
         ${stat(`近 ${ov.days} 天模型调用`, ov.model.calls, `${num(ov.model.tokens)} tokens（缓存 ${num(ov.model.cached)}）· 失败 ${ov.model.errors}`)}
       </section>
       <section class="adm-grid">
         ${chartCard("new", "每天新用户", "注册用户和体验账号分开算")}
-        ${chartCard("active", "每天活跃用户", "当天发过消息或做过操作的人数")}
-        ${chartCard("msgs", "每天用户消息", "用户发给小光的条数")}
+        ${chartCard("active", "每天活跃用户", "注册用户里当天发过消息或做过操作的；旧体验账号带示例数据，不算")}
+        ${chartCard("msgs", "每天用户消息", "注册用户发给小光的条数")}
         ${chartCard("tokens", "每天模型 tokens", "对话、记忆整理、体验等所有调用；中转服务每次会带上约 2.7 万 token 的自带提示；从 2.8.0 开始统计")}
       </section>
       <section class="adm-grid">
