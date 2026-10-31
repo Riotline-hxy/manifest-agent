@@ -1,5 +1,6 @@
 // 账号：看自己是谁、把体验账号转成正式账号、退出登录。
 import { api } from "./api.js";
+import { deviceEndpoint } from "./push.js";
 import { state, go } from "./store.js";
 import { esc, icon, toast, sheet, h, confirmSheet } from "./ui.js";
 
@@ -41,7 +42,8 @@ export function openAccount() {
 }
 
 export async function logout() {
-  try { await api.logout(); } catch {}
+  // 这台设备不再收这个账号的通知（换别人登录时会重新绑到新账号）
+  try { await api.logout(await deviceEndpoint()); } catch {}
   history.replaceState(null, "", location.pathname);
   location.reload();
 }

@@ -13,7 +13,7 @@ from __future__ import annotations
 import threading
 import time
 
-from . import digest, llm, tasks
+from . import digest, llm, tasks, webpush
 from .store import Store, UID_RE
 from .util import DATA, clip, day_key, hours_since, iso, now
 
@@ -104,6 +104,7 @@ def deliver(store: Store, force: bool = False) -> dict:
     store.add_msg("assistant", msg["text"], {"proactive": True, "cue": msg["cue"], "inbox_id": item["id"]})
     store.set_profile({"last_proactive_at": iso()})
     store.log("proactive", "主动发了一条消息" + ("（演示触发）" if force and not ok else ""))
+    webpush.notify_async(store.uid)
     return {"sent": True, "item": item, "reason": why if not ok else "ok"}
 
 
@@ -162,6 +163,7 @@ def run_tasks(ref=None) -> int:
                 item = st.push_inbox(text, "task")
                 st.add_msg("assistant", text, {"proactive": True, "task": t["id"], "task_title": t["title"], "inbox_id": item["id"]})
                 st.log("task", f"例行任务：{t['title']}")
+            webpush.notify_async(t["uid"], ttl=3600, urgency="high")  # 到点提醒过时就没意义了
             n += 1
         except Exception as e:
             print("[tasks]", t.get("id"), type(e).__name__, e)

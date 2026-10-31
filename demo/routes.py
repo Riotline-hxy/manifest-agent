@@ -5,7 +5,7 @@ the only source of the user id.
 """
 from __future__ import annotations
 
-from core import academy, admin, auth, digest, metrics, growth, journey, llm, onboarding, report, scenes, scheduler, tasks, trial
+from core import academy, admin, auth, digest, metrics, webpush, growth, journey, llm, onboarding, report, scenes, scheduler, tasks, trial
 from core.store import Store
 from core.util import clip, day_key, iso
 from core.api import VERSION, ApiError, bootstrap, public_user
@@ -62,6 +62,44 @@ def trial_chat(h, u, b, q):
         return 200, trial.chat(b.get("goal"), b.get("history"), bool(b.get("finish")), bool(b.get("smaller")))
     except ValueError as e:
         raise ApiError(400, str(e))
+
+
+# ---- 推送（网页关着也能收到小光的消息） ----
+def push_key(h, u, b, q):
+    return 200, {"key": webpush.keys()["pub"], "devices": len(webpush.subs(u["id"]))}
+
+
+def push_subscribe(h, u, b, q):
+    try:
+        webpush.subscribe(u["id"], b.get("subscription") or {}, h.headers.get("User-Agent") or "")
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    return 200, {"ok": True, "devices": len(webpush.subs(u["id"]))}
+
+
+def push_unsubscribe(h, u, b, q):
+    webpush.unsubscribe(u["id"], str(b.get("endpoint") or ""))
+    return 200, {"ok": True, "devices": len(webpush.subs(u["id"]))}
+
+
+def push_latest(h, u, b, q):
+    """service worker 被叫醒后来取要显示的那句话：最新一条没看过的主动消息 / 提醒。"""
+    with Store(u["id"]) as st:
+        p = st.profile()
+        items = st.unseen_inbox()
+        item = items[-1] if items else None
+        return 200, {"title": p.get("agent_name") or "小光", "text": item["text"] if item else "",
+                     "id": item["id"] if item else "", "cue": item["cue"] if item else ""}
+
+
+def push_test(h, u, b, q):
+    if not webpush.subs(u["id"]):
+        raise ApiError(400, "这台设备还没开启通知")
+    with Store(u["id"]) as st:
+        name = st.profile().get("agent_name") or "小光"
+        item = st.push_inbox(f"通知开好了。以后我想你、或者提醒到点了，就算网页关着也会在这里叫你。——{name}", "test")
+    out = webpush.notify(u["id"], ttl=600, urgency="high")
+    return 200, {**out, "inbox_id": item["id"]}
 
 
 # ---- 管理后台（只读；登录用 MANIFEST_ADMIN_KEY，cookie 与用户会话分开） ----
@@ -141,6 +179,9 @@ def rename(h, u, b, q):
 
 
 def logout(h, u, b, q):
+    cur = auth.session_user(h._token())
+    if cur and b.get("endpoint"):  # 这台设备不再收这个账号的推送
+        webpush.unsubscribe(cur["id"], str(b["endpoint"]))
     auth.end_session(h._token())
     return 200, {"ok": True}, {"Set-Cookie": h._set_cookie(None)}
 
@@ -602,6 +643,11 @@ ROUTES = {
     ("POST", "/api/auth/login"): (login, False),
     ("POST", "/api/auth/guest"): (guest, False),
     ("POST", "/api/trial/chat"): (trial_chat, False),
+    ("GET", "/api/push/key"): (push_key, True),
+    ("POST", "/api/push/subscribe"): (push_subscribe, True),
+    ("POST", "/api/push/unsubscribe"): (push_unsubscribe, True),
+    ("GET", "/api/push/latest"): (push_latest, True),
+    ("POST", "/api/push/test"): (push_test, True),
     ("POST", "/api/admin/login"): (admin_login, False),
     ("POST", "/api/admin/logout"): (admin_logout, False),
     ("GET", "/api/admin/overview"): (admin_overview, False),

@@ -10,6 +10,7 @@ import { startScene } from "../scene.js";
 import { THEMES, AGENT_COLORS, applyTheme, agentColor, themeOf } from "../theme.js";
 import { themeCard, placeInd } from "../app.js";
 import { openAccount, logout } from "../account.js";
+import { pushSupport, pushOn, enablePush, disablePush, installState, install, PUSH_WHY } from "../push.js";
 
 const KIND = { identity: "身份", intent: "愿景", preference: "偏好", boundary: "边界", insight: "新发现", event: "事件", good_news: "好消息" };
 const SRC = (s) => s === "confirmed" ? "你确认过" : s === "onboarding" ? "建档时" : s?.startsWith("scene") ? "练习里" :
@@ -196,8 +197,12 @@ function settingsTab(body, root) {
         ${seg("persona", [["gentle", "温柔"], ["clear", "有条理"], ["lively", "活泼"]], p.persona || "gentle")}</div>
       <div class="set-row">${tile("compass", "var(--c-mint)", 40)}<div class="sl"><b>中断的时候，你希望我</b><small>三天没动时小光的反应方式</small></div>
         ${seg("care_style", [["nudge", "轻轻提醒"], ["analyze", "一起找原因"], ["quiet", "先别提"]], p.care_style)}</div>
-      <div class="set-row">${tile("letter", "var(--c-sky)", 40)}<div class="sl"><b>主动消息</b><small>只在网页里出现；23:00–08:00 不打扰</small></div>
+      <div class="set-row">${tile("letter", "var(--c-sky)", 40)}<div class="sl"><b>主动消息</b><small>23:00–08:00 不打扰；开了手机通知，网页关着也能收到</small></div>
         ${seg("proactive", [["more", "多"], ["normal", "刚好"], ["less", "少"], ["off", "不要"]], p.proactive || "normal")}</div>
+      <div class="set-row">${tile("bell", "var(--c-lemon)", 40)}<div class="sl"><b>手机通知</b><small data-push-note>正在看这台设备……</small></div>
+        <div class="set-acts" data-push-acts></div></div>
+      <div class="set-row">${tile("phone", "var(--c-mint)", 40)}<div class="sl"><b>装到手机桌面</b><small data-install-note></small></div>
+        <div class="set-acts" data-install-acts></div></div>
       <div class="set-row">${tile("sprout", "var(--c-orange)", 40)}<div class="sl"><b>宠物的名字</b><small>现在叫「${esc(p.pet_name || "小芽")}」</small></div>
         <button class="btn btn-sm btn-ghost" data-rename>改名</button></div>
       <div class="set-row">${tile("steps", "var(--c-violet)", 40)}<div class="sl"><b>再走一遍「重新认识我」</b><small>六个小问题，答完会更新上面的偏好</small></div>
@@ -210,6 +215,7 @@ function settingsTab(body, root) {
     <p class="hint-line">每个账号在服务器上是一个独立的数据库文件；接口只认登录会话，没有任何参数能读到别人的数据。删除记忆是真删除。</p>`;
 
   requestAnimationFrame(() => body.querySelectorAll(".seg").forEach(placeInd));
+  bindDevice(body);
   const save = async (patch, msg) => {
     try { setData(await api.profile(patch)); if (msg) toast(msg); renderSpace(root); } catch (e) { toast(e.message, "err"); }
   };
@@ -247,6 +253,72 @@ function settingsTab(body, root) {
     toast(out.sent ? "小光发了一句话，去对话里看看" : out.reason);
     if (out.sent) go("chat");
   });
+}
+
+// ---- 这台设备：手机通知 + 装到桌面 ----
+function bindDevice(body) {
+  const pNote = body.querySelector("[data-push-note]"), pActs = body.querySelector("[data-push-acts]");
+  const iNote = body.querySelector("[data-install-note]"), iActs = body.querySelector("[data-install-acts]");
+  const btn = (label, cls, fn) => h("button", { class: `btn btn-sm ${cls}`, onclick: fn }, label);
+
+  async function drawPush() {
+    const sup = pushSupport();
+    const on = await pushOn();
+    pActs.replaceChildren();
+    if (on) {
+      pNote.textContent = "已开启：小光的主动消息和到点提醒，网页关着也会推到这台设备";
+      pActs.append(btn("发一条试试", "btn-ghost", testPush), btn("关闭", "btn-quiet", async () => {
+        await disablePush(); toast("这台设备不再收通知了"); drawPush();
+      }));
+    } else if (sup === "ok") {
+      pNote.textContent = "开了以后，网页关着也能收到小光的消息和提醒";
+      pActs.append(btn("开启", "btn-main", async (e) => {
+        e.currentTarget.classList.add("off");
+        const r = await enablePush();
+        toast(r.ok ? "开好了，点「发一条试试」看看" : PUSH_WHY[r.reason], r.ok ? "" : "err", r.ok ? "bell" : "");
+        drawPush();
+      }));
+    } else {
+      pNote.textContent = PUSH_WHY[sup];
+      if (sup === "ios-home") pActs.append(btn("怎么添加", "btn-ghost", installGuide));
+    }
+  }
+  async function testPush(e) {
+    const b = e.currentTarget;
+    b.classList.add("off");
+    try {
+      const r = await api.pushTest();
+      toast(r.sent ? "发出去了，几秒内手机上会响一下（网页开着时也会弹）" : "没发出去，等会儿再试，或者关掉再开一次", r.sent ? "" : "err", "bell");
+    } catch (err) { toast(err.message, "err"); }
+    b.classList.remove("off");
+  }
+  function drawInstall() {
+    const st = installState();
+    iActs.replaceChildren();
+    iNote.textContent = {
+      installed: "已经装好了，以后从桌面的「显伴」打开就行",
+      prompt: "装好以后像 app 一样从桌面打开，也更容易收到通知",
+      ios: "在 Safari 里点「分享」→「添加到主屏幕」",
+      browser: "在浏览器菜单里找「添加到主屏幕」或「安装应用」",
+    }[st];
+    if (st === "prompt") iActs.append(btn("安装", "btn-main", async () => { if (await install()) toast("装好了，去桌面看看"); drawInstall(); }));
+    else if (st !== "installed") iActs.append(btn("怎么装", "btn-ghost", installGuide));
+  }
+  drawPush();
+  drawInstall();
+  addEventListener("xg:installable", drawInstall, { once: true });
+}
+
+function installGuide() {
+  const body = h("div", { class: "install-guide", html: `
+    <h4>iPhone（用 Safari 打开）</h4>
+    <ol><li>点屏幕底部的「分享」按钮（方框加向上的箭头）</li><li>往下滑，点「添加到主屏幕」，再点「添加」</li>
+      <li>回到桌面，点「显伴」图标打开，登录后到「我的空间」开启手机通知</li></ol>
+    <p class="hint">需要 iOS 16.4 或更新的版本；在微信里打开的页面不行，先用 Safari 打开。</p>
+    <h4>安卓（用 Chrome 或手机自带浏览器）</h4>
+    <ol><li>点右上角的「⋮」菜单</li><li>选「安装应用」或「添加到主屏幕」</li><li>从桌面图标打开，到「我的空间」开启手机通知</li></ol>
+    <p class="hint">国内部分安卓手机的浏览器收不到网页通知（依赖谷歌的推送服务）；收不到时，消息会在你打开显伴时出现。</p>` });
+  const s = sheet({ title: "装到手机桌面", sticker: "phone", body, footer: [h("button", { class: "btn btn-main", onclick: () => s.close() }, "知道了")] });
 }
 
 async function confirmLogout() {

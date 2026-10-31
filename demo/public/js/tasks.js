@@ -1,6 +1,7 @@
 // 例行任务：用户让小光定的提醒 / 定时消息。面板里列出来（像 Grok 的 routines），可以开关、编辑、新建；
 // 网页开着时每 30 秒轻轻问一次服务器，有新提醒就弹一句，并在允许时发浏览器通知。
 import { api, get } from "./api.js";
+import { pushSupport, enablePush, pushOn } from "./push.js";
 import { state, setData } from "./store.js";
 import { esc, icon, toast, sheet, h, confirmSheet } from "./ui.js";
 
@@ -99,9 +100,10 @@ export function taskSheet(t) {
 }
 
 // 浏览器通知：只在用户刚安排完任务（有点击）时问一次
+// 安排了提醒之后顺手问一次：开了推送，网页关着也能按时叫到你
 export function askNotify() {
-  if (!("Notification" in window) || Notification.permission !== "default") return;
-  try { Notification.requestPermission(); } catch {}
+  if (pushSupport() !== "ok" || Notification.permission !== "default") return;
+  enablePush().then((r) => { if (r.ok) toast("手机通知开好了，到点网页关着也能收到", "", "bell"); }).catch(() => {});
 }
 
 let timer = null;
@@ -109,6 +111,8 @@ let seenLatest = "";
 export function startPulse(onNew) {
   stopPulse();
   seenLatest = (state.data?.inbox || []).map((i) => i.created_at).sort().pop() || "";
+  let viaPush = false;   // 开了推送的设备由 service worker 弹通知，这里就不再弹一次
+  pushOn().then((v) => { viaPush = v; });
   const tick = async () => {
     if (!state.ready) return;
     try {
@@ -120,7 +124,7 @@ export function startPulse(onNew) {
         const item = (data.inbox || []).filter((i) => i.created_at === p.latest)[0] || (data.inbox || []).slice(-1)[0];
         if (item) {
           toast(item.text);
-          if ("Notification" in window && Notification.permission === "granted") {
+          if (!viaPush && "Notification" in window && Notification.permission === "granted") {
             try { new Notification(data.profile?.agent_name || "小光", { body: item.text, icon: "/favicon.svg" }); } catch {}
           }
           onNew?.(item);

@@ -26,7 +26,7 @@ os.environ["MANIFEST_ADMIN_KEY"] = "test-admin"
 sys.path.insert(0, DEMO)
 
 import server  # noqa: E402
-from core import auth, llm, scheduler, tasks  # noqa: E402
+from core import auth, llm, scheduler, tasks, webpush  # noqa: E402
 from core.store import Store  # noqa: E402
 
 ONBOARD = {"agent_name": "阿光", "agent_avatar_id": "stardust", "intent_primary": "健康作息",
@@ -92,6 +92,9 @@ class ApiTest(unittest.TestCase):
     def setUpClass(cls):
         cls.fake = FakeLLM()
         cls._orig = (llm.stream_chat, llm.complete_json)
+        cls.pushed = []   # (endpoint, headers) sent to the fake push service
+        cls._orig_post = webpush._post
+        webpush._post = lambda ep, headers: (cls.pushed.append((ep, headers)), 410 if "gone" in ep else 201)[1]
         llm.stream_chat = cls.fake.stream
         llm.complete_json = cls.fake.complete
         cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
@@ -105,6 +108,8 @@ class ApiTest(unittest.TestCase):
         llm.stream_chat, llm.complete_json = cls._orig
         auth.reset_for_tests()
         tasks.reset_for_tests()
+        webpush._post = cls._orig_post
+        webpush.reset_for_tests()
         shutil.rmtree(TMP, ignore_errors=True)
 
     def setUp(self):
@@ -306,6 +311,69 @@ class ApiTest(unittest.TestCase):
         self.assertEqual((s, out["deleted"]), (200, n))
         _, us = a.req("GET", "/api/admin/users")
         self.assertEqual([u for u in us["users"] if u["kind"] == "guest"], [])
+
+    def wait_pushes(self, n, timeout=3.0):
+        t = time.time()
+        while len(self.pushed) < n and time.time() - t < timeout:
+            time.sleep(0.05)
+        return self.pushed
+
+    def test_push_subscribe_notify_and_cleanup(self):
+        self.pushed.clear()
+        c, uid = self.onboarded("push_user")
+        s, k = c.req("GET", "/api/push/key")
+        self.assertEqual((s, len(k["key"]), k["devices"]), (200, 87, 0))   # 65-byte P-256 point, base64url
+        self.assertEqual(c.req("POST", "/api/push/subscribe", {"subscription": {"endpoint": "http://evil"}})[0], 400)
+        sub = {"endpoint": "https://push.example/abc", "keys": {"p256dh": "x", "auth": "y"}}
+        s, out = c.req("POST", "/api/push/subscribe", {"subscription": sub})
+        self.assertEqual((s, out["devices"]), (200, 1))
+        c.req("POST", "/api/push/subscribe", {"subscription": {"endpoint": "https://push.example/gone"}})
+
+        # a proactive message wakes every device; the service worker then fetches the text
+        self.fake.json_out = {"text": "还在靠近「健康作息」吗？"}
+        c.req("POST", "/api/proactive/now", {})
+        pushed = self.wait_pushes(2)
+        self.assertEqual(sorted(ep for ep, _ in pushed), ["https://push.example/abc", "https://push.example/gone"])
+        ep, hd = pushed[0]
+        self.assertTrue(hd["Authorization"].startswith("vapid t=") and f"k={k['key']}" in hd["Authorization"])
+        self.assertEqual(hd["Content-Length"], "0")                         # no payload goes to the push service
+        s, latest = c.req("GET", "/api/push/latest")
+        self.assertEqual((latest["title"], latest["text"]), ("阿光", "还在靠近「健康作息」吗？"))
+        time.sleep(0.2)
+        self.assertEqual([x["endpoint"] for x in webpush.subs(uid)], ["https://push.example/abc"])  # 410 pruned
+
+        # the same device logging in as someone else moves to that account; logout unbinds it
+        d, uid2 = self.onboarded("push_other")
+        d.req("POST", "/api/push/subscribe", {"subscription": sub})
+        self.assertEqual((webpush.subs(uid), len(webpush.subs(uid2))), ([], 1))
+        d.req("POST", "/api/auth/logout", {"endpoint": sub["endpoint"]})
+        self.assertEqual(webpush.subs(uid2), [])
+
+        # test push + admin delete removes subscriptions
+        c.req("POST", "/api/push/subscribe", {"subscription": sub})
+        n = len(self.pushed)
+        s, out = c.req("POST", "/api/push/test", {})
+        self.assertEqual((s, out["sent"]), (200, 1))
+        self.assertEqual(len(self.pushed), n + 1)
+        a = Client(self.port)
+        a.req("POST", "/api/admin/login", {"key": "test-admin"})
+        self.assertEqual(a.req("GET", f"/api/admin/user?id={uid}")[1]["push_devices"], 1)
+        a.req("POST", "/api/admin/user/delete", {"id": uid, "confirm": "push_user"})
+        self.assertEqual(webpush.subs(uid), [])
+
+    def test_pwa_files_are_served(self):
+        c = Client(self.port)
+        for path, ctype in (("/manifest.webmanifest", "application/manifest+json"), ("/sw.js", "javascript"),
+                            ("/icons/icon-192.png", "image/png"), ("/icons/apple-touch-icon.png", "image/png")):
+            conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+            conn.request("GET", path)
+            r = conn.getresponse()
+            r.read()
+            self.assertEqual(r.status, 200, path)
+            self.assertIn(ctype, r.getheader("Content-Type"), path)
+            conn.close()
+        s, html, _ = c.req("GET", "/", raw=True)
+        self.assertIn('rel="manifest"', html)
 
     def test_static_path_traversal_blocked(self):
         c = Client(self.port)

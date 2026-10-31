@@ -33,7 +33,7 @@ export const api = {
   login: (username, password) => post("/api/auth/login", { username, password }),
   register: (username, password) => post("/api/auth/register", { username, password }),
   guest: (seed = true) => post("/api/auth/guest", { seed }),
-  logout: () => post("/api/auth/logout"),
+  logout: (endpoint = "") => post("/api/auth/logout", endpoint ? { endpoint } : {}),
   rename: (username) => post("/api/auth/rename", { username }),
   bootstrap: () => get("/api/bootstrap"),
   onboard: (answers, carry = null) => post("/api/onboard", { answers, carry }),
@@ -64,6 +64,7 @@ export const api = {
   wishReview: (id, days) => get(`/api/wish/review?id=${encodeURIComponent(id)}&days=${days}`),
   wishReflect: (id, days, text) => post("/api/wish/reflect", { id, days, text }),
   insight: (payload) => post("/api/wish/insight", payload),
+  pushTest: () => post("/api/push/test"),
 };
 
 // 真流式对话：服务端通过 SSE 逐段推送。

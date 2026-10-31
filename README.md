@@ -21,6 +21,16 @@ python server.py 8765
 
 模型配置在 `config/llm.json`（`baseUrl` / `model` / `reasoning`），也可以用环境变量 `MODELFLARE_MODEL` 覆盖。
 
+## 装到手机 · 推送
+
+网站是 PWA：手机浏览器里「添加到主屏幕」就能像 app 一样打开（iPhone 用 Safari，iOS 16.4+；安卓用 Chrome）。
+在「我的空间 → 设置 → 手机通知」开启后，小光的主动消息和到点的例行任务，网页关着也会推到手机。
+
+- 推送是空的（不带内容）：手机被叫醒后，`public/sw.js` 用登录 cookie 去 `/api/push/latest` 取那句话再弹出来。所以服务端只需要 VAPID 签名（`core/webpush.py`，纯标准库实现的 ES256），消息原文不经过谷歌 / 苹果的推送服务器。
+- VAPID 密钥第一次用时生成在 `data/vapid.json`（随数据备份，别删：换了密钥所有人都要重新开通知）。订阅存在 `data/push.db`。
+- 国内很多安卓手机的浏览器收不到网页推送（依赖谷歌推送服务），这部分用户只能打开网页时看到。
+- 图标由 `tools/build_icons.py` 画（需要 Pillow，只在开发时用）。
+
 ## 管理后台
 
 https://manifest.noryx.cn/admin （本地：http://127.0.0.1:8765/admin）。口令是服务器 `/opt/manifest-agent/.env` 里的 `MANIFEST_ADMIN_KEY`；没设这个变量时后台整个关闭。登录后 12 小时有效，换掉口令所有后台登录立即失效。
@@ -57,6 +67,7 @@ demo/
     onboarding.py    建档、示例账号数据（/api/auth/guest，首页已不再使用）
     admin.py         管理后台的只读统计（读用户库只读打开）
     metrics.py       按天的运行计数：请求、对话并发、模型 tokens、体验漏斗
+    webpush.py       网页推送：VAPID 签名、订阅、叫醒设备
     trial.py         首页引导式体验（/api/trial/chat，无状态，模型不可用时有写好的回应）
   public/
     index.html

@@ -19,6 +19,7 @@ import { renderReport } from "./views/report.js";
 import { renderSpace } from "./views/space.js";
 import { isResting, openLazy } from "./rest.js";
 import { routinesHTML, bindRoutines, startPulse } from "./tasks.js";
+import { syncPush } from "./push.js";
 
 const NAV = [
   [["chat", "对话", "chat"], ["plan", "蜕变计划", "flag"], ["goodnews", "好消息", "star"], ["growth", "成长进化", "sprout"]],
@@ -103,6 +104,7 @@ async function boot() {
     drawShell();
     // 到点的提醒：页面开着就 30 秒问一次；在对话页时把新消息画出来
     startPulse(() => { if (state.route === "chat") drawView(); });
+    syncPush();
   } catch (e) {
     root.innerHTML = `<div class="empty" style="padding-top:20vh">${petSVG("egg", { cls: "alive" })}
       <h3>没连上</h3><p>${esc(e?.message || "加载失败")}</p><button class="btn btn-main" onclick="location.reload()">再试一次</button></div>`;

@@ -20,7 +20,7 @@ import threading
 import time
 from datetime import timedelta
 
-from . import auth, growth, metrics, tasks
+from . import auth, growth, metrics, tasks, webpush
 from .api import VERSION
 from .util import DATA, day_key, loads, now, parse_iso
 
@@ -174,6 +174,7 @@ def _system(today: dict) -> dict:
         "req_slow_today": today.get("req_slow", 0),
         "chat_today": chats, "chat_avg_s": round(today.get("chat_ms", 0) / chats / 1000, 1) if chats else None,
         "chat_peak_today": today.get("chat_peak", 0),
+        "push_users": len(webpush.counts()), "push_devices": sum(webpush.counts().values()),
     }
 
 
@@ -248,7 +249,8 @@ def users() -> list[dict]:
     rows = sorted(_rows(), key=lambda r: r["last_active"] or r["created_at"] or "", reverse=True)
     all_time = metrics.user_totals("")
     month = metrics.user_totals(_days(30)[0])
-    return [_public(r) | {"tokens": all_time.get(r["id"], {}).get("llm_tokens", 0),
+    devices = webpush.counts()
+    return [_public(r) | {"push_devices": devices.get(r["id"], 0),"tokens": all_time.get(r["id"], {}).get("llm_tokens", 0),
                           "tokens_30d": month.get(r["id"], {}).get("llm_tokens", 0),
                           "calls_30d": month.get(r["id"], {}).get("llm_calls", 0)} for r in rows]
 
@@ -272,7 +274,7 @@ def user(uid: str) -> dict | None:
                                  (uid, now().isoformat(timespec="seconds"))).fetchone()[0]
     first = parse_iso(r["active_days"][0] + "T00:00:00") if r["active_days"] else None
     tdays = metrics.user_days(uid, span[0])
-    return {**_public(r), "sessions": sessions, "first_active": first.date().isoformat() if first else "",
+    return {**_public(r), "sessions": sessions, "push_devices": len(webpush.subs(uid)), "first_active": first.date().isoformat() if first else "",
             "series": [{"day": d, "msgs": r["msg_days"].get(d, 0), "active": d in r["active_days"],
                         **{f"t_{k}": v for k, v in _tok(tdays.get(d)).items()}} for d in span],
             "tokens": {"all": _tok(metrics.user_totals("").get(uid)), "d30": _tok(metrics.user_totals(span[0]).get(uid))},
@@ -290,6 +292,7 @@ def delete_user(uid: str) -> bool:
         return False
     tasks.delete_all(uid)
     metrics.forget_user(uid)
+    webpush.forget_user(uid)
     shutil.rmtree(DATA / "u" / uid, ignore_errors=True)
     print(f"[admin] deleted user {uid}", file=sys.stderr)
     return True

@@ -341,3 +341,9 @@ details summary::-webkit-details-marker { display: none; }
 .me-main h1 { display: flex; align-items: center; gap: 6px; }
 .me-edit { opacity: .55; }
 .me-edit:hover { opacity: 1; }
+
+/* 我的空间 · 这台设备（手机通知 / 装到桌面） */
+.set-acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; flex: none; }
+.install-guide h4 { font-size: 14.5px; margin: 4px 0 6px; }
+.install-guide ol { margin: 0 0 8px; padding-left: 1.3em; color: var(--text-2); font-size: 14px; line-height: 1.8; }
+.install-guide .hint { margin: 0 0 16px; font-size: 12.5px; color: var(--text-3); line-height: 1.6; }

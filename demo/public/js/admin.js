@@ -122,6 +122,7 @@ function draw(ov) {
           ${kv("今天请求", `${num(s.req_today)} 次 · 平均 ${s.req_avg_ms ?? "—"} ms（含等模型的接口）· 超过 1 秒 ${s.req_slow_today} 次`)}
           ${kv("今天对话", `${num(s.chat_today)} 轮 · 平均 ${s.chat_avg_s ?? "—"} 秒`)}
           ${kv("对话并发", `现在 ${s.chat_now} · 今天最高 ${s.chat_peak_today}`)}
+          ${kv("开了手机通知", `${s.push_users} 人 · ${s.push_devices} 台设备`)}
         </div>
       </section>
       <section class="card adm-card">
@@ -210,6 +211,7 @@ async function openUser(id) {
       ${kv("最近活跃", esc(ago(u.last_active)))}
       ${kv("活跃天数", `${u.days_active} 天${u.first_active ? `（第一次 ${esc(u.first_active)}）` : ""}`)}
       ${kv("登录中的设备", u.sessions)}
+      ${kv("开了手机通知", u.push_devices ? `${u.push_devices} 台设备` : "没开")}
       ${kv("数据大小", `${(u.bytes / 1024).toFixed(0)} KB`)}
     </div>
     <h4>建档</h4>
