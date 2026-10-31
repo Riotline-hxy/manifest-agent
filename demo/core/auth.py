@@ -87,11 +87,11 @@ _attempts: dict[str, list[float]] = {}
 MAX_FAILS, WINDOW = 8, 600
 
 
-def too_many(key: str) -> bool:
+def too_many(key: str, limit: int = MAX_FAILS) -> bool:
     t = time.time()
     xs = [x for x in _attempts.get(key, []) if t - x < WINDOW]
     _attempts[key] = xs
-    return len(xs) >= MAX_FAILS
+    return len(xs) >= limit
 
 
 def note_fail(key: str) -> None:

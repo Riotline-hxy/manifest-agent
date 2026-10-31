@@ -17,7 +17,7 @@ echo "MODELFLARE_API_KEY=你的key" > .env     # 已在 .gitignore 里
 python server.py 8765
 ```
 
-打开 http://127.0.0.1:8765 ，点「先体验一下」会建一个带 12 天示例数据的独立体验账号。
+打开 http://127.0.0.1:8765 ，点「先体验一下」进入两分钟的引导式体验（不建账号）：选一件想改变的事 → 和小光聊几句 → 得到今天的一小步 → 看它记下了什么。注册后这一步和记住的话会带进新账号。
 
 模型配置在 `config/llm.json`（`baseUrl` / `model` / `reasoning`），也可以用环境变量 `MODELFLARE_MODEL` 覆盖。
 
@@ -45,12 +45,13 @@ demo/
     scenes.py        引导场景的步骤状态机（含「重新认识我」）
     scheduler.py     后台线程：03:00 后整理昨天、主动消息
     report.py        14/30 天蜕变报告
-    onboarding.py    建档、体验账号示例数据
+    onboarding.py    建档、示例账号数据（/api/auth/guest，首页已不再使用）
+    trial.py         首页引导式体验（/api/trial/chat，无状态，模型不可用时有写好的回应）
   public/
     index.html
     css/             base · components · shell · chat · pages · lesson · gate · fonts(生成)
     js/              app · store · api · ui(线性图标) · theme(五种氛围) · pet(扁平 SVG 宠物/植物) · fx(动效/庆祝)
-                     · ball(Emotion Ball 适配) · lesson(「一课」) · scene · views/
+                     · ball(Emotion Ball 适配) · lesson(「一课」) · scene · views/（gate 首页 · trial 引导体验 · …）
     fonts/           源流圆体 CN + Nunito 的按需切片（生成）
     vendor/emotion-ball/
 tools/

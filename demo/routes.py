@@ -5,7 +5,7 @@ the only source of the user id.
 """
 from __future__ import annotations
 
-from core import academy, auth, digest, growth, journey, llm, onboarding, report, scenes, scheduler, tasks
+from core import academy, auth, digest, growth, journey, llm, onboarding, report, scenes, scheduler, tasks, trial
 from core.store import Store
 from core.util import clip, day_key, iso
 from core.api import VERSION, ApiError, bootstrap, public_user
@@ -51,6 +51,18 @@ def guest(h, u, b, q):
     return _logged_in(h, user, 201)
 
 
+def trial_chat(h, u, b, q):
+    """首页引导式体验：不建账号，历史由前端带着。"""
+    key = "trial:" + h._ip()
+    if auth.too_many(key, 40):
+        raise ApiError(429, "聊得有点快，歇一会儿再试")
+    auth.note_fail(key)
+    try:
+        return 200, trial.chat(b.get("goal"), b.get("history"), bool(b.get("finish")), bool(b.get("smaller")))
+    except ValueError as e:
+        raise ApiError(400, str(e))
+
+
 def rename(h, u, b, q):
     user = auth.rename(u["id"], str(b.get("username") or ""))
     with Store(u["id"]) as st:
@@ -77,8 +89,20 @@ def onboard(h, u, b, q):
         except ValueError as e:
             raise ApiError(400, str(e))
         p = st.profile()
-        st.add_msg("assistant", f"我是{p['agent_name']}。你想靠近「{p['intent_primary']}」，因为{p['intent_why']}。"
-                                "我们不急，先从今天能做的最小一步开始。今天有什么想跟我说的吗？", {"onboarding": True})
+        carry = b.get("carry") if isinstance(b.get("carry"), dict) else {}
+        first = clip(str(carry.get("step") or ""), 40).strip()
+        for text in (carry.get("remember") or [])[:3]:
+            text = clip(str(text), 40).strip()
+            if text:
+                st.add_memory(text, "identity", "confirmed")
+        if first:
+            st.add_step(first, why=clip(str(carry.get("why") or ""), 60), wish=p.get("intent_primary") or "")
+            st.log("plan", "体验时定下的一小步：" + first)
+            st.add_msg("assistant", f"我是{p['agent_name']}，刚才我们聊过的我都记着。你想靠近「{p['intent_primary']}」，"
+                                    f"今天就先做「{first}」。做完了跟我说一声，没做成也来说说，我们再调。", {"onboarding": True})
+        else:
+            st.add_msg("assistant", f"我是{p['agent_name']}。你想靠近「{p['intent_primary']}」，因为{p['intent_why']}。"
+                                    "我们不急，先从今天能做的最小一步开始。今天有什么想跟我说的吗？", {"onboarding": True})
         return 200, bootstrap(st)
 
 
@@ -504,6 +528,7 @@ ROUTES = {
     ("POST", "/api/auth/register"): (register, False),
     ("POST", "/api/auth/login"): (login, False),
     ("POST", "/api/auth/guest"): (guest, False),
+    ("POST", "/api/trial/chat"): (trial_chat, False),
     ("POST", "/api/auth/logout"): (logout, False),
     ("POST", "/api/auth/rename"): (rename, True),
     ("GET", "/api/bootstrap"): (boot, True),

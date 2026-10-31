@@ -199,6 +199,36 @@ class ApiTest(unittest.TestCase):
         _, boot2 = c.req("GET", "/api/bootstrap")
         self.assertEqual(boot2["counts"]["good"], boot["counts"]["good"])
 
+    def test_trial_chat_is_public_and_ends_in_a_step(self):
+        c = Client(self.port)
+        hist = [{"role": "assistant", "content": "现在一般几点睡？"}, {"role": "user", "content": "总是刷手机到一两点"}]
+        self.fake.json_out = {"reply": "刷到一两点，第二天肯定很难受吧。是停不下来，还是睡不着？", "step": None}
+        s, d = c.req("POST", "/api/trial/chat", {"goal": "想早点睡", "history": hist})
+        self.assertEqual((s, d["step"], d["round"]), (200, None, 1), d)
+        self.assertIsNone(c.cookie)                   # no account is created
+        # finishing must return a step; the model's meta prefix on tomorrow is stripped
+        self.fake.json_out = {"reply": "今晚先试试这个？", "step": {"title": "11 点把手机放到书桌上", "when": "今晚", "why": "离手就好"},
+                              "remember": ["你常刷手机到一两点"], "tomorrow": "明天我来问你，昨晚放下了吗？", "why_goal": "白天总犯困"}
+        s, d = c.req("POST", "/api/trial/chat", {"goal": "想早点睡", "history": hist, "finish": True})
+        self.assertEqual(d["step"]["title"], "11 点把手机放到书桌上")
+        self.assertEqual(d["tomorrow"], "昨晚放下了吗？")
+        # model down -> scripted fallback still ends in a step
+        self.fake.json_out = None
+        s, d = c.req("POST", "/api/trial/chat", {"goal": "想早点睡", "history": hist, "finish": True})
+        self.assertEqual(s, 200)
+        self.assertTrue(d["step"]["title"] and d["remember"])
+        self.assertEqual(c.req("POST", "/api/trial/chat", {"goal": "", "history": hist})[0], 400)
+        self.assertEqual(c.req("POST", "/api/trial/chat", {"goal": "想早点睡", "history": hist[:1]})[0], 400)
+
+    def test_onboard_carries_the_trial_step(self):
+        c, uid = self.member("carry")
+        carry = {"step": "11 点把手机放到书桌上", "why": "离手就好", "remember": ["你常刷手机到一两点"]}
+        s, d = c.req("POST", "/api/onboard", {"answers": ONBOARD, "carry": carry})
+        self.assertEqual(s, 200, d)
+        self.assertIn("11 点把手机放到书桌上", [x["title"] for x in d["steps"]])
+        self.assertIn("你常刷手机到一两点", [m["text"] for m in d["memories"]])
+        self.assertIn("11 点把手机放到书桌上", d["messages"][-1]["content"])
+
     def test_static_path_traversal_blocked(self):
         c = Client(self.port)
         self.assertEqual(c.req("GET", "/../server.py", raw=True)[0], 404)

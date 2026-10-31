@@ -5,6 +5,7 @@ import { runLesson } from "../lesson.js";
 import { toast } from "../ui.js";
 import { applyTheme, themeOf } from "../theme.js";
 import { setAgentColor } from "../ball.js";
+import { takeCarry, dropCarry } from "./trial.js";
 
 const OPT_ICON = {
   "自信与表达": ["chat", "var(--c-sky)"], "健康作息": ["moon", "var(--c-violet)"], "学业或作品": ["book", "var(--c-coral)"],
@@ -15,8 +16,14 @@ const OPT_ICON = {
 
 export function renderOnboarding(root) {
   root.innerHTML = "";
-  const qs = state.onboarding || [];
+  // 从首页体验过来的：想改变的事（和原因）已经聊过了，不再问一遍
+  const carry = takeCarry();
   const answers = {};
+  if (carry) {
+    answers.intent_primary = carry.goal.replace(/^想/, "");
+    if (carry.why_goal) answers.intent_why = carry.why_goal;
+  }
+  const qs = (state.onboarding || []).filter((q) => !(q.key in answers));
   let i = 0;
 
   const step = (k) => {
@@ -49,10 +56,13 @@ export function renderOnboarding(root) {
       answers[q.key] = q.type.startsWith("multi") ? (v || []) : (v ?? (q.key === "agent_name" ? "小光" : q.key === "theme" ? "forest" : ""));
       i += 1;
       if (i < qs.length) return { done: false, step: step(i) };
-      await api.onboard(answers);
+      await api.onboard(answers, carry);
+      dropCarry();
       return {
         done: true,
-        summary: `好，我是${answers.agent_name || "小光"}。你想靠近「${answers.intent_primary}」——我们从今天能做的最小一步开始。`,
+        summary: carry
+          ? `好，我是${answers.agent_name || "小光"}。刚才说好的「${carry.step}」，已经放进今天的计划里了。`
+          : `好，我是${answers.agent_name || "小光"}。你想靠近「${answers.intent_primary}」——我们从今天能做的最小一步开始。`,
         wrote: [
           { type: "profile", label: "记住了你想靠近的", item: { text: answers.intent_primary } },
           { type: "profile", label: "中断时我会这样陪你", item: { text: { nudge: "轻轻提醒你", analyze: "陪你一起找原因", quiet: "先不提，等你开口" }[answers.care_style] || "按你说的来" } },
@@ -66,7 +76,8 @@ export function renderOnboarding(root) {
           agent_name: answers.agent_name || "小光", theme: answers.theme || localStorage.getItem("xg-theme") || "forest",
           agent_hue: answers.agent_hue || "", intent_primary: answers.intent_primary || "还没想好",
           intent_why: answers.intent_why || "想先看看", care_style: answers.care_style || "analyze",
-        });
+        }, carry);
+        dropCarry();
         toast("先进去看看吧，想说的时候再说");
         window.dispatchEvent(new CustomEvent("xg:enter"));
       } catch (e) { toast(e.message, "err"); }

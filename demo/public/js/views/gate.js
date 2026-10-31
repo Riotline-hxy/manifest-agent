@@ -2,13 +2,14 @@
 import { api } from "../api.js";
 import { esc, toast, sheet, h, tile } from "../ui.js";
 import { mountBall, setAgentColor } from "../ball.js";
-import { petSVG } from "../pet.js";
+import { renderTrial } from "./trial.js";
 import { THEMES, applyTheme, themeOf } from "../theme.js";
 
+// 三张卡片分别回答：它能帮我做什么 / 和普通聊天机器人有什么不一样 / 我为什么会一直用它
 const FEATURES = [
-  ["memory", "var(--c-violet)", "它记得你确认过的事", "说「帮我记住」就会记住；它猜的，要你点头才算数。每天夜里，它会把当天的事安静地整理一遍。"],
-  ["compass", "var(--c-mint)", "按你选的方式陪你", "三天没动，它不会说你三分钟热度——会按你选的，轻轻提醒、陪你找原因，或者先不提。"],
-  ["sprout", "var(--c-orange)", "一只跟着你长大的小芽", "行动、好消息、练习都会喂养它。它最后长成什么，取决于你更常做哪一种。"],
+  ["flag", "var(--c-orange)", "把想要的样子，变成今天能做的事", "想早点睡、想敢开口、想把拖着的事做完——先说给小光听。它陪你把心里那个样子说清楚，再拆成今天就能动手的一件小事。显化不靠干等，靠每天往那儿挪一点。"],
+  ["chat", "var(--c-violet)", "不是问答机器，是一个记得你的朋友", "它记得你上次聊到哪、在意什么、不喜欢被怎么催。不用每次从头讲，隔天它还会自己来问一句：「昨天那件事，后来怎么样了？」"],
+  ["sprout", "var(--c-mint)", "每一小步都算数，不用逼自己", "做到的小事、碰到的好消息，都会变成看得见的成长记录，小芽也跟着一点点长。哪天没做到也没关系，它不会数落你，明天接着来就好。"],
 ];
 
 export function renderGate(root) {
@@ -29,6 +30,7 @@ export function renderGate(root) {
             <button class="btn btn-main btn-lg" data-act="guest">先体验一下</button>
             <button class="btn btn-ghost btn-lg" data-act="auth">登录 / 注册</button>
           </div>
+          <p class="gate-try">不用注册，花两分钟和小光聊几句，带走今天的一小步。</p>
           <div class="gate-themes">
             <span class="gt-k">选一个氛围</span>
             ${THEMES.map((t) => `<button class="gt ${t.id === cur ? "on" : ""}" data-t="${t.id}" title="${esc(t.name)} · ${esc(t.for)}"
@@ -39,7 +41,6 @@ export function renderGate(root) {
         <div class="gate-stage">
           <div class="gs-glow"></div>
           <div class="gate-ball"></div>
-          <div class="gate-pet">${petSVG("baby", { cls: "alive" })}</div>
           <div class="gate-say speech">嗨，我是小光。</div>
         </div>
       </section>
@@ -69,30 +70,27 @@ export function renderGate(root) {
     root.querySelector(".gt-name").textContent = `${t.name} · ${t.for}`;
     ball.set("10"); ball.pulse("bounce");
   }));
-  root.querySelector("[data-act=guest]").addEventListener("click", async (e) => {
-    const b = e.currentTarget;
-    b.classList.add("off"); b.textContent = "正在准备你的 15 天…";
-    ball.set("busy"); ball.pulse("spin");
-    try {
-      await api.guest(true);
-      await api.profile({ theme: themeOf(localStorage.getItem("xg-theme")).id }).catch(() => {});
-      window.dispatchEvent(new CustomEvent("xg:enter"));
-    } catch (err) {
-      toast(err.message, "err");
-      b.classList.remove("off"); b.textContent = "先体验一下";
-    }
+  root.querySelector("[data-act=guest]").addEventListener("click", () => {
+    clearInterval(timer);
+    renderTrial(root);
   });
-  root.querySelectorAll("[data-act=auth]").forEach((b) => b.addEventListener("click", authSheet));
+  root.querySelectorAll("[data-act=auth]").forEach((b) => b.addEventListener("click", () => authSheet()));
 }
 
-function authSheet() {
-  let mode = "login";
+export function authSheet(mode = "login") {
   const u = h("input", { class: "field", placeholder: "用户名", autocomplete: "username", maxlength: "20" });
   const p = h("input", { class: "field", type: "password", placeholder: "密码", autocomplete: "current-password", style: "margin-top:10px" });
   const err = h("p", { style: "color:var(--danger);font-size:13px;min-height:18px;margin:8px 0 0" });
   const sw = h("button", { class: "btn btn-quiet", style: "margin-right:auto" }, "还没有账号？注册");
   const go = h("button", { class: "btn btn-main" }, "登录");
   const s = sheet({ title: "登录显伴", sticker: "user", body: h("div", {}, u, p, err), footer: [sw, go] });
+  const label = () => {
+    s.panel.querySelector("h3").textContent = mode === "login" ? "登录显伴" : "注册显伴";
+    go.textContent = mode === "login" ? "登录" : "注册";
+    sw.textContent = mode === "login" ? "还没有账号？注册" : "已有账号？登录";
+    p.autocomplete = mode === "login" ? "current-password" : "new-password";
+  };
+  label();
   const submit = async () => {
     err.textContent = "";
     try {
@@ -106,9 +104,7 @@ function authSheet() {
   s.panel.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
   sw.addEventListener("click", () => {
     mode = mode === "login" ? "register" : "login";
-    s.panel.querySelector("h3").textContent = mode === "login" ? "登录显伴" : "注册显伴";
-    go.textContent = mode === "login" ? "登录" : "注册";
-    sw.textContent = mode === "login" ? "还没有账号？注册" : "已有账号？登录";
+    label();
   });
   setTimeout(() => u.focus(), 60);
 }

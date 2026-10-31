@@ -8,6 +8,7 @@ import { mountBall, setAgentColor, agentMini, MOOD_TEXT } from "./ball.js";
 import { petSVG, chestSVG } from "./pet.js";
 import { renderGate } from "./views/gate.js";
 import { renderOnboarding } from "./views/onboarding.js";
+import { takeCarry, dropCarry } from "./views/trial.js";
 import { renderChat } from "./views/chat.js";
 import { renderPlan } from "./views/plan.js";
 import { renderGrowth } from "./views/growth.js";
@@ -86,6 +87,17 @@ async function boot() {
       root.innerHTML = "";
       renderOnboarding(root);
       return;
+    }
+    // 已有账号的人在首页体验完再登录：把那一小步和记住的话补进来
+    const carry = takeCarry();
+    if (carry) {
+      dropCarry();
+      try {
+        await api.step("add", { title: carry.step, why: carry.why });
+        for (const text of carry.remember || []) await api.memory("add", { text });
+        setData(await api.bootstrap(), { silent: true });
+        toast(`「${carry.step}」放进今天的计划了`);
+      } catch {}
     }
     state.ready = true;
     drawShell();
