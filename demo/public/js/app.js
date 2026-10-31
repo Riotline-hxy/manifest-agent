@@ -189,8 +189,11 @@ function drawRail() {
     ${NAV.map((grp, i) => `${i ? '<div class="nav-sep"></div>' : ""}${grp.map(([id, label, ic], j) => {
       const on = state.route === id || (id === "academy" && state.route === "article");
       const badge = dot[id] ? `<span class="dot">${dot[id]}</span>` : id === "growth" && g.to_next && g.to_next <= 20 ? '<span class="dot soft"></span>' : "";
-      return `<button class="nav-item ${on ? "active" : ""} ${i && j ? "m-more" : ""}" data-nav="${id}" aria-label="${label}">${icon(ic)}${badge}<span class="lbl">${label}</span></button>`;
+      // 手机底栏只放五个：对话、计划、好消息、点子、我的空间（成长进化从顶栏的等级和菜单进）
+      const mHide = (i && j) || id === "growth" ? "m-more" : "";
+      return `<button class="nav-item ${on ? "active" : ""} ${mHide}" data-nav="${id}" aria-label="${label}">${icon(ic)}${badge}<span class="lbl">${label}</span></button>`;
     }).join("")}`).join("")}
+    <button class="nav-item m-only ${state.route === "space" ? "active" : ""}" data-nav="space" aria-label="我的空间">${icon("user")}${dot.space ? `<span class="dot">${dot.space}</span>` : ""}<span class="lbl">我的空间</span></button>
     <div class="spacer"></div>
     <button class="me-av ${state.route === "space" ? "active" : ""}" data-act="account" title="我的空间" aria-label="我的空间">${esc((d.profile?.nickname || state.user?.username || "我").slice(0, 1))}</button>`;
   rail.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => go(b.dataset.nav)));

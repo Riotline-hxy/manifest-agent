@@ -6,7 +6,6 @@ import { esc, toast, sheet, h, confirmSheet, fmtDay, icon, tile } from "../ui.js
 import { burstAt } from "../fx.js";
 import { mountBall, setAgentColor } from "../ball.js";
 import { petSVG } from "../pet.js";
-import { startScene } from "../scene.js";
 import { THEMES, AGENT_COLORS, applyTheme, agentColor, themeOf } from "../theme.js";
 import { themeCard, placeInd } from "../app.js";
 import { openAccount, logout } from "../account.js";
@@ -183,35 +182,34 @@ function settingsTab(body, root) {
   const seg = (key, opts, cur) => `<div class="tabs seg" data-key="${key}">${opts.map(([v, l]) => `<button data-v="${v}" class="${cur === v ? "on" : ""}">${l}</button>`).join("")}<span class="ind"></span></div>`;
   const cur = themeOf(p.theme).id;
   const col = agentColor(p);
+  const guest = state.user?.kind === "guest";
   body.innerHTML = `
-    <div class="sec-title">氛围<span class="more">适合不同的人，随时能换</span></div>
-    <div class="theme-grid" style="margin-bottom:22px">${THEMES.map((t) => themeCard(t, t.id === cur)).join("")}</div>
-    <div class="sec-title">小光的颜色</div>
-    <div class="swatches" style="margin-bottom:28px">${AGENT_COLORS.map((c) => `<button class="swatch ${c === col ? "on" : ""}" data-color="${c}" style="background:${c}"></button>`).join("")}</div>
+    <div class="sec-title set-sec">${icon("sparkles")}小光<span class="more">它怎么说话、什么时候来找你</span></div>
     <div class="settings card">
-      <div class="set-row">${tile("chat", "var(--c-sky)", 40)}<div class="sl"><b>名字</b><small>小光叫你「${esc(p.nickname || state.user?.username || "你")}」${state.user?.kind === "member" ? ` · 登录用户名 ${esc(state.user.username)}` : ""}</small></div>
-        <button class="btn btn-sm btn-ghost" data-name-edit2>修改</button></div>
-      <div class="set-row">${tile("user", "var(--c-orange)", 40)}<div class="sl"><b>账号</b><small>${state.user?.kind === "guest" ? "现在是体验账号，注册后记录会一直留着" : `已登录：${esc(state.user?.username || "")}`}</small></div>
-        <button class="btn btn-sm btn-ghost" data-account>${state.user?.kind === "guest" ? "注册 / 退出" : "退出登录"}</button></div>
-      <div class="set-row">${tile("heart", "var(--c-pink)", 40)}<div class="sl"><b>小光的性格</b><small>说话的方式会跟着变，记得的事不变</small></div>
+      <div class="set-row">${tile("heart", "var(--c-pink)", 40)}<div class="sl"><b>性格</b><small>说话的方式会跟着变，记得的事不变</small></div>
         ${seg("persona", [["gentle", "温柔"], ["clear", "有条理"], ["lively", "活泼"]], p.persona || "gentle")}</div>
-      <div class="set-row">${tile("compass", "var(--c-mint)", 40)}<div class="sl"><b>中断的时候，你希望我</b><small>三天没动时小光的反应方式</small></div>
+      <div class="set-row">${tile("compass", "var(--c-mint)", 40)}<div class="sl"><b>中断的时候</b><small>三天没动时，小光怎么反应</small></div>
         ${seg("care_style", [["nudge", "轻轻提醒"], ["analyze", "一起找原因"], ["quiet", "先别提"]], p.care_style)}</div>
-      <div class="set-row">${tile("letter", "var(--c-sky)", 40)}<div class="sl"><b>主动消息</b><small>23:00–08:00 不打扰；开了手机通知，网页关着也能收到</small></div>
+      <div class="set-row">${tile("letter", "var(--c-sky)", 40)}<div class="sl"><b>主动消息</b><small>23:00–08:00 不打扰 · <button class="set-link" data-proactive>让它现在说一句</button></small></div>
         ${seg("proactive", [["more", "多"], ["normal", "刚好"], ["less", "少"], ["off", "不要"]], p.proactive || "normal")}</div>
+      <div class="set-row">${tile("palette", "var(--c-lemon)", 40)}<div class="sl"><b>颜色</b><small>小光身体的颜色</small></div>
+        <div class="swatches">${AGENT_COLORS.map((c) => `<button class="swatch ${c === col ? "on" : ""}" data-color="${c}" style="background:${c}" aria-label="换成这个颜色"></button>`).join("")}</div></div>
+    </div>
+
+    <div class="sec-title set-sec">${icon("user")}我<span class="more">账号和这台手机</span></div>
+    <div class="settings card">
+      <div class="set-row">${tile("chat", "var(--c-sky)", 40)}<div class="sl"><b>名字</b><small>小光叫你「${esc(p.nickname || state.user?.username || "你")}」${!guest ? ` · 登录用户名 ${esc(state.user?.username || "")}` : ""}</small></div>
+        <button class="btn btn-sm btn-ghost" data-name-edit2>修改</button></div>
+      <div class="set-row">${tile("user", "var(--c-orange)", 40)}<div class="sl"><b>账号</b><small>${guest ? "现在是体验账号，注册后记录会一直留着" : `已登录：${esc(state.user?.username || "")}`}</small></div>
+        <button class="btn btn-sm btn-ghost" data-account>${guest ? "注册 / 退出" : "退出登录"}</button></div>
+      <div class="set-row">${tile("sprout", "var(--c-mint)", 40)}<div class="sl"><b>宠物的名字</b><small>现在叫「${esc(p.pet_name || "小芽")}」</small></div>
+        <button class="btn btn-sm btn-ghost" data-rename>改名</button></div>
       <div class="set-row">${tile("bell", "var(--c-lemon)", 40)}<div class="sl"><b>手机通知</b><small data-push-note>正在看这台设备……</small></div>
         <div class="set-acts" data-push-acts></div></div>
-      <div class="set-row">${tile("phone", "var(--c-mint)", 40)}<div class="sl"><b>装到手机桌面</b><small data-install-note></small></div>
-        <div class="set-acts" data-install-acts></div></div>
-      <div class="set-row">${tile("sprout", "var(--c-orange)", 40)}<div class="sl"><b>宠物的名字</b><small>现在叫「${esc(p.pet_name || "小芽")}」</small></div>
-        <button class="btn btn-sm btn-ghost" data-rename>改名</button></div>
-      <div class="set-row">${tile("steps", "var(--c-violet)", 40)}<div class="sl"><b>再走一遍「重新认识我」</b><small>六个小问题，答完会更新上面的偏好</small></div>
-        <button class="btn btn-sm btn-ghost" data-relearn>开始</button></div>
-      <div class="set-row">${tile("download", "var(--c-coral)", 40)}<div class="sl"><b>导出我的数据</b><small>画像、记忆、计划、对话，全部是你的</small></div>
-        <button class="btn btn-sm btn-ghost" data-export>导出</button></div>
-      <div class="set-row">${tile("chat", "var(--c-pink)", 40)}<div class="sl"><b>演示：让小光现在说一句</b><small>正常由定时任务在合适的时候发</small></div>
-        <button class="btn btn-sm btn-ghost" data-proactive>试一下</button></div>
     </div>
+
+    <div class="sec-title set-sec">${icon("palette")}氛围<span class="more">整个页面的样子，随时能换</span></div>
+    <div class="theme-grid">${THEMES.map((t) => themeCard(t, t.id === cur)).join("")}</div>
     <p class="hint-line">每个账号在服务器上是一个独立的数据库文件；接口只认登录会话，没有任何参数能读到别人的数据。删除记忆是真删除。</p>`;
 
   requestAnimationFrame(() => body.querySelectorAll(".seg").forEach(placeInd));
@@ -230,22 +228,13 @@ function settingsTab(body, root) {
   }));
   body.querySelectorAll(".seg").forEach((sg) => sg.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => save({ [sg.dataset.key]: b.dataset.v }, "改好了"))));
   body.querySelector("[data-name-edit2]").addEventListener("click", () => nameSheet(root));
-  body.querySelector("[data-account]").addEventListener("click", () => (state.user?.kind === "guest" ? openAccount() : confirmLogout()));
-  body.querySelector("[data-relearn]").addEventListener("click", () => startScene("relearn", { onFinish: () => renderSpace(root) }));
+  body.querySelector("[data-account]").addEventListener("click", () => (guest ? openAccount() : confirmLogout()));
   body.querySelector("[data-rename]").addEventListener("click", () => {
     const input = h("input", { class: "field", maxlength: "8" });
     input.value = p.pet_name || "小芽";
     const s = sheet({ title: "给宠物起个名字", sticker: "sprout", body: input, footer: [h("button", { class: "btn btn-main", onclick: async () => {
       s.close(); save({ pet_name: input.value.trim() || "小芽" });
     } }, "就叫这个")] });
-  });
-  body.querySelector("[data-export]").addEventListener("click", async () => {
-    const blob = new Blob([JSON.stringify(await api.exportAll(), null, 2)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `xianban-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
   });
   body.querySelector("[data-proactive]").addEventListener("click", async () => {
     const out = await api.proactiveNow();
@@ -255,33 +244,34 @@ function settingsTab(body, root) {
   });
 }
 
-// ---- 这台设备：手机通知 + 装到桌面 ----
+// ---- 手机通知：开推送；能一键装到桌面时顺便给个「装到桌面」；iPhone 没装时先教怎么装 ----
 function bindDevice(body) {
-  const pNote = body.querySelector("[data-push-note]"), pActs = body.querySelector("[data-push-acts]");
-  const iNote = body.querySelector("[data-install-note]"), iActs = body.querySelector("[data-install-acts]");
+  const note = body.querySelector("[data-push-note]"), acts = body.querySelector("[data-push-acts]");
   const btn = (label, cls, fn) => h("button", { class: `btn btn-sm ${cls}`, onclick: fn }, label);
 
-  async function drawPush() {
+  async function draw() {
     const sup = pushSupport();
     const on = await pushOn();
-    pActs.replaceChildren();
+    const inst = installState();
+    acts.replaceChildren();
     if (on) {
-      pNote.textContent = "已开启：小光的主动消息和到点提醒，网页关着也会推到这台设备";
-      pActs.append(btn("发一条试试", "btn-ghost", testPush), btn("关闭", "btn-quiet", async () => {
-        await disablePush(); toast("这台设备不再收通知了"); drawPush();
+      note.textContent = "已开启：主动消息和到点提醒，网页关着也会推到这台设备";
+      acts.append(btn("发一条试试", "btn-ghost", testPush), btn("关闭", "btn-quiet", async () => {
+        await disablePush(); toast("这台设备不再收通知了"); draw();
       }));
     } else if (sup === "ok") {
-      pNote.textContent = "开了以后，网页关着也能收到小光的消息和提醒";
-      pActs.append(btn("开启", "btn-main", async (e) => {
+      note.textContent = "开了以后，网页关着也能收到小光的消息和提醒";
+      acts.append(btn("开启", "btn-main", async (e) => {
         e.currentTarget.classList.add("off");
         const r = await enablePush();
         toast(r.ok ? "开好了，点「发一条试试」看看" : PUSH_WHY[r.reason], r.ok ? "" : "err", r.ok ? "bell" : "");
-        drawPush();
+        draw();
       }));
     } else {
-      pNote.textContent = PUSH_WHY[sup];
-      if (sup === "ios-home") pActs.append(btn("怎么添加", "btn-ghost", installGuide));
+      note.textContent = PUSH_WHY[sup];
+      if (sup === "ios-home" || sup === "unsupported") acts.append(btn("怎么开", "btn-ghost", installGuide));
     }
+    if (inst === "prompt") acts.append(btn("装到桌面", "btn-ghost", async () => { if (await install()) toast("装好了，去桌面看看"); draw(); }));
   }
   async function testPush(e) {
     const b = e.currentTarget;
@@ -292,33 +282,20 @@ function bindDevice(body) {
     } catch (err) { toast(err.message, "err"); }
     b.classList.remove("off");
   }
-  function drawInstall() {
-    const st = installState();
-    iActs.replaceChildren();
-    iNote.textContent = {
-      installed: "已经装好了，以后从桌面的「显伴」打开就行",
-      prompt: "装好以后像 app 一样从桌面打开，也更容易收到通知",
-      ios: "在 Safari 里点「分享」→「添加到主屏幕」",
-      browser: "在浏览器菜单里找「添加到主屏幕」或「安装应用」",
-    }[st];
-    if (st === "prompt") iActs.append(btn("安装", "btn-main", async () => { if (await install()) toast("装好了，去桌面看看"); drawInstall(); }));
-    else if (st !== "installed") iActs.append(btn("怎么装", "btn-ghost", installGuide));
-  }
-  drawPush();
-  drawInstall();
-  addEventListener("xg:installable", drawInstall, { once: true });
+  draw();
+  addEventListener("xg:installable", draw, { once: true });
 }
 
 function installGuide() {
   const body = h("div", { class: "install-guide", html: `
     <h4>iPhone（用 Safari 打开）</h4>
     <ol><li>点屏幕底部的「分享」按钮（方框加向上的箭头）</li><li>往下滑，点「添加到主屏幕」，再点「添加」</li>
-      <li>回到桌面，点「显伴」图标打开，登录后到「我的空间」开启手机通知</li></ol>
+      <li>回到桌面，点「显伴」图标打开，登录后到「我的空间 → 设置」开启手机通知</li></ol>
     <p class="hint">需要 iOS 16.4 或更新的版本；在微信里打开的页面不行，先用 Safari 打开。</p>
     <h4>安卓（用 Chrome 或手机自带浏览器）</h4>
-    <ol><li>点右上角的「⋮」菜单</li><li>选「安装应用」或「添加到主屏幕」</li><li>从桌面图标打开，到「我的空间」开启手机通知</li></ol>
+    <ol><li>点右上角的「⋮」菜单</li><li>选「安装应用」或「添加到主屏幕」</li><li>从桌面图标打开，到「我的空间 → 设置」开启手机通知</li></ol>
     <p class="hint">国内部分安卓手机的浏览器收不到网页通知（依赖谷歌的推送服务）；收不到时，消息会在你打开显伴时出现。</p>` });
-  const s = sheet({ title: "装到手机桌面", sticker: "phone", body, footer: [h("button", { class: "btn btn-main", onclick: () => s.close() }, "知道了")] });
+  const s = sheet({ title: "在手机上开通知", sticker: "bell", body, footer: [h("button", { class: "btn btn-main", onclick: () => s.close() }, "知道了")] });
 }
 
 async function confirmLogout() {

@@ -335,7 +335,8 @@ details summary::-webkit-details-marker { display: none; }
   .night { flex-direction: column; align-items: flex-start; }
   .set-row { flex-wrap: wrap; }
   .set-row .sl { flex: 1 1 calc(100% - 60px); }
-  .set-row .seg, .set-row > .btn { margin-left: 54px; }
+  .set-row .seg, .set-row > .btn, .set-row .set-acts, .set-row .swatches { margin-left: 54px; }
+  .set-row .set-acts { justify-content: flex-start; }
 }
 
 .me-main h1 { display: flex; align-items: center; gap: 6px; }
@@ -347,3 +348,11 @@ details summary::-webkit-details-marker { display: none; }
 .install-guide h4 { font-size: 14.5px; margin: 4px 0 6px; }
 .install-guide ol { margin: 0 0 8px; padding-left: 1.3em; color: var(--text-2); font-size: 14px; line-height: 1.8; }
 .install-guide .hint { margin: 0 0 16px; font-size: 12.5px; color: var(--text-3); line-height: 1.6; }
+.set-sec { margin-top: 26px; }
+.set-sec:first-child { margin-top: 0; }
+.set-sec > .ic-svg { width: 16px; height: 16px; color: var(--accent); }
+.settings + .set-sec { margin-top: 28px; }
+.set-link { display: inline; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-weight: 800; cursor: pointer; }
+.set-link:hover { text-decoration: underline; }
+.set-row .swatches { gap: 8px; }
+.set-row .swatch { width: 28px; height: 28px; }
