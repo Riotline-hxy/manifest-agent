@@ -258,6 +258,55 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(a.req("GET", "/api/admin/users")[0], 401)
         self.assertEqual(c.req("GET", "/admin", raw=True)[0], 200)
 
+    def test_tokens_are_counted_per_user(self):
+        c, uid = self.onboarded("tok_user")
+        with Store(uid):
+            llm._note_usage({"total_tokens": 100, "prompt_tokens": 90, "completion_tokens": 10,
+                             "prompt_tokens_details": {"cached_tokens": 80}}, "chat")
+            with Store(uid):                       # nested open/close keeps the outer attribution
+                pass
+            llm._note_usage({"total_tokens": 40, "prompt_tokens": 35, "completion_tokens": 5}, "bg")
+        llm._note_usage({"total_tokens": 7}, "bg")  # no current user (e.g. landing demo): site-wide only
+        a = Client(self.port)
+        a.req("POST", "/api/admin/login", {"key": "test-admin"})
+        _, one = a.req("GET", f"/api/admin/user?id={uid}")
+        t = one["tokens"]["d30"]
+        self.assertEqual((t["tokens"], t["calls"], t["tokens_chat"], t["tokens_bg"], t["tokens_cached"]), (140, 2, 100, 40, 80))
+        _, us = a.req("GET", "/api/admin/users")
+        self.assertEqual(next(u for u in us["users"] if u["id"] == uid)["tokens_30d"], 140)
+        _, b = c.req("GET", "/api/bootstrap")
+        self.assertNotIn("llm_tokens", json.dumps(b))                     # users don't see their usage (yet)
+
+    def test_admin_can_delete_a_user_and_guests(self):
+        c, uid = self.onboarded("del_me")
+        with Store(uid):
+            llm._note_usage({"total_tokens": 10}, "chat")
+        tasks.add(uid, "喝水", time="09:00", repeat="daily")
+        a = Client(self.port)
+        a.req("POST", "/api/admin/login", {"key": "test-admin"})
+        self.assertEqual(c.req("POST", "/api/admin/user/delete", {"id": uid, "confirm": "del_me"})[0], 401)  # not as a user
+        self.assertEqual(a.req("POST", "/api/admin/user/delete", {"id": uid, "confirm": "nope"})[0], 400)
+        s, _ = a.req("POST", "/api/admin/user/delete", {"id": uid, "confirm": "del_me"})
+        self.assertEqual(s, 200)
+        self.assertEqual(c.req("GET", "/api/bootstrap")[0], 401)       # logged out at once
+        self.assertFalse(os.path.exists(os.path.join(TMP, "u", uid)))
+        self.assertEqual(tasks.list_for(uid), [])
+        _, us = a.req("GET", "/api/admin/users")
+        self.assertNotIn(uid, [u["id"] for u in us["users"]])
+        self.assertEqual(a.req("GET", f"/api/admin/user?id={uid}")[0], 404)
+        # a new account can take the freed username
+        self.assertEqual(Client(self.port).req("POST", "/api/auth/register", {"username": "del_me", "password": "secret12"})[0], 201)
+
+        g = Client(self.port)
+        g.req("POST", "/api/auth/guest", {"seed": False})
+        _, us = a.req("GET", "/api/admin/users")
+        n = sum(1 for u in us["users"] if u["kind"] == "guest")
+        self.assertEqual(a.req("POST", "/api/admin/guests/delete", {"confirm": "删除"})[0], 400)
+        s, out = a.req("POST", "/api/admin/guests/delete", {"confirm": f"删除 {n} 个体验账号"})
+        self.assertEqual((s, out["deleted"]), (200, n))
+        _, us = a.req("GET", "/api/admin/users")
+        self.assertEqual([u for u in us["users"] if u["kind"] == "guest"], [])
+
     def test_static_path_traversal_blocked(self):
         c = Client(self.port)
         self.assertEqual(c.req("GET", "/../server.py", raw=True)[0], 404)
@@ -604,6 +653,20 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(len(boot["inbox"]), 1)
         self.assertTrue(boot["messages"][-1]["meta"]["proactive"])
         c.req("POST", "/api/inbox/seen", {})
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertEqual(boot["inbox"], [])
+
+    def test_old_unseen_message_does_not_block_proactive(self):
+        # 之前前端从不标记已读：一条旧的主动消息会永远挡住后面的
+        c, uid = self.onboarded("pro_stuck")
+        self.fake.json_out = {"text": "还在靠近「健康作息」吗？"}
+        c.req("POST", "/api/proactive/now", {})
+        with Store(uid) as st:
+            self.assertTrue(scheduler.waiting_unseen(st))
+            st.set_profile({"last_chat_at": "2999-01-01T00:00:00+08:00"})   # TA 之后又来聊过
+            self.assertFalse(scheduler.waiting_unseen(st))
+        self.fake.turns = [[("text", "嗯，我在。")]]
+        c.sse("我回来啦")                                                      # sending a message marks it seen
         _, boot = c.req("GET", "/api/bootstrap")
         self.assertEqual(boot["inbox"], [])
 

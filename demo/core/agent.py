@@ -604,6 +604,7 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
     user_text = clip(user_text, 2000)
     store.add_message("user", user_text)
     store.set_profile({"last_chat_at": now().isoformat(timespec="seconds")})
+    store.mark_inbox_seen()  # TA 回来说话了，之前的主动消息就算看过了
     # 每天第一次来聊天算一次签到；award() 对同一天同一个 ref 是幂等的
     checkin = growth.award(store, "checkin", ref="day:" + now().strftime("%Y-%m-%d"), note="今天来聊了")
     if checkin.get("amount"):

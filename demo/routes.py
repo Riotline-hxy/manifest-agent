@@ -110,6 +110,29 @@ def admin_user(h, u, b, q):
     return 200, r
 
 
+def admin_delete(h, u, b, q):
+    """删一个用户；confirm 必须等于用户名（体验账号用 id），防手滑。"""
+    _admin(h)
+    uid = str(b.get("id") or "")
+    target = auth.get_user(uid)
+    if not target:
+        raise ApiError(404, "没有这个用户")
+    if str(b.get("confirm") or "") != (target["username"] or uid):
+        raise ApiError(400, "确认内容不对")
+    admin.delete_user(uid)
+    return 200, {"ok": True}
+
+
+def admin_purge_guests(h, u, b, q):
+    """一次删掉所有体验账号（旧版首页建的，带示例数据）。"""
+    _admin(h)
+    ids = admin.guest_ids()
+    if str(b.get("confirm") or "") != f"删除 {len(ids)} 个体验账号":
+        raise ApiError(400, "确认内容不对")
+    n = sum(1 for uid in ids if admin.delete_user(uid))
+    return 200, {"ok": True, "deleted": n}
+
+
 def rename(h, u, b, q):
     user = auth.rename(u["id"], str(b.get("username") or ""))
     with Store(u["id"]) as st:
@@ -584,6 +607,8 @@ ROUTES = {
     ("GET", "/api/admin/overview"): (admin_overview, False),
     ("GET", "/api/admin/users"): (admin_users, False),
     ("GET", "/api/admin/user"): (admin_user, False),
+    ("POST", "/api/admin/user/delete"): (admin_delete, False),
+    ("POST", "/api/admin/guests/delete"): (admin_purge_guests, False),
     ("POST", "/api/auth/logout"): (logout, False),
     ("POST", "/api/auth/rename"): (rename, True),
     ("GET", "/api/bootstrap"): (boot, True),

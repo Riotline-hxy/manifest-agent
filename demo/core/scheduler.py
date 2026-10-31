@@ -33,6 +33,14 @@ def in_quiet(hour: int) -> bool:
     return hour >= QUIET[0] or hour < QUIET[1]
 
 
+def waiting_unseen(store: Store, p: dict | None = None) -> bool:
+    """还有一条 TA 没看过的主动消息在等着。TA 之后又来聊过天的不算——
+    那条已经出现在对话里了（之前前端从不标记已读，一条旧消息会永远挡住后面的）。"""
+    p = p or store.profile()
+    since = p.get("last_chat_at") or ""
+    return any(i["created_at"] >= since for i in store.unseen_inbox())
+
+
 def should_reach_out(p: dict, has_unseen: bool, ref=None) -> tuple[bool, str]:
     ref = ref or now()
     freq = p.get("proactive") or "normal"
@@ -88,7 +96,7 @@ def deliver(store: Store, force: bool = False) -> dict:
     p = store.profile()
     if not force and store.c.execute("SELECT 1 FROM record WHERE type='rest' AND day=?", (day_key(),)).fetchone():
         return {"sent": False, "reason": "今天是偷懒日，不打扰"}
-    ok, why = should_reach_out(p, bool(store.inbox(unseen_only=True)))
+    ok, why = should_reach_out(p, waiting_unseen(store, p))
     if not ok and not force:
         return {"sent": False, "reason": why}
     msg = compose(store)

@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import academy, cheer, growth, journey, scenes, scheduler, tasks
 from .store import Store
 
-VERSION = "2.8.0"
+VERSION = "2.8.1"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
@@ -81,5 +81,5 @@ def bootstrap(st: Store) -> dict:
         "scene_counts": {r[0]: r[1] for r in st.c.execute(
             "SELECT scene, COUNT(*) FROM scene_run WHERE status='done' GROUP BY scene")},
         "revisions": st.revisions(20),
-        "proactive": dict(zip(("ok", "reason"), scheduler.should_reach_out(p, bool(st.unseen_inbox())))),
+        "proactive": dict(zip(("ok", "reason"), scheduler.should_reach_out(p, scheduler.waiting_unseen(st, p)))),
     }

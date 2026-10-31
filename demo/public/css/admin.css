@@ -98,6 +98,20 @@ body.admin-body { overflow: auto; }
 .adm-acts .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .adm-acts time { color: var(--text-4); font-size: 12px; flex: none; }
 
+/* 删除 */
+.btn-danger { --c: var(--danger); --deep: #b8443a; --fg: #2a0703; }
+.adm-danger-text { color: var(--danger) !important; }
+.adm-danger { display: flex; align-items: center; gap: 14px; margin-top: 22px; padding: 14px 16px; border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent); background: color-mix(in srgb, var(--danger) 7%, transparent); }
+.adm-danger > div { flex: 1; display: flex; flex-direction: column; }
+.adm-danger b { font-size: 14px; }
+.adm-danger span { font-size: 12.5px; color: var(--text-2); }
+.adm-confirm-text { margin: 0 0 10px; font-size: 14px; color: var(--text-2); line-height: 1.7; }
+.adm-confirm-text b { color: var(--text); }
+.adm-note { margin-top: 6px; }
+.hb.pick { cursor: pointer; border-radius: 8px; }
+.hb.pick:hover, .hb.pick:focus-visible { background: var(--surface-2); outline: none; }
+
 @media (max-width: 900px) {
   .adm { grid-template-columns: 1fr; padding: 16px 14px 40px; }
   .adm-top { padding: 12px 14px; }

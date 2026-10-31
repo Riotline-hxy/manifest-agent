@@ -22,6 +22,7 @@ import re
 import sqlite3
 import threading
 
+from . import metrics
 from .util import DATA, clip, day_key, dumps, fts_doc, fts_query, iso, loads, new_id, now, parse_iso
 
 UID_RE = re.compile(r"^u_[0-9a-f]{16}$")
@@ -67,8 +68,10 @@ class Store:
         self.c.row_factory = sqlite3.Row
         self.c.execute("PRAGMA journal_mode=WAL")
         self._schema()
+        metrics.push_user(uid)  # 这个线程接下来的模型调用记到这个人头上
 
     def close(self):
+        metrics.pop_user(self.uid)
         self.c.close()
 
     def __enter__(self):

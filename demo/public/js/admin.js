@@ -108,6 +108,10 @@ function draw(ov) {
         <div class="card adm-card"><h3>大家想靠近的</h3><p class="adm-sub">注册用户建档时选的方向</p><div class="hbars" data-h="intents"></div></div>
       </section>
       <section class="card adm-card">
+        <h3>谁用的 token 最多</h3><p class="adm-sub">近 ${ov.days} 天 · 点名字看详情 · 从 2.8.1 开始按人统计（首页体验不算在任何人头上）</p>
+        <div class="hbars" data-h="tokens"></div>
+      </section>
+      <section class="card adm-card">
         <h3>服务器</h3>
         <div class="adm-sys">
           ${kv("版本", `${esc(s.version)} · Python ${esc(s.python)}`)}
@@ -126,12 +130,13 @@ function draw(ov) {
           <div class="adm-range">${[["all", "全部"], ["member", "注册"], ["guest", "体验账号"]].map(([k, l]) =>
             `<button class="chip ${k === filter ? "on" : ""}" data-filter="${k}">${l}</button>`).join("")}</div>
           <span class="spacer"></span>
+          ${u.guests ? `<button class="btn btn-quiet btn-sm adm-danger-text" data-act="purge">清理 ${u.guests} 个体验账号</button>` : ""}
           <input class="field adm-search" type="search" placeholder="搜用户名" value="${esc(query)}">
         </div>
         <p class="adm-sub">按最近活跃排序。点一行看详情。这里只有数量和操作记录，看不到对话和记忆原文。</p>
         <div class="adm-table-wrap"><table class="adm-table"><thead><tr>
           <th>用户</th><th>类型</th><th>注册于</th><th>最近活跃</th><th class="r">活跃天数</th><th class="r">消息</th>
-          <th class="r">一小步</th><th class="r">好消息</th><th class="r">记忆</th><th class="r">等级</th><th>想靠近</th>
+          <th class="r">一小步</th><th class="r">好消息</th><th class="r">记忆</th><th class="r">等级</th><th class="r">30 天 tokens</th><th>想靠近</th>
         </tr></thead><tbody></tbody></table></div>
       </section>
     </main>`;
@@ -145,6 +150,7 @@ function draw(ov) {
     { key: "fresh", label: "未缓存", color: C.violet }, { key: "cached", label: "缓存命中", color: C.mint }]);
   hbars(root.querySelector('[data-h="funnel"]'), ov.funnel, "还没有人试过");
   hbars(root.querySelector('[data-h="intents"]'), ov.intents, "还没有人建档");
+  hbars(root.querySelector('[data-h="tokens"]'), ov.top_tokens, "还没有按人记录的用量", (r) => openUser(r.id));
   drawUsers();
 
   root.querySelectorAll("[data-days]").forEach((b) => b.addEventListener("click", () => { days = +b.dataset.days; load().catch(fail); }));
@@ -155,6 +161,7 @@ function draw(ov) {
   }));
   root.querySelector(".adm-search").addEventListener("input", (e) => { query = e.target.value.trim(); drawUsers(); });
   root.querySelector("[data-act=refresh]").addEventListener("click", () => load().then(() => toast("已刷新")).catch(fail));
+  root.querySelector("[data-act=purge]")?.addEventListener("click", () => purgeGuests(u.guests));
   root.querySelector("[data-act=logout]").addEventListener("click", async () => { await post("/api/admin/logout"); login(""); });
 }
 
@@ -179,8 +186,9 @@ function drawUsers() {
       <td class="r num">${u.good}</td>
       <td class="r num">${u.memories}</td>
       <td class="r num">${u.level}</td>
+      <td class="r num">${num(u.tokens_30d)}</td>
       <td class="clip">${esc(u.profile?.intent_primary || "—")}</td>
-    </tr>`).join("") : `<tr><td colspan="11" class="adm-none">没有符合的用户</td></tr>`;
+    </tr>`).join("") : `<tr><td colspan="12" class="adm-none">没有符合的用户</td></tr>`;
   tb.querySelectorAll("tr[data-id]").forEach((tr) => {
     const open = () => openUser(tr.dataset.id);
     tr.addEventListener("click", open);
@@ -193,6 +201,7 @@ async function openUser(id) {
   let u;
   try { u = await get(`/api/admin/user?id=${encodeURIComponent(id)}`); } catch (e) { return fail(e); }
   const p = u.profile || {};
+  const t30 = u.tokens.d30;
   const body = h("div", { class: "adm-user" });
   body.innerHTML = `
     <div class="adm-sys">
@@ -216,12 +225,78 @@ async function openUser(id) {
         .map(([k, v]) => `<div><b class="num">${v}</b><span>${k}</span></div>`).join("")}
     </div>
     <h4>近 30 天每天的消息</h4>
-    <div class="chart chart-sm"></div>
+    <div class="chart chart-sm" data-u="msgs"></div>
+    <h4>模型用量</h4>
+    <div class="adm-mini-stats">
+      ${[["近 30 天 tokens", num(t30.tokens)], ["近 30 天调用", num(t30.calls)], ["其中对话", num(t30.tokens_chat)],
+         ["其中后台", num(t30.tokens_bg)], ["缓存命中", t30.tokens_in ? `${Math.round((t30.tokens_cached / t30.tokens_in) * 100)}%` : "—"],
+         ["累计 tokens", num(u.tokens.all.tokens)]].map(([k, v]) => `<div><b class="num">${v}</b><span>${k}</span></div>`).join("")}
+    </div>
+    <p class="adm-sub adm-note">对话 = 和小光聊天时的调用；后台 = 夜里整理记忆、主动消息、例行任务等。从 2.8.1 开始记录。</p>
+    <div class="chart chart-sm" data-u="tokens"></div>
     <h4>最近的操作记录</h4>
     <ul class="adm-acts">${(u.activity || []).map((x) => `<li><span class="pill">${esc(ACT[x.kind] || x.kind)}</span>
-      <span class="t">${esc(x.text)}</span><time>${esc((x.at || "").slice(5, 16).replace("T", " "))}</time></li>`).join("") || `<li class="adm-none">还没有</li>`}</ul>`;
-  sheet({ title: userName(u), sticker: "user", body });
-  columns(body.querySelector(".chart"), u.series, [{ key: "msgs", label: "消息", color: C.violet }], 120);
+      <span class="t">${esc(x.text)}</span><time>${esc((x.at || "").slice(5, 16).replace("T", " "))}</time></li>`).join("") || `<li class="adm-none">还没有</li>`}</ul>
+    <div class="adm-danger">
+      <div><b>删除这个用户</b><span>账号、对话、记忆、计划、例行任务和用量记录全部删掉，不能恢复。</span></div>
+      <button class="btn btn-danger btn-sm" data-act="del">删除…</button>
+    </div>`;
+  const s = sheet({ title: userName(u), sticker: "user", body });
+  columns(body.querySelector('[data-u="msgs"]'), u.series, [{ key: "msgs", label: "消息", color: C.violet }], 120);
+  columns(body.querySelector('[data-u="tokens"]'), u.series, [
+    { key: "t_tokens_chat", label: "对话", color: C.violet }, { key: "t_tokens_bg", label: "后台", color: C.mint }], 120);
+  body.querySelector("[data-act=del]").addEventListener("click", () => deleteUser(u, s));
+}
+
+// ---------------------------------------------------------------- 删除 ----
+// 必须手打一遍确认内容，后端也会再核对一次
+function confirmTyped({ title, text, phrase, okLabel }) {
+  return new Promise((resolve) => {
+    const inp = h("input", { class: "field", placeholder: phrase, autocomplete: "off" });
+    const err = h("p", { class: "adm-err" });
+    const ok = h("button", { class: "btn btn-danger", disabled: true }, okLabel);
+    const cancel = h("button", { class: "btn btn-quiet" }, "算了");
+    const body = h("div", {}, h("p", { class: "adm-confirm-text" }, text),
+      h("p", { class: "adm-confirm-text" }, "请输入 ", h("b", {}, phrase), " 确认："), inp, err);
+    let done = false;
+    const s = sheet({ title, sticker: "trash", body, footer: [cancel, ok], onClose: () => { if (!done) resolve(null); } });
+    inp.addEventListener("input", () => { ok.disabled = inp.value.trim() !== phrase; });
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && !ok.disabled) ok.click(); });
+    cancel.addEventListener("click", () => s.close());
+    ok.addEventListener("click", () => { done = true; resolve({ value: inp.value.trim(), close: s.close, err }); });
+    setTimeout(() => inp.focus(), 60);
+  });
+}
+
+async function deleteUser(u, detail) {
+  const phrase = u.username || u.id;
+  const r = await confirmTyped({
+    title: `删除 ${userName(u)}`, phrase, okLabel: "永久删除",
+    text: `会删掉 TA 的账号和全部数据（${u.msgs} 条消息、${u.memories} 条记忆、${u.steps} 个一小步），TA 会立刻被登出。不能恢复。`,
+  });
+  if (!r) return;
+  try {
+    await post("/api/admin/user/delete", { id: u.id, confirm: r.value });
+    r.close();
+    detail.close();
+    toast(`已删除 ${userName(u)}`);
+    await load();
+  } catch (e) { r.err.textContent = e.message; }
+}
+
+async function purgeGuests(n) {
+  const phrase = `删除 ${n} 个体验账号`;
+  const r = await confirmTyped({
+    title: "清理体验账号", phrase, okLabel: "全部删除",
+    text: `体验账号是旧版首页「先体验一下」建的，里面大多是示例数据。会删掉全部 ${n} 个，注册用户不受影响。不能恢复。`,
+  });
+  if (!r) return;
+  try {
+    const out = await post("/api/admin/guests/delete", { confirm: r.value });
+    r.close();
+    toast(`删掉了 ${out.deleted} 个体验账号`);
+    await load();
+  } catch (e) { r.err.textContent = e.message; }
 }
 
 // ---------------------------------------------------------------- 图 ----
@@ -312,14 +387,19 @@ function niceMax(v) {
 }
 
 // 横向条：值写在条的末端
-function hbars(el, rows, empty) {
+function hbars(el, rows, empty, onPick) {
   if (!rows.length || rows.every((r) => !r.n)) {
     el.innerHTML = `<p class="adm-none">${esc(empty)}</p>`;
     return;
   }
   const max = Math.max(...rows.map((r) => r.n), 1);
-  el.innerHTML = rows.map((r) => `<div class="hb"><span class="hb-l">${esc(r.label)}</span>
-    <span class="hb-t"><i style="width:${Math.max(r.n ? 2 : 0, (r.n / max) * 100)}%;background:${C.violet}"></i><b class="num">${r.n}</b></span></div>`).join("");
+  el.innerHTML = rows.map((r, i) => `<div class="hb ${onPick ? "pick" : ""}" data-i="${i}" ${onPick ? 'tabindex="0" role="button"' : ""}><span class="hb-l">${esc(r.label)}</span>
+    <span class="hb-t"><i style="width:${Math.max(r.n ? 2 : 0, (r.n / max) * 100)}%;background:${C.violet}"></i><b class="num">${num(r.n)}</b></span></div>`).join("");
+  if (onPick) el.querySelectorAll(".hb").forEach((b) => {
+    const go = () => onPick(rows[+b.dataset.i]);
+    b.addEventListener("click", go);
+    b.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+  });
 }
 
 let rz;

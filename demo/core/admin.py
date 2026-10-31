@@ -5,6 +5,7 @@
 
 看得到：账号、建档时选的方向、各类数量、按天的活跃与消息数、操作记录（activity）。
 看不到：对话原文、记忆原文、密码。读用户库一律只读打开。
+能改的只有一件事：删除用户（账号、会话、数据文件夹、例行任务、用量计数，全部删掉，不能恢复）。
 """
 from __future__ import annotations
 
@@ -19,19 +20,16 @@ import threading
 import time
 from datetime import timedelta
 
-from . import auth, growth, metrics
+from . import auth, growth, metrics, tasks
 from .api import VERSION
 from .util import DATA, day_key, loads, now, parse_iso
 
 COOKIE = "xg_admin"
 TOKEN_HOURS = 12
-CACHE_SECONDS = 30
 BACKGROUND = "kind NOT IN ('proactive', 'task') AND NOT (kind = 'memory' AND text LIKE '整理了%')"
 PROFILE_KEYS = ("agent_name", "intent_primary", "intent_why", "persona", "theme", "care_style", "proactive", "onboarded")
 STARTED = time.time()
 
-_cache: dict = {"at": 0.0, "rows": None}
-_cache_lock = threading.Lock()
 
 
 # ---- auth -------------------------------------------------------------------
@@ -115,18 +113,26 @@ def _scan(user: dict) -> dict:
     return row
 
 
-def _rows(fresh: bool = False) -> list[dict]:
-    with _cache_lock:
-        if not fresh and _cache["rows"] is not None and time.time() - _cache["at"] < CACHE_SECONDS:
-            return _cache["rows"]
-        users = [dict(r) for r in auth.db().execute("SELECT id, username, kind, created_at FROM users")]
-        rows = [_scan(u) for u in users]
-        _cache.update(at=time.time(), rows=rows)
-        return rows
+def _rows() -> list[dict]:
+    """每次现扫（100 个用户在服务器上约 0.15 秒）：缓存会让删除确认里的数量和实际对不上。"""
+    users = [dict(r) for r in auth.db().execute("SELECT id, username, kind, created_at FROM users")]
+    return [_scan(u) for u in users]
+
+
+TOKEN_KEYS = ("llm_calls", "llm_tokens", "llm_tokens_in", "llm_tokens_out", "llm_tokens_cached", "llm_tokens_chat", "llm_tokens_bg")
+
+
+def _tok(t: dict | None) -> dict:
+    t = t or {}
+    return {k.replace("llm_", ""): t.get(k, 0) for k in TOKEN_KEYS}
 
 
 def _public(r: dict) -> dict:
     return {k: v for k, v in r.items() if k not in ("msg_days", "active_days")} | {"days_active": len(r["active_days"])}
+
+
+def _label(r: dict) -> str:
+    return r["username"] or f"体验账号 {r['id'][2:8]}"
 
 
 # ---- views ------------------------------------------------------------------
@@ -216,6 +222,7 @@ def overview(days: int = 30) -> dict:
         "series": [by_day[d] for d in span],
         "funnel": [{"k": k, "label": label, "n": totals[k]} for k, label in funnel_keys],
         "intents": _top([r["profile"].get("intent_primary") for r in members if r["profile"].get("intent_primary")]),
+        "top_tokens": _top_tokens(rows, first),
         "model": {"calls": sum(by_day[d]["llm_calls"] for d in span), "tokens": sum(by_day[d]["tokens"] for d in span),
                   "cached": sum(by_day[d]["cached"] for d in span),
                   "errors": sum(by_day[d]["llm_err"] for d in span)},
@@ -230,9 +237,20 @@ def _top(values: list[str], n: int = 8) -> list[dict]:
     return [{"label": k, "n": c} for k, c in sorted(counts.items(), key=lambda x: -x[1])[:n]]
 
 
+def _top_tokens(rows: list[dict], first: str, n: int = 8) -> list[dict]:
+    names = {r["id"]: _label(r) for r in rows}
+    tot = metrics.user_totals(first)
+    ranked = sorted(((uid, t.get("llm_tokens", 0)) for uid, t in tot.items() if uid in names), key=lambda x: -x[1])
+    return [{"label": names[uid], "id": uid, "n": v} for uid, v in ranked[:n] if v]
+
+
 def users() -> list[dict]:
     rows = sorted(_rows(), key=lambda r: r["last_active"] or r["created_at"] or "", reverse=True)
-    return [_public(r) for r in rows]
+    all_time = metrics.user_totals("")
+    month = metrics.user_totals(_days(30)[0])
+    return [_public(r) | {"tokens": all_time.get(r["id"], {}).get("llm_tokens", 0),
+                          "tokens_30d": month.get(r["id"], {}).get("llm_tokens", 0),
+                          "calls_30d": month.get(r["id"], {}).get("llm_calls", 0)} for r in rows]
 
 
 def user(uid: str) -> dict | None:
@@ -253,6 +271,29 @@ def user(uid: str) -> dict | None:
     sessions = auth.db().execute("SELECT COUNT(*) FROM sessions WHERE user_id = ? AND expires_at > ?",
                                  (uid, now().isoformat(timespec="seconds"))).fetchone()[0]
     first = parse_iso(r["active_days"][0] + "T00:00:00") if r["active_days"] else None
+    tdays = metrics.user_days(uid, span[0])
     return {**_public(r), "sessions": sessions, "first_active": first.date().isoformat() if first else "",
-            "series": [{"day": d, "msgs": r["msg_days"].get(d, 0), "active": d in r["active_days"]} for d in span],
+            "series": [{"day": d, "msgs": r["msg_days"].get(d, 0), "active": d in r["active_days"],
+                        **{f"t_{k}": v for k, v in _tok(tdays.get(d)).items()}} for d in span],
+            "tokens": {"all": _tok(metrics.user_totals("").get(uid)), "d30": _tok(metrics.user_totals(span[0]).get(uid))},
             "activity": act}
+
+
+# ---- 删除 -------------------------------------------------------------------
+
+def delete_user(uid: str) -> bool:
+    """不可恢复。账号与会话先删，之后的请求立刻登不上；再删数据文件夹和其他痕迹。"""
+    from .store import UID_RE
+    if not UID_RE.match(uid or ""):
+        return False
+    if not auth.delete_user(uid):
+        return False
+    tasks.delete_all(uid)
+    metrics.forget_user(uid)
+    shutil.rmtree(DATA / "u" / uid, ignore_errors=True)
+    print(f"[admin] deleted user {uid}", file=sys.stderr)
+    return True
+
+
+def guest_ids() -> list[str]:
+    return [r["id"] for r in auth.db().execute("SELECT id FROM users WHERE kind = 'guest'")]

@@ -228,6 +228,11 @@ def delete(uid: str, tid: str) -> bool:
         return db().execute("DELETE FROM task WHERE id=? AND uid=?", (tid, uid)).rowcount > 0
 
 
+def delete_all(uid: str) -> int:
+    with _lock:
+        return db().execute("DELETE FROM task WHERE uid=?", (uid,)).rowcount
+
+
 def find(uid: str, text: str) -> dict | None:
     t = (text or "").strip()
     if not t:

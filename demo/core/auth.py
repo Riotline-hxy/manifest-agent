@@ -273,5 +273,12 @@ def end_session(token: str | None) -> None:
             db().execute("DELETE FROM sessions WHERE token_hash=?", (_h(token),))
 
 
+def delete_user(uid: str) -> bool:
+    """Account row + every session. The caller removes the user's data folder."""
+    with _lock:
+        db().execute("DELETE FROM sessions WHERE user_id=?", (uid,))
+        return db().execute("DELETE FROM users WHERE id=?", (uid,)).rowcount > 0
+
+
 def all_user_ids() -> list[str]:
     return [r["id"] for r in db().execute("SELECT id FROM users")]

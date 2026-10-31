@@ -134,6 +134,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         path = url.path
         t0 = time.time()
+        metrics.reset_user()
         try:
             if not path.startswith("/api/"):
                 if method != "GET":

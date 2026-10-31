@@ -237,6 +237,8 @@ export function renderChat(root) {
   }
   const scroll = () => { thread.scrollTop = thread.scrollHeight; };
   requestAnimationFrame(scroll);
+  // 主动消息已经画在对话里了：打开对话就算看过，不然它会一直挡住小光的下一条
+  if ((d.inbox || []).length) api.inboxSeen().then(() => setData({ inbox: [] })).catch(() => {});
 
   const ta = root.querySelector("textarea");
   const send = root.querySelector(".send");

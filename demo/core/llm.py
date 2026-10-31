@@ -66,13 +66,19 @@ def _request(body: dict, stream: bool, timeout: float):
         raise LLMError(f"network: {e}") from None
 
 
-def _note_usage(usage) -> None:
-    metrics.bump("llm_calls")
-    if isinstance(usage, dict):
-        metrics.bump("llm_tokens", int(usage.get("total_tokens") or 0))
-        metrics.bump("llm_tokens_in", int(usage.get("prompt_tokens") or 0))
-        metrics.bump("llm_tokens_out", int(usage.get("completion_tokens") or 0))
-        metrics.bump("llm_tokens_cached", int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0))
+def _note_usage(usage, kind: str) -> None:
+    """kind: chat（对话里的流式调用）| bg（记忆整理、主动消息、体验等一次性调用）。
+    全站计数 + 当前用户的计数（没有当前用户时，比如首页体验，只记全站）。"""
+    uid = metrics.current_user()
+    u = usage if isinstance(usage, dict) else {}
+    nums = {"llm_calls": 1, "llm_tokens": int(u.get("total_tokens") or 0), "llm_tokens_in": int(u.get("prompt_tokens") or 0),
+            "llm_tokens_out": int(u.get("completion_tokens") or 0),
+            "llm_tokens_cached": int((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)}
+    nums[f"llm_tokens_{kind}"] = nums["llm_tokens"]
+    for k, n in nums.items():
+        metrics.bump(k, n)
+        if uid:
+            metrics.bump_user(uid, k, n)
 
 
 def _body(messages, tools=None, model=None, reasoning=None, stream=True, temperature=None, json_mode=False):
@@ -124,7 +130,7 @@ def stream_chat(messages, tools=None, model=None, reasoning=None, timeout=None):
                         slot["arguments"] += fn["arguments"]
                 if ch.get("finish_reason"):
                     finish = ch["finish_reason"]
-    _note_usage(usage)
+    _note_usage(usage, "chat")
     if calls:
         yield ("tool_calls", [calls[i] for i in sorted(calls)])
     yield ("done", {"finish_reason": finish, "usage": usage})
@@ -137,7 +143,7 @@ def complete_json(messages, model=None, timeout=40) -> dict | None:
         resp = _request(_body(messages, model=model, reasoning="low", stream=False, json_mode=True), False, timeout)
         with resp:
             d = json.loads(resp.read())
-        _note_usage(d.get("usage"))
+        _note_usage(d.get("usage"), "bg")
         text = d["choices"][0]["message"].get("content") or ""
     except (LLMError, KeyError, IndexError, ValueError):
         return None
