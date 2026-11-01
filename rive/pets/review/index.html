@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小芽 · 宠物动作</title>
+<style>
+  :root { --bg: #f6f3ec; --card: #fffdf8; --ink: #3a3530; --muted: #8b8379; --line: #ebe4d8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 20px 48px; display: grid; grid-template-columns: 1fr 300px; gap: 24px; }
+  h1 { grid-column: 1 / -1; margin: 0; font-size: 22px; font-weight: 650; }
+  h1 small { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 10px; }
+  .stage { background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 16px; position: relative; }
+  canvas { width: 100%; aspect-ratio: 1; display: block; cursor: pointer; border-radius: 18px; background: radial-gradient(circle at 50% 64%, #fff 0, #fbf6ec 72%); }
+  .now { position: absolute; left: 32px; top: 28px; font-size: 13px; color: var(--muted); background: rgba(255,255,255,.85); padding: 2px 10px; border-radius: 999px; }
+  .who { display: flex; align-items: baseline; gap: 10px; margin: 12px 6px 0; }
+  .who b { font-size: 20px; }
+  .who span { color: var(--muted); font-size: 13px; }
+  aside { display: flex; flex-direction: column; gap: 18px; }
+  .group h3 { margin: 0 0 8px; font-size: 13px; color: var(--muted); font-weight: 600; letter-spacing: 1px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .acts { display: grid; gap: 6px; }
+  button { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 12px; padding: 7px 12px; font: inherit; font-size: 14px; cursor: pointer; text-align: left; transition: background .15s, border-color .15s; }
+  .chips button { border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+  button:hover { border-color: #d9cdb9; background: #fffaf1; }
+  button.on { background: #3a3530; color: #fff; border-color: #3a3530; }
+  button small { display: block; color: var(--muted); font-size: 12px; }
+  button.on small { color: #d8d0c4; }
+  button:disabled { opacity: .4; cursor: default; }
+  .tip { color: var(--muted); font-size: 12px; margin: 0; }
+  @media (max-width: 760px) { .wrap { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>小芽 · 宠物动作 <small>鼠标移到宠物身上会打招呼，点一下是摸一摸</small></h1>
+  <div class="stage">
+    <canvas id="cv" width="900" height="900"></canvas>
+    <div class="now" id="now">待机</div>
+    <div class="who"><b id="name"></b><span id="tag"></span></div>
+  </div>
+  <aside>
+    <div class="group">
+      <h3>选宠物</h3>
+      <div class="chips" id="pets"></div>
+    </div>
+    <div class="group">
+      <h3>动作</h3>
+      <div class="acts">
+        <button data-a="demo" id="demoBtn">▶ 自动演示全部<small>待机 → 打招呼 → 摸一摸 → 庆祝 → 招式 → 犯困睡着 → 醒来（约 25 秒）</small></button>
+        <button data-a="pet">摸一摸<small>放松地闭上眼、腮红、把头蹭向手、尾巴慢摇</small></button>
+        <button data-a="celebrate">庆祝<small>下蹲蓄力 → 轻轻跳起、空中停一下 → 软着陆 → 开心地左右晃，眼睛 ^^</small></button>
+        <button data-a="skill" id="skillBtn">招式<small></small></button>
+        <button data-a="sleep" id="sleepBtn">睡觉<small>犯困：眼皮慢慢往下掉、撑开一下、再合上 → 睡着</small></button>
+      </div>
+    </div>
+    <p class="tip">待机时会自己呼吸、环顾、抖耳朵、摇尾巴、随机眨眼。</p>
+  </aside>
+</div>
+<script src="vendor/rive.js"></script>
+<script>
+  rive.RuntimeLoader.setWasmUrl("vendor/rive.wasm");
+  rive.RuntimeLoader.setWasmFallbackUrl("vendor/rive_fallback.wasm");
+
+  const PETS = [
+    { id: "fox-young", name: "小焰", tag: "行动路线 · 幼体", skill: "余温", note: "尾尖亮起，暖光从脚边铺开" },
+    { id: "fox-adult", name: "焰尾狐", tag: "行动路线 · 成年", skill: "余温", note: "尾尖亮起，暖光从脚边铺开" },
+    { id: "baby", name: "初生小芽", tag: "初生" },
+    { id: "sprout", name: "抽芽期小芽", tag: "抽芽期" },
+    { id: "deer-young", name: "花苞", tag: "好消息路线 · 幼体", skill: "留芳", note: "花瓣从花角两侧飘落" },
+    { id: "deer-adult", name: "花角鹿", tag: "好消息路线 · 成年", skill: "留芳", note: "花瓣从花角两侧飘落" },
+    { id: "water-young", name: "涟芽", tag: "练习路线 · 幼体", skill: "回澜", note: "轻点地面，两圈水纹扩散" },
+    { id: "water-adult", name: "澜灵", tag: "练习路线 · 成年", skill: "回澜", note: "轻点地面，两圈水纹扩散" },
+    { id: "star-young", name: "星点", tag: "均衡路线 · 幼体", skill: "连星", note: "五颗星依次亮起连成小径" },
+    { id: "star-adult", name: "星灵", tag: "均衡路线 · 成年", skill: "连星", note: "五颗星依次亮起连成小径" },
+  ];
+
+  const cv = document.getElementById("cv");
+  const nowEl = document.getElementById("now");
+  const sleepBtn = document.getElementById("sleepBtn");
+  const skillBtn = document.getElementById("skillBtn");
+  let r = null, vmi = null, cur = null, sleeping = false, demoTimer = null;
+
+  const say = (t) => (nowEl.textContent = t);
+  // 宠物还没加载完时点的按钮先排队，加载好再执行
+  let pending = [];
+  const whenReady = (f) => (vmi ? f() : pending.push(f));
+  const fire = (n) => whenReady(() => vmi.trigger(n) && vmi.trigger(n).trigger());
+  const setBool = (n, v) => whenReady(() => { vmi.boolean(n).value = v; });
+
+  function setSleep(v) {
+    sleeping = v;
+    setBool("sleeping", v);
+    sleepBtn.classList.toggle("on", v);
+    sleepBtn.firstChild.textContent = v ? "叫醒" : "睡觉";
+    sleepBtn.querySelector("small").textContent = v ? "半睁眼 → 又眯一下 → 睁开 → 伸懒腰 → 慢慢甩头" : "犯困：眼皮慢慢往下掉、撑开一下、再合上 → 睡着";
+    say(v ? "犯困 → 睡着" : "醒来");
+  }
+
+  function load(pet) {
+    stopDemo();
+    cur = pet; sleeping = false;
+    document.getElementById("name").textContent = pet.name;
+    document.getElementById("tag").textContent = pet.tag;
+    document.querySelectorAll("#pets button").forEach((b) => b.classList.toggle("on", b.dataset.id === pet.id));
+    skillBtn.disabled = !pet.skill;
+    skillBtn.firstChild.textContent = pet.skill ? `招式 · ${pet.skill}` : "招式（分化后才有）";
+    skillBtn.querySelector("small").textContent = pet.note || "初生和抽芽期还没有自己的招式";
+    sleepBtn.classList.remove("on"); sleepBtn.firstChild.textContent = "睡觉";
+    sleepBtn.querySelector("small").textContent = "犯困：眼皮慢慢往下掉、撑开一下、再合上 → 睡着";
+    say("待机");
+    if (r) r.cleanup();
+    vmi = null; pending = [];
+    r = new rive.Rive({
+      src: `riv/${pet.id}.riv?v=${Date.now()}`, canvas: cv, autoplay: true, stateMachine: "Pet", autoBind: true,
+      layout: new rive.Layout({ fit: rive.Fit.Contain, alignment: rive.Alignment.Center }),
+      onLoad: () => { r.resizeDrawingSurfaceToCanvas(); vmi = r.viewModelInstance; const q = pending; pending = []; q.forEach((f) => f()); },
+    });
+  }
+
+  function stopDemo() {
+    if (demoTimer) { demoTimer.forEach(clearTimeout); demoTimer = null; }
+    document.getElementById("demoBtn").classList.remove("on");
+  }
+
+  function demo() {
+    stopDemo();
+    if (sleeping) setSleep(false);
+    document.getElementById("demoBtn").classList.add("on");
+    const k = cur.skill ? 3000 : 0;
+    const steps = [
+      [0, () => say("待机")],
+      [3500, () => { setBool("hovered", true); say("打招呼 · 关注"); }],
+      [6500, () => { setBool("hovered", false); say("摸一摸"); fire("pet"); }],
+      [10300, () => { say("庆祝"); fire("celebrate"); }],
+      [13800, () => { if (cur.skill) { say(`招式 · ${cur.skill}`); fire("skill"); } }],
+      [13800 + k, () => setSleep(true)],
+      [20300 + k, () => setSleep(false)],
+      [23500 + k, () => { say("待机"); stopDemo(); }],
+    ];
+    demoTimer = steps.map(([t, f]) => setTimeout(f, t));
+  }
+
+  const chips = document.getElementById("pets");
+  PETS.forEach((p) => {
+    const b = document.createElement("button");
+    b.textContent = p.name; b.dataset.id = p.id;
+    b.onclick = () => load(p);
+    chips.appendChild(b);
+  });
+
+  document.querySelectorAll("[data-a]").forEach((b) => b.addEventListener("click", () => {
+    const a = b.dataset.a;
+    if (a === "demo") return demo();
+    stopDemo();
+    if (a === "sleep") return setSleep(!sleeping);
+    if (sleeping) setSleep(false);
+    say({ pet: "摸一摸", celebrate: "庆祝", skill: `招式 · ${cur.skill}` }[a]);
+    fire(a);
+  }));
+
+  cv.addEventListener("pointerenter", () => { setBool("hovered", true); if (!sleeping && !demoTimer) say("打招呼 · 关注"); });
+  cv.addEventListener("pointerleave", () => { setBool("hovered", false); if (!sleeping && !demoTimer) say("待机"); });
+  cv.addEventListener("click", () => { if (!sleeping) { fire("pet"); say("摸一摸"); } });
+  window.addEventListener("resize", () => r && r.resizeDrawingSurfaceToCanvas());
+
+  load(PETS[0]);
+</script>
+</body>
+</html>
