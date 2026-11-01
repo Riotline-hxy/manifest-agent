@@ -5,8 +5,8 @@
   - 每日总上限 120；行动 / 好消息 / 显化练习 / 签到 每类 30。
   - 宠物是独立养成对象，与小光（聊天形象）无关。
 
-宠物路线：光蛋 →(100) 团子 →(310) 分化 →(650) 成年。
-分化时看「你更常做哪类事」：行动多 → 焰尾狐；好消息多 → 花角鹿；练习多 → 云鲸；
+宠物路线：初生 →(100) 抽芽期 →(310) 分化 →(650) 成年。
+分化时看「你更常做哪类事」：行动多 → 焰尾狐；好消息多 → 花角鹿；练习多 → 澜灵；
 三类都不偏科 → 隐藏形态 星灵。分化之前，后两段只显示剪影，但亲和度一直可见——
 用户看得清「往哪走」，又保留揭晓的惊喜。
 """
@@ -32,8 +32,8 @@ BRANCHES = {
             "tag": "说到做到的行动派", "line": "尾巴尖的火苗，是你一次次真的去做了。"},
     "deer": {"name": "花角鹿", "young": "花苞", "source": "good", "color": "#f08bb0",
              "tag": "会看见生活的记录者", "line": "每记下一件好事，角上就开一朵花。"},
-    "whale": {"name": "云鲸", "young": "云朵", "source": "practice", "color": "#8fc7e8",
-              "tag": "向内走的练习者", "line": "安静下来的时候，它就浮起来了。"},
+    "whale": {"name": "澜灵", "young": "涟芽", "source": "practice", "color": "#7fd3c4",
+              "tag": "向内走的练习者", "line": "安静下来的时候，水面会泛起一圈涟漪。"},
     "star": {"name": "星灵", "young": "星点", "source": "", "color": "#a99bff", "secret": True,
              "tag": "隐藏形态 · 样样都没落下", "line": "行动、记录、练习都没偏废，才会遇见它。"},
 }
@@ -124,8 +124,8 @@ def stage_of(total: int, branch: str) -> dict:
         return {"key": f"{branch}-1", "tier": 2, "name": b["young"], "art": f"pet-{branch}-1",
                 "line": "还小，但已经看得出你是哪一种人了。"}
     if total >= AT["baby"]:
-        return {"key": "baby", "tier": 1, "name": "团子", "art": "pet-baby", "line": "破壳了，正在悄悄长大。"}
-    return {"key": "egg", "tier": 0, "name": "光蛋", "art": "pet-egg", "line": "里面有一点光，在等第一件事发生。"}
+        return {"key": "baby", "tier": 1, "name": "抽芽期", "art": "pet-baby", "line": "抽出了新芽，正在悄悄长大。"}
+    return {"key": "egg", "tier": 0, "name": "初生", "art": "pet-egg", "line": "刚来到你身边，在等第一件事发生。"}
 
 
 def level_of(total: int) -> dict:
@@ -140,8 +140,8 @@ def tree(total: int, branch: str, lean: str) -> list[dict]:
     def st_(at):
         return "done" if total >= at else "locked"
     nodes = [
-        {"id": "egg", "name": "光蛋", "at": 0, "art": "pet-egg", "state": "done", "col": 0},
-        {"id": "baby", "name": "团子", "at": AT["baby"], "art": "pet-baby", "state": st_(AT["baby"]), "col": 1},
+        {"id": "egg", "name": "初生", "at": 0, "art": "pet-egg", "state": "done", "col": 0},
+        {"id": "baby", "name": "抽芽期", "at": AT["baby"], "art": "pet-baby", "state": st_(AT["baby"]), "col": 1},
     ]
     for b, v in BRANCHES.items():
         chosen = branch == b
@@ -207,7 +207,7 @@ def state(st, consume: bool = True) -> dict:
         "quests": quests,
         "quests_done": sum(q["done"] for q in quests),
         "stage": stg,
-        "next": ({"id": nxt[0], "at": nxt[1], "name": {"baby": "团子", "young": "分化", "adult": "成年"}[nxt[0]]}
+        "next": ({"id": nxt[0], "at": nxt[1], "name": {"baby": "抽芽期", "young": "分化", "adult": "成年"}[nxt[0]]}
                  if nxt else None),
         "to_next": (nxt[1] - total) if nxt else 0,
         "prev_at": max([v for v in AT.values() if v <= total] or [0]),
@@ -263,7 +263,7 @@ BADGES = [
     ("read_1", "开卷", "在心灵学堂读一篇文章", "学堂", "book", "reads", 1, False),
     ("read_5", "求知", "在心灵学堂读 5 篇文章", "学堂", "book", "reads", 5, False),
     ("report_1", "回头看", "打开一次蜕变报告", "报告", "report", "report_open", 1, False),
-    ("hatch", "破壳", "小芽孵化成团子", "成长", "egg", "tier", 1, False),
+    ("hatch", "抽芽", "小芽长到抽芽期", "成长", "egg", "tier", 1, False),
     ("branch", "分化", "小芽长出了自己的样子", "成长", "egg", "tier", 2, False),
     ("adult", "长大了", "小芽长成成年形态", "成长", "egg", "tier", 3, False),
     ("secret", "隐藏形态", "遇见星灵", "成长", "spark", "star_branch", 1, True),
@@ -328,7 +328,7 @@ def badges(st, total: int | None = None, stage: dict | None = None, persist: boo
 def rules_text() -> str:
     return ("经验规则：完成一小步、习惯打卡或到达里程碑 +10（行动），记一件小确幸、一段内心戏或在蜕变计划里留下一个瞬间 +6，完成一次显化练习 +12，"
             "每天第一次来聊 +8（陪伴）。四类每类每天最多 30，每天总共最多 120；同一件事不重复计分。"
-            f"每 {LEVEL_XP} 经验升一级。宠物小芽：100 经验孵化成团子，310 经验分化——"
-            "行动最多长成焰尾狐，好消息最多长成花角鹿，练习最多长成云鲸，三样都不偏科会遇见一个隐藏形态；"
+            f"每 {LEVEL_XP} 经验升一级。宠物小芽：100 经验长到抽芽期，310 经验分化——"
+            "行动最多长成焰尾狐，好消息最多长成花角鹿，练习最多长成澜灵，三样都不偏科会遇见一个隐藏形态；"
             "650 经验长成成年形态。分化方向在 310 那一刻决定，之前可以在成长页看到自己现在更偏向哪一边。"
             "隐藏形态的名字不要提前透露。")

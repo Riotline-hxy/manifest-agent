@@ -5,6 +5,7 @@ import { esc, icon, tile } from "../ui.js";
 import { countUp, medal } from "../fx.js";
 import { petSVG } from "../pet.js";
 import { isResting } from "../rest.js";
+import { mountLivePet } from "../livepet.js";
 
 const CATS = ["全部", "对话", "计划", "好消息", "练习", "记忆", "学堂", "报告", "陪伴", "成长"];
 const AFF = { action: ["flag", "var(--c-orange)"], good: ["star", "var(--c-lemon)"], practice: ["wind", "var(--c-mint)"] };
@@ -77,6 +78,7 @@ export function renderGrowth(root) {
       </section>
     </div>`;
 
+  mountLivePet(root.querySelector(".ph-pet"), g);
   countUp(root.querySelector("[data-count]"), g.total, 1100);
   requestAnimationFrame(() => setTimeout(() => root.querySelectorAll("[data-w]").forEach((i) => { i.style.width = i.dataset.w; }), 120));
   drawBadges(root);
