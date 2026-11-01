@@ -1185,6 +1185,39 @@ class ApiTest(unittest.TestCase):
             self.assertTrue(nb.split("\n")[1].endswith("不喜欢被催"))
             self.assertFalse(agent.notebook_edit(st, "remove", "", old="不存在的话")["ok"])
 
+    def test_agent_edits_existing_plan_items(self):
+        from datetime import date, timedelta
+        c, uid = self.onboarded("plan_edit")
+        _, d = c.req("GET", "/api/bootstrap")
+        wid = d["journey"]["current"]
+        today = date.fromisoformat(d["journey"]["today"])
+        c.req("POST", "/api/milestone", {"action": "add", "wish_id": wid, "title": "选定一首慵懒浪漫的爵士曲",
+                                          "due_day": (today + timedelta(days=10)).isoformat()})
+        c.req("POST", "/api/habit", {"action": "add", "wish_id": wid, "title": "练琴 20 分钟", "freq": "daily"})
+        c.req("POST", "/api/step", {"action": "add", "title": "买一本爵士和弦书", "wish_id": wid})
+        new_due = (today + timedelta(days=3)).isoformat()
+        self.fake.turns = [
+            [("tool_calls", [{"id": "e1", "name": "edit_plan", "arguments": json.dumps(
+                {"kind": "milestone", "target": "选定慵懒爵士曲目", "due_day": new_due})}])],
+            [("text", "改好啦，选曲提前到了。")],
+        ]
+        s, ev = c.sse("你改一下吧")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "edit_plan")
+        self.assertTrue(tool["result"]["ok"], tool["result"])
+        _, d = c.req("GET", "/api/bootstrap")
+        m = d["journey"]["wishes"][0]["milestones"][0]
+        self.assertEqual(m["due_day"], new_due)
+        with Store(uid) as st:
+            from core import journey
+            self.assertEqual(journey.edit_item(st, "habit", "练琴", {"freq": "weekly", "per_week": 3})["changed"], ["改成每周 3 次"])
+            self.assertTrue(journey.edit_item(st, "step", "爵士和弦书", {"delete": True})["ok"])
+            self.assertFalse(st.c.execute("SELECT 1 FROM step WHERE title='买一本爵士和弦书'").fetchone())
+            out = journey.edit_item(st, "wish", "", {"due_in_days": 21})
+            self.assertTrue(out["ok"] and out["changed"][0].startswith("计划日期改到"))
+            miss = journey.edit_item(st, "milestone", "不存在的里程碑", {"title": "x"})
+            self.assertFalse(miss["ok"])
+            self.assertIn("选定一首慵懒浪漫的爵士曲", miss["have"])
+
 
 if __name__ == "__main__":
     unittest.main()

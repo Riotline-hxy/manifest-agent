@@ -625,10 +625,123 @@ def path_text(st, w: dict) -> str:
     """给小光看的一段路径描述。"""
     lines = [f"[{w['id']}] {w['title']}（{w['label']}）：{w['started']} 定下，计划 {w['target_day']} 实现；向往：{w['vision_text']}"]
     for m in milestones(st, w["id"]):
-        lines.append(f"  - 里程碑 {'✓' if m['status'] == 'done' else '·'} {m['title']}" + (f"（{m['due_day']}）" if m["due_day"] else ""))
+        lines.append(f"  - 里程碑 [{m['id']}] {'✓' if m['status'] == 'done' else '·'} {m['title']}" + (f"（{m['due_day']}）" if m["due_day"] else ""))
     for h in habits(st, w["id"]):
         lines.append(f"  - 习惯 [{h['id']}] {h['title']}，{h['freq_text']}，本周 {h['week']}/{h['need']}" + ("，今天已打卡" if h["today"] else ""))
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- 改计划里已有的东西 ----
+
+def _pick(items: list[dict], ref: str, key: str = "title") -> dict | None:
+    """按 id 或名字找：完全相同 > 互相包含 > 去掉空格标点后包含。"""
+    ref = (ref or "").strip()
+    if not ref:
+        return None
+    for it in items:
+        if it["id"] == ref or it[key] == ref:
+            return it
+    for it in items:
+        if ref in it[key] or it[key] in ref:
+            return it
+    n = _norm(ref)
+    hit = next((it for it in items if n and (n in _norm(it[key]) or _norm(it[key]) in n)), None)
+    if hit:
+        return hit
+    # 模型常会转述名字（「选定慵懒爵士曲目」↔「选定一首慵懒浪漫的爵士曲」）：按两字片段的重合度挑最像的
+    grams = lambda t: {t[i:i + 2] for i in range(len(t) - 1)} or {t}
+    want = grams(n)
+    best, score = None, 0.0
+    for it in items:
+        sc = len(want & grams(_norm(it[key]))) / len(want)
+        if sc > score:
+            best, score = it, sc
+    return best if score >= 0.5 else None
+
+
+def _when(patch: dict) -> str | None:
+    if patch.get("due_day"):
+        return _due(patch["due_day"])
+    if patch.get("due_in_days") not in (None, ""):
+        try:
+            return (now().date() + timedelta(days=max(0, min(1800, int(patch["due_in_days"]))))).isoformat()
+        except (TypeError, ValueError):
+            raise ValueError("天数不对")
+    return None
+
+
+def edit_item(st, kind: str, ref: str, patch: dict) -> dict:
+    """小光替用户改计划：kind = milestone / habit / step / wish。返回 {ok, kind, title, changed: [...]}。"""
+    changed = []
+    if kind == "milestone":
+        m = _pick(milestones(st), ref)
+        if not m:
+            return {"ok": False, "error": "没找到这个里程碑", "have": [x["title"] for x in milestones(st)]}
+        if patch.get("delete"):
+            edit_milestone(st, m["id"], {"delete": True})
+            return {"ok": True, "kind": kind, "title": m["title"], "changed": ["删掉了"]}
+        p = {}
+        if patch.get("title") and patch["title"] != m["title"]:
+            p["title"] = patch["title"]; changed.append(f"名字改成「{clip(patch['title'], 30)}」")
+        due = _when(patch)
+        if due is not None and due != m["due_day"]:
+            p["due_day"] = due; changed.append(f"日期改到 {int(due[5:7])}月{int(due[8:10])}日")
+        if patch.get("status") in ("done", "todo") and patch["status"] != m["status"]:
+            p["status"] = patch["status"]; changed.append("标成已到达" if patch["status"] == "done" else "改回还没到")
+        if p:
+            edit_milestone(st, m["id"], p)
+        return {"ok": bool(changed), "kind": kind, "title": m["title"], "changed": changed, "error": "" if changed else "没有要改的内容"}
+    if kind == "habit":
+        h = _pick(habits(st), ref)
+        if not h:
+            return {"ok": False, "error": "没找到这个习惯", "have": [x["title"] for x in habits(st)]}
+        if patch.get("delete"):
+            edit_habit(st, h["id"], {"archived": True})
+            return {"ok": True, "kind": kind, "title": h["title"], "changed": ["先收起了，打卡记录都在"]}
+        p = {}
+        if patch.get("title") and patch["title"] != h["title"]:
+            p["title"] = patch["title"]; changed.append(f"名字改成「{clip(patch['title'], 30)}」")
+        if patch.get("freq") in ("daily", "weekly"):
+            p["freq"] = patch["freq"]; p["per_week"] = patch.get("per_week") or h.get("per_week") or 3
+            changed.append("改成" + freq_text({"freq": p["freq"], "per_week": max(1, min(6, int(p["per_week"])))}))
+        if p:
+            edit_habit(st, h["id"], p)
+        return {"ok": bool(changed), "kind": kind, "title": h["title"], "changed": changed, "error": "" if changed else "没有要改的内容"}
+    if kind == "step":
+        rows = [dict(r) for r in st.c.execute("SELECT * FROM step WHERE status IN ('todo','dropped') ORDER BY created_at DESC LIMIT 200")]
+        s_ = _pick(rows, ref)
+        if not s_:
+            return {"ok": False, "error": "没找到这一步", "have": [x["title"] for x in rows if x["status"] == "todo"][:8]}
+        if patch.get("delete"):
+            with st.lock:
+                st.c.execute("DELETE FROM step WHERE id=?", (s_["id"],))
+            return {"ok": True, "kind": kind, "title": s_["title"], "changed": ["删掉了"]}
+        fields = {}
+        if patch.get("title") and patch["title"] != s_["title"]:
+            fields["title"] = clip(str(patch["title"]).strip(), 40); changed.append(f"改成「{fields['title']}」")
+        if patch.get("status") in ("todo", "dropped") and patch["status"] != s_["status"]:
+            fields["status"] = patch["status"]; changed.append("先放一放" if patch["status"] == "dropped" else "放回待做")
+        if fields:
+            with st.lock:
+                st.c.execute("UPDATE step SET " + ",".join(f"{k}=?" for k in fields) + " WHERE id=?", (*fields.values(), s_["id"]))
+        return {"ok": bool(changed), "kind": kind, "title": s_["title"], "changed": changed, "error": "" if changed else "没有要改的内容"}
+    if kind == "wish":
+        ws = wishes(st)
+        w = _pick(ws, ref) or current(st)
+        if not w:
+            return {"ok": False, "error": "还没有愿望"}
+        p = {}
+        if patch.get("title") and patch["title"] != w["title"]:
+            p["title"] = patch["title"]; changed.append(f"名字改成「{clip(patch['title'], 30)}」")
+        due = _when(patch)
+        if due is not None and due != w["target_day"]:
+            p["target_day"] = due; changed.append(f"计划日期改到 {int(due[5:7])}月{int(due[8:10])}日")
+        if patch.get("vision_text"):
+            p["vision_text"] = patch["vision_text"]; changed.append("改了向往的样子")
+        if p:
+            edit_wish(st, w["id"], p)
+        return {"ok": bool(changed), "kind": kind, "title": w["title"], "changed": changed, "error": "" if changed else "没有要改的内容"}
+    return {"ok": False, "error": "不认识要改的东西"}
 
 
 # ---------------------------------------------------------------- 打包给前端 ----

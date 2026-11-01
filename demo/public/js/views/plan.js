@@ -69,8 +69,7 @@ export function renderPlan(root, { fresh = "" } = {}) {
 
   root.innerHTML = `
     <div class="view-inner wide plan journey" style="--jc:${cat.color}">
-      <div class="page-head"><div><h1>蜕变计划</h1><p>给每个愿望定一个日子，把路拆成里程碑、习惯和小步，一天一天走过去</p></div>
-        <button class="report-entry" data-go-report>${tile("report", "var(--c-pink)", 38)}<span><b>蜕变报告</b><small>回头看看这段时间的你</small></span>${icon("arrow")}</button></div>
+      <div class="page-head"><div><h1>蜕变计划</h1><p>给每个愿望定一个日子，把路拆成里程碑、习惯和小步，一天一天走过去</p></div></div>
 
       <div class="wish-tabs" role="tablist" aria-label="切换愿望">
         ${wishes.map((x) => `<button class="wish-tab ${x.id === w.id ? "on" : ""}" role="tab" aria-selected="${x.id === w.id}" data-wish="${esc(x.id)}">
@@ -149,6 +148,7 @@ export function renderPlan(root, { fresh = "" } = {}) {
             <span class="j-li-day"><b>${md(d)}</b><small>${wk(d)}</small></span><span class="j-li-sum">${daySummary(e)}</span></button>`; }).join("")
             || `<p class="muted" style="padding:6px 4px">这里会按日期列出你为它做过的事。</p>`}
         </details>
+        <button class="report-entry card" data-go-report>${tile("report", "var(--c-pink)", 40)}<span class="re-txt"><b>蜕变报告</b><small>回头看看这段时间的你</small></span>${icon("arrow")}</button>
       </div>
     </div>`;
 

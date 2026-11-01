@@ -83,6 +83,8 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
   再补齐缺的信息：第一次回复只问一个问题（比如每周能投入多少时间、现在最卡在哪），这一轮不调用任何工具；
   信息够了再调用 propose_plan：最多 3 个里程碑、3 个习惯、3 个小步，只放路径上还没有的，具体、量力而行。这只是提议，回复里请对方「看看哪些想加进计划」，不要说已经加好了。
 - 你们一起定下一个小行动 → add_step；用户说做完了某一步 → complete_step。
+- TA 想改计划里已经有的东西（「那个里程碑改到 11 月 4 日」「习惯改成每周三次」「这一步删了吧」「计划日期往后推一周」）→ edit_plan，直接改，改完用一句话说改成了什么。
+  你自己提议过、TA 同意了的修改，也直接用 edit_plan 改，不要再走 propose_plan。
 - 用户明确要加一个重复做的事（「帮我加个每周健身三次」）→ add_habit；用户说今天做了某个习惯里的事（「今天去健身了」）→ checkin_habit。
 - 用户想冥想、感恩、理清目标、走一遍七步、或想「重新认识我」→ start_scene。
 - 需要回忆以前的事、而下面没提供时 → search_memory（记住的要点）或 search_chats（以前聊天的原话）。
@@ -175,6 +177,20 @@ TOOLS = [
             "note": {"type": "string", "description": "一句话说明这样安排的理由"}},
             "required": ["wish"]}}},
     {"type": "function", "function": {
+        "name": "edit_plan", "description": "改计划里已经有的东西：里程碑 / 习惯 / 小步 / 愿望本身。改名字、改日期、改频率、标记完成、删掉都用它，改完立刻生效",
+        "parameters": {"type": "object", "properties": {
+            "kind": {"type": "string", "enum": ["milestone", "habit", "step", "wish"]},
+            "target": {"type": "string", "description": "要改的那一项：照抄名字或方括号里的 id"},
+            "title": {"type": "string", "description": "新名字（不改就不填）"},
+            "due_day": {"type": "string", "description": "里程碑日期 / 愿望的计划日期，YYYY-MM-DD"},
+            "due_in_days": {"type": "integer", "description": "或者：从今天起多少天后"},
+            "freq": {"type": "string", "enum": ["daily", "weekly"], "description": "习惯的频率"},
+            "per_week": {"type": "integer"},
+            "status": {"type": "string", "enum": ["done", "todo", "dropped"], "description": "里程碑 done/todo；小步 todo/dropped（先放一放）"},
+            "vision_text": {"type": "string", "description": "愿望：向往的样子"},
+            "delete": {"type": "boolean", "description": "删掉（习惯是先收起，记录都在）"}},
+            "required": ["kind", "target"]}}},
+    {"type": "function", "function": {
         "name": "add_habit", "description": "用户明确要求时，给愿望加一个重复做的习惯",
         "parameters": {"type": "object", "properties": {
             "title": {"type": "string"}, "freq": {"type": "string", "enum": ["daily", "weekly"]},
@@ -223,7 +239,7 @@ TOOLS = [
             "note": {"type": "string"}}, "required": ["care_style"]}}},
 ]
 
-TOOL_MOOD = {"update_notebook": "recall", "search_chats": "recall", "schedule_task": "satisfied", "cancel_task": "done", "list_tasks": "focused", "adjust_habit": "satisfied", "propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
+TOOL_MOOD = {"edit_plan": "satisfied", "update_notebook": "recall", "search_chats": "recall", "schedule_task": "satisfied", "cancel_task": "done", "list_tasks": "focused", "adjust_habit": "satisfied", "propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
              "add_step": "satisfied", "remember": "recall", "start_scene": "curious",
              "get_growth": "focused", "knowledge_search": "searching", "set_care_style": "shy"}
 
@@ -480,6 +496,15 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         store.log("rest", r["text"])
         return {"ok": True, "record": r, "paused": [h["title"] for h in journey.habits(store)][:5],
                 "note": "当天的习惯和小步都暂停；宠物会陪 TA 一起睡。界面上会给出：明天继续 / 调整计划 / 聊聊天"}
+    if name == "edit_plan":
+        patch = {k: args.get(k) for k in ("title", "due_day", "due_in_days", "freq", "per_week", "status", "vision_text", "delete") if args.get(k) not in (None, "")}
+        try:
+            out = journey.edit_item(store, str(args.get("kind") or ""), str(args.get("target") or ""), patch)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        if out.get("ok"):
+            store.log("plan", f"小光帮你改了「{out['title']}」：" + "，".join(out["changed"]))
+        return out
     if name == "schedule_task":
         try:
             t = tasks.add(store.uid, str(args.get("title") or ""), kind=str(args.get("kind") or "remind"),
@@ -532,7 +557,7 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
                 "steps": items("steps", 3, ("title", "why"))}
         plan, dropped = journey.drop_dups(store, w["id"], plan)
         if not any(plan.values()):
-            return {"ok": False, "error": "提议的内容路径上都已经有了", "already": dropped}
+            return {"ok": False, "error": "这些路径上都已经有了。想改已有的那几项，就用 edit_plan 直接改", "already": dropped}
         for h in plan["habits"]:
             h["freq"] = "weekly" if h.get("freq") == "weekly" else "daily"
         return {"ok": True, "pending": True, "note": "只是提议，用户勾选后才会加入计划",

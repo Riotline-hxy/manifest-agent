@@ -15,7 +15,8 @@ const TOOL = {
   propose_plan: ["flag", "var(--c-orange)", "小光提议的计划"], schedule_task: ["clock", "var(--c-sky)", "安排好了"],
   cancel_task: ["clock", "var(--c-sky)", "关掉了提醒"], list_tasks: ["list", "var(--c-sky)", "看了看例行任务"],
   search_chats: ["chat", "var(--c-violet)", "翻了翻以前的聊天"],
-  update_notebook: ["book", "var(--c-violet)", "改了笔记本"], add_habit: ["clock", "var(--c-mint)", "加了一个习惯"],
+  update_notebook: ["book", "var(--c-violet)", "改了笔记本"],
+  edit_plan: ["flag", "var(--c-orange)", "改好了计划"], add_habit: ["clock", "var(--c-mint)", "加了一个习惯"],
   checkin_habit: ["checkc", "var(--c-mint)", "习惯打卡"],
   remember: ["memory", "var(--c-violet)", "记住了"], correct_memory: ["edit", "var(--c-violet)", "改掉旧记忆"],
   search_memory: ["memory", "var(--c-violet)", "翻了翻记忆"], get_growth: ["sprout", "var(--c-mint)", "查了成长"],
@@ -112,6 +113,8 @@ function toolCard(name, args, result) {
     case "cancel_task": title = ok ? result.task : "没找到这个提醒"; note = ok ? "以后不会再响了" : result.error; break;
     case "list_tasks": title = `${(result.tasks || []).filter((x) => x.on).length} 个开着的例行任务`; note = (result.tasks || []).filter((x) => x.on).map((x) => `${x.title}（${x.when}）`).join("；"); break;
     case "search_chats": title = (result.hits || []).length ? `找到 ${(result.hits || []).length} 段` : "没翻到"; note = (result.hits || []).slice(0, 2).map((x) => `${x.date.slice(5, 10)} ${x.text}`).join(" / "); break;
+    case "edit_plan": title = ok ? `「${result.title}」` : "这次没改成"; note = ok ? (result.changed || []).join("，") : result.error;
+      foot = ok ? `<button class="btn btn-sm btn-ghost" data-go="plan">去蜕变计划看看</button>` : ""; break;
     case "update_notebook": title = ok ? ({ add: "加进笔记本了", replace: "改好了", remove: "删掉了" }[args.action || "add"]) : "这次没改成";
       note = ok ? (args.text || args.old || "") : result.error; foot = ok ? `<button class="btn btn-sm btn-ghost" data-go-notebook>看看笔记本</button>` : ""; break;
     case "add_habit": title = ok ? result.habit.title : "没有加上"; note = ok ? `${result.habit.freq_text} · 放进「${result.wish_title}」了` : result.error; break;
