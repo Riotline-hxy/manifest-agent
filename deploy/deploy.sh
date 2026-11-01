@@ -4,6 +4,9 @@
 # - backs up the current app dir and data dir first (rollback: see bottom)
 # - never ships .env, data/, tests, caches
 # - keeps the server's demo/data symlink and /opt/manifest-agent/.env
+# - does NOT reinstall deploy/manifest-agent.service; after changing it:
+#     scp deploy/manifest-agent.service $HOST:/tmp/ && ssh $HOST 'sudo cp /tmp/manifest-agent.service \
+#       /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart manifest-agent'
 set -euo pipefail
 
 HOST="${DEPLOY_HOST:-ops11768@154.21.200.133}"

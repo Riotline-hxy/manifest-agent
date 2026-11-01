@@ -2,10 +2,10 @@
 
 显化陪伴 agent 的网页 demo。线上：https://manifest.noryx.cn
 
-- 方案说明（创意 / 技术 / UI，对应线上 2.6.0）：[docs/三方向方案-v2.md](docs/三方向方案-v2.md)
-- v0.3 讨论稿原文：[docs/xiaoguang_v03.txt](docs/xiaoguang_v03.txt) · 旧方案：[docs/三方向方案.md](docs/三方向方案.md)
-- 会议纪要：[meeting.txt](meeting.txt) · 创意稿：[creative/](creative/)
-- 旧版 demo 归档：[_archive/demo-v0/](_archive/demo-v0/)
+- 方案说明（创意 / 技术 / UI，写于 2.6.0；之后加的首页体验、后台、推送见下文）：[docs/三方向方案-v2.md](docs/三方向方案-v2.md)
+- v0.3 讨论稿原文：[docs/xiaoguang_v03.txt](docs/xiaoguang_v03.txt) · 会议纪要（10-22）：[docs/meeting.txt](docs/meeting.txt)（[PDF](docs/meeting.pdf)）
+- 创意稿（建档题、引导场景、人设一句话）：[creative/](creative/)
+- 更早的 demo 和原型已从仓库删除，需要时在 git 历史里找（2026-11-01 之前的提交）
 
 ## 本地运行
 
@@ -46,7 +46,7 @@ https://manifest.noryx.cn/admin （本地：http://127.0.0.1:8765/admin）。口
 python -m unittest discover -s demo/tests -v
 ```
 
-用脚本化的假模型跑真服务器，不消耗额度。模型对比：`python demo/bench_models.py`（需要 key）。
+用脚本化的假模型跑真服务器，不消耗额度。模型对比：`python demo/bench_models.py`（需要 key，结果写到 `docs/bench-<日期>.json`，不进 git）。
 
 ## 目录
 
@@ -69,17 +69,25 @@ demo/
     metrics.py       按天的运行计数：请求、对话并发、模型 tokens、体验漏斗
     webpush.py       网页推送：VAPID 签名、订阅、叫醒设备
     trial.py         首页引导式体验（/api/trial/chat，无状态，模型不可用时有写好的回应）
+  bench_models.py    模型对比（开发用）
+  tests/             接口测试（假模型）
   public/
-    index.html
-    css/             base · components · shell · chat · pages · lesson · gate · fonts(生成)
+    index.html       应用；admin.html 管理后台
+    manifest.webmanifest · sw.js · icons/   PWA：装到桌面、收推送
+    css/             base · components · shell · chat · pages · journey · lesson · gate · admin · fonts(生成)
     js/              app · store · api · ui(线性图标) · theme(五种氛围) · pet(扁平 SVG 宠物/植物) · fx(动效/庆祝)
-                     · ball(Emotion Ball 适配) · lesson(「一课」) · scene · views/（gate 首页 · trial 引导体验 · …）
+                     · ball(Emotion Ball 适配) · lesson(「一课」) · scene · tasks(例行任务) · push(通知/安装)
+                     · journey · rest · account · admin · views/（gate 首页 · trial 引导体验 · chat · plan · space …）
     fonts/           源流圆体 CN + Nunito 的按需切片（生成）
     vendor/emotion-ball/
+config/              llm.json（模型）· llm.env.example
+creative/            创意稿
+docs/                方案、讨论稿、会议纪要
 tools/
   build_fonts.py     重新切字体（需要源字体与 jieba 词频表，见文件头）
+  build_icons.py     画 PWA 图标（需要 Pillow）
   shoot.py           本地桌面截图（开发用，依赖仓库外的 Playwright）
-deploy/              systemd 与部署脚本
+deploy/              部署脚本与 systemd 服务（服务文件改了要手动装：见 deploy.sh 文件头）
 ```
 
 ## 数据
@@ -89,5 +97,5 @@ deploy/              systemd 与部署脚本
 ## 形象与素材
 
 - 小光的形象是 Emotion Ball（[sam70361/emotion-ball](https://github.com/sam70361/emotion-ball)）：引擎非商业免费，**球形角色外观永不商用**。本仓库用于竞赛 demo，页面有署名并保留其 LICENSE / NOTICE；商用前需换成自研形象，只改 `public/js/ball.js`。
-- 宠物、植物、宝箱、星罐是代码画的扁平 SVG（`public/js/pet.js`），和小光同一种造型语言；全站没有位图素材。
+- 宠物、植物、宝箱、星罐是代码画的扁平 SVG（`public/js/pet.js`），和小光同一种造型语言；位图只有 PWA 图标（`tools/build_icons.py` 画的）。
 - 字体：源流圆体 CN（Resource Han Rounded，SIL OFL 1.1）与 Nunito（SIL OFL 1.1）。
