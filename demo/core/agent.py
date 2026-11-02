@@ -81,7 +81,8 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
   要改、要删之前，也先确认是哪一项（下面或 look_up 里有 [id]）。
 - TA 自己写下的东西（愿望、里程碑、习惯、小步、瞬间、好消息、提醒、设置），你都能替 TA 加、改、删、找回：
   · TA 这一句明确让你做（「删掉早睡早起」「日期改到下周五」「加一个每周跑步两次」「好，删吧」）→ 直接做，做完一句话说清改成了什么。
-  · 是你自己想到的修改，或 TA 说得含糊（「这两个好像重复了」）→ 先说你打算怎么改，问 TA 要不要；TA 说好，下一句再做。
+  · 是你自己想到的修改，或 TA 说得含糊（「这两个好像重复了」「删掉一个吧」「帮我精简一下」）→ 这一轮先别动手：
+    说你建议改哪一个、怎么改、为什么，问 TA 要不要；TA 说好，下一句再做。没点名的东西，永远不要替 TA 挑一个就删。
   · 愿望和习惯「删掉」其实是收起：记录都在，随时能找回（restore）。
   · 工具返回 ok=false：照实说没改成，用返回的 have 列表问 TA 指的是哪一个，别说「系统不让」。返回 need_consent：先问 TA。
 - 一件事做完，顺手接到相关的下一步：打完卡说说这周还差几次；到达里程碑问要不要留个瞬间、看看下一个站点；
@@ -482,17 +483,23 @@ EDIT_ASK = re.compile(r"删|去掉|移除|拿掉|不要了|不用了|取消|收�
                       r"|性格|温柔|活泼|有条理|主题|氛围")
 AGREE_START = re.compile(r"(好|行|可以|嗯|对|是|要|ok|okay|当然|没问题|就这样|那就|同意|确定|确认|没错|中|成|去吧|弄吧|来吧|拜托|麻烦)", re.I)
 NEGATE = re.compile(r"不|别|算了|等等|再想想")
+# 让小光「删一个」却没点名：要删哪个得先问（「删掉一个吧」「帮我精简一下」）
+VAGUE_REMOVE = re.compile(r"(删|去掉|收起|砍)[^，。！？,.!?]{0,3}(一个|一条|一项|一些|几个|哪个|其中)|精简|合并")
 
 
-def consented(store: Store, user_text: str) -> bool:
+def _agreeing(store: Store, t: str) -> bool:
+    if not (len(t) <= 20 and AGREE_START.match(t) and not NEGATE.search(t)):
+        return False
+    recent = [m for m in store.messages(6) if m["content"]]
+    last_ai = next((m["content"] for m in reversed(recent) if m["role"] == "assistant"), "")
+    return bool(re.search(r"[吗？?]", last_ai))
+
+
+def consented(store: Store, user_text: str, removing: bool = False) -> bool:
     t = (user_text or "").strip()
-    if EDIT_ASK.search(t):
-        return True
-    if len(t) <= 20 and AGREE_START.match(t) and not NEGATE.search(t):
-        recent = [m for m in store.messages(6) if m["content"]]
-        last_ai = next((m["content"] for m in reversed(recent) if m["role"] == "assistant"), "")
-        return bool(re.search(r"[吗？?]", last_ai))
-    return False
+    if removing and VAGUE_REMOVE.search(t):
+        return _agreeing(store, t)
+    return bool(EDIT_ASK.search(t)) or _agreeing(store, t)
 
 
 def _pick_task(uid: str, ref: str, prefer: bool | None = None) -> dict | None:
@@ -569,7 +576,8 @@ def notebook_edit(store: Store, action: str, text: str, old: str = "", section: 
 def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
     # 「我到了 / 做到了」只是报告一件事实（和 complete_step 一样），不算改 TA 写下的东西
     reached = name == "edit_plan" and args.get("kind") == "milestone" and args.get("status") == "done" and         not any(args.get(k) for k in ("title", "due_day", "due_in_days", "shift_days", "delete")) and args.get("action") in (None, "", "change")
-    if name in CONSENT_TOOLS and user_text and not reached and not consented(store, user_text):
+    removing = args.get("action") in ("remove", "delete") or bool(args.get("delete"))
+    if name in CONSENT_TOOLS and user_text and not reached and not consented(store, user_text, removing):
         return {"ok": False, "skipped": True, "need_consent": True,
                 "error": "TA 这句话没让你改。先用一句话说清你打算怎么改，问 TA 要不要；TA 同意了再改。这一轮别说已经改好了。"}
     if name == "look_up":

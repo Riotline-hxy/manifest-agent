@@ -1247,6 +1247,11 @@ class ApiTest(unittest.TestCase):
             back = agent.run_tool(st, "edit_plan", {"action": "restore", "kind": "wish", "target": "早睡早起"}, "把早睡早起找回来")
             self.assertTrue(back["ok"], back)
             self.assertIn("11 点上床", [h["title"] for h in journey.habits(st)])
+            # 「删掉一个吧」没点名：不能替 TA 挑一个删
+            vague = agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "wish", "target": "健康作息"},
+                                   "早睡早起和健康作息是不是冲突了呀，删掉一个吧")
+            self.assertTrue(vague.get("need_consent"), vague)
+            self.assertTrue(agent.consented(st, "删掉早睡早起吧", removing=True))
             # 名字对不上时不能悄悄改到「正在看的那个」愿望上
             miss = journey.edit_item(st, "wish", "学吉他", {"title": "x"})
             self.assertFalse(miss["ok"])
