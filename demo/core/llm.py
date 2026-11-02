@@ -8,6 +8,7 @@ Raises LLMError on HTTP / network failure.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import time
@@ -97,13 +98,22 @@ def _body(messages, tools=None, model=None, reasoning=None, stream=True, tempera
     return body
 
 
+def _lines(resp):
+    """逐行读流；读到一半连接断了 / 超时，统一变成 LLMError（调用方据此保存已经收到的部分）。"""
+    try:
+        yield from resp
+    except (OSError, TimeoutError, http.client.HTTPException) as e:
+        metrics.bump("llm_err")
+        raise LLMError(f"stream interrupted: {type(e).__name__}") from None
+
+
 def stream_chat(messages, tools=None, model=None, reasoning=None, timeout=None):
     cfg = config()
     resp = _request(_body(messages, tools, model, reasoning, True), True, timeout or cfg.get("timeout", 60))
     calls: dict[int, dict] = {}
     finish, usage = None, None
     with resp:
-        for raw in resp:
+        for raw in _lines(resp):
             line = raw.decode("utf-8", "replace").strip()
             if not line.startswith("data:"):
                 continue

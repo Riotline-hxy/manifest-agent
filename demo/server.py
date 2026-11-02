@@ -200,13 +200,16 @@ class Handler(BaseHTTPRequestHandler):
                       {"Cache-Control": "no-store", "X-Accel-Buffering": "no", "Connection": "close"})
         self.end_headers()
         self.close_connection = True
+        gone = False
         with Store(u["id"]) as st, metrics.chat_span():
             for event, data in agent.chat(st, text):
+                if gone:
+                    continue   # client left: keep going so the reply (and tool results) still get saved
                 try:
                     self.wfile.write(f"event: {event}\ndata: {dumps(data)}\n\n".encode())
                     self.wfile.flush()
-                except (BrokenPipeError, ConnectionResetError):
-                    return  # client left; the turn is still saved
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                    gone = True
 
 
 from routes import ROUTES  # noqa: E402

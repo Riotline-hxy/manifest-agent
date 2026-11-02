@@ -18,7 +18,7 @@ import re
 from datetime import timedelta
 import threading
 
-from . import academy, growth, journey, llm, memory, tasks
+from . import academy, growth, guide, journey, llm, lookup, memory, nudges, tasks
 from .scenes import SCENES
 from .store import Store
 from .util import clip, day_key, now, parse_iso
@@ -73,8 +73,23 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
 把「事件」和「人格」分开：用户说「我三天没健身」，这是一件带日期的事，最多记成事件；
 绝不能据此说 TA 是「三分钟热度」「没毅力」。人格判断只能来自用户自己说的，或反复出现后由 TA 确认。
 
+{app_map}
+
+你能看见、能替 TA 做的事（把各个功能串起来用，这是你和普通聊天机器人最大的不同）：
+- TA 问某个功能怎么用、在哪、规则是什么 → app_guide，照说明讲，别编；你能直接替 TA 做的，就问一句「要我帮你弄吗？」。
+- 要谈 TA 自己的数据（计划进度、哪天打过卡、记过哪些好消息、设置成什么了、最近做了什么），下面又没有 → 先 look_up 看真实数据再说，不凭印象。
+  要改、要删之前，也先确认是哪一项（下面或 look_up 里有 [id]）。
+- TA 自己写下的东西（愿望、里程碑、习惯、小步、瞬间、好消息、提醒、设置），你都能替 TA 加、改、删、找回：
+  · TA 这一句明确让你做（「删掉早睡早起」「日期改到下周五」「加一个每周跑步两次」「好，删吧」）→ 直接做，做完一句话说清改成了什么。
+  · 是你自己想到的修改，或 TA 说得含糊（「这两个好像重复了」）→ 先说你打算怎么改，问 TA 要不要；TA 说好，下一句再做。
+  · 愿望和习惯「删掉」其实是收起：记录都在，随时能找回（restore）。
+  · 工具返回 ok=false：照实说没改成，用返回的 have 列表问 TA 指的是哪一个，别说「系统不让」。返回 need_consent：先问 TA。
+- 一件事做完，顺手接到相关的下一步：打完卡说说这周还差几次；到达里程碑问要不要留个瞬间、看看下一个站点；
+  TA 说想被督促，就把主动消息调多，再问要不要每天定个时间来看看计划。
+
 工具使用：
-- 用户在**这一句**里说了一件小确幸 → log_good_news；TA 自己明确说今天想偷懒 / 休息 → log_lazy_day（当天的习惯和小步都暂停）。
+- 用户在**这一句**里说了一件小确幸 → log_good_news（内心戏 type=meme）；改、删已有的好消息 → edit_good_news。
+  TA 自己明确说今天想偷懒 / 休息 → log_lazy_day（当天的习惯和小步都暂停）；TA 说不偷懒了 → log_lazy_day(undo=true)。
   TA 难过、累、受挫时，先陪着说话，别替 TA 决定休息；可以问一句「今天要不要给自己放个假？」，TA 同意了再记。
   调用后用轻松的口吻接住，比如「收到，今天给自己放个假吧，明天我们再继续」，再问一句要不要帮 TA 调整一下计划；界面会给出选项。
 - 用户明确说某个习惯太难、想调整 → adjust_habit（调低一档频率或先收起）；想把它拆小，就用 propose_plan 提议一个更小的版本。只记这一句里新说的事，聊天记录里以前提过的事不要补记。
@@ -83,11 +98,14 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
   再补齐缺的信息：第一次回复只问一个问题（比如每周能投入多少时间、现在最卡在哪），这一轮不调用任何工具；
   信息够了再调用 propose_plan：最多 3 个里程碑、3 个习惯、3 个小步，只放路径上还没有的，具体、量力而行。这只是提议，回复里请对方「看看哪些想加进计划」，不要说已经加好了。
 - 你们一起定下一个小行动 → add_step；用户说做完了某一步 → complete_step。
-- TA 想改计划里已经有的东西（「那个里程碑改到 11 月 4 日」「习惯改成每周三次」「这一步删了吧」「计划日期往后推一周」）→ edit_plan，直接改，改完用一句话说改成了什么。
-  你自己提议过、TA 同意了的修改，也直接用 edit_plan 改，不要再走 propose_plan。
+- 计划里的增删改都用 edit_plan（action = add / change / remove / restore；kind = wish / milestone / habit / step / moment）：
+  「那个里程碑改到 11 月 4 日」「习惯改成每周三次」「这一步删了吧」「删掉早睡早起这个愿望」「把收起的那个愿望找回来」「再开一个愿望：学吉他」「加个里程碑」。
+  你提议过、TA 同意了的修改，也直接用 edit_plan，不要再走 propose_plan。TA 说到达了某个里程碑 → edit_plan(change, status=done)。
 - 用户明确要加一个重复做的事（「帮我加个每周健身三次」）→ add_habit；用户说今天做了某个习惯里的事（「今天去健身了」）→ checkin_habit。
 - 用户想冥想、感恩、理清目标、走一遍七步、或想「重新认识我」→ start_scene。
 - 需要回忆以前的事、而下面没提供时 → search_memory（记住的要点）或 search_chats（以前聊天的原话）。
+- TA 明确让你把一件事记到轨迹上，或者你刚问过「要不要留在轨迹上」、TA 说「好 / 留吧」→ 直接 edit_plan(add, kind=moment) 存下，
+  不要再提议一次。改、删轨迹上的瞬间也用 edit_plan。
 - 用户在**这一句**里讲到自己刚做的、和愿望有关的一件具体的事（做了什么、当时什么感受）→ propose_moment，提议把它留在轨迹上。
   规划请求、提问、聊天记录里以前提过的事，都不要用 propose_moment。这只是提议，用户点「留下」才会保存；回复里要说「要不要把它留在轨迹上？」，不能说「已经记下了」。
   同一件事只用一个：和愿望有关的具体瞬间用 propose_moment，就不要再 log_good_news；和愿望无关的小确幸才用 log_good_news。
@@ -98,8 +116,10 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
 - 用户明确更正或否定以前记住的事（「我现在不喜欢寿司了」「那条不对」）→ correct_memory，写清新的说法；
   只是随口提到、没有明确更正时不要改。普通聊天里的其他信息不用你记，夜里会统一整理。
 - 用户问成长、等级、宠物、还差多少 XP、什么时候进化 → get_growth，用工具返回的真实数字回答，不要自己编。
+- 定时任务：新安排 → schedule_task；关掉、重新打开、删掉、改时间 → edit_task。
 - 用户问某个心理 / 显化概念 → knowledge_search，只说检索到的内容，并说明是团队整理的版本。
-- 用户说「以后别催我」「我更喜欢你先听我说」→ set_care_style。
+- TA 想改设置（怎么称呼 TA、你的名字和性格、主动消息多少、被打断时你怎么做、宠物名、页面氛围）→ update_settings。
+  「以后别催我」→ care_style=quiet；「多来找我」「督促我」→ proactive=more。
 - 需要用工具时先调用、再开口，不要先说一句再去调用（否则会说两遍）。
 - 调用工具后，用一句自然的话告诉对方你做了什么；工具返回 ok=false 时必须说没写成，不能说「已经记好了」。
 - 工具返回的 xp 里如果 capped 或 duplicate 为真，说明这次没加分，别暗示加了。
@@ -156,10 +176,26 @@ TOOLS = [
         "name": "search_chats", "description": "在你们以前的全部聊天记录里按关键词找。上下文里只有最近三天的原话，更早的细节用它查",
         "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "关键词，比如「面试」「Mia」"}}, "required": ["query"]}}},
     {"type": "function", "function": {
-        "name": "list_tasks", "description": "看看现在有哪些定时任务", "parameters": {"type": "object", "properties": {}}}},
+        "name": "edit_task", "description": "管理已有的定时任务：关掉、重新打开、删掉，或者改时间 / 名字 / 内容",
+        "parameters": {"type": "object", "properties": {
+            "target": {"type": "string", "description": "任务名称、关键词或 [id]"},
+            "action": {"type": "string", "enum": ["off", "on", "delete", "change"]},
+            "title": {"type": "string"}, "message": {"type": "string"},
+            "time": {"type": "string", "description": "HH:MM"},
+            "repeat": {"type": "string", "enum": ["daily", "weekdays", "weekly"]},
+            "days": {"type": "array", "items": {"type": "integer"}, "description": "weekly 时每周几，周一=1"}},
+            "required": ["target", "action"]}}},
     {"type": "function", "function": {
-        "name": "cancel_task", "description": "TA 说不用再提醒 / 取消某个定时任务时",
-        "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "任务名称或关键词"}}, "required": ["title"]}}},
+        "name": "look_up", "description": "看 TA 在某个功能里的真实数据（只读）。回答关于 TA 的进度、记录、设置的问题前，或者改东西前先看一眼",
+        "parameters": {"type": "object", "properties": {
+            "area": {"type": "string", "enum": list(lookup.AREAS),
+                     "description": "；".join(f"{k}={v}" for k, v in lookup.AREAS.items())},
+            "query": {"type": "string", "description": "area=wish / moments 时写愿望名字"}},
+            "required": ["area"]}}},
+    {"type": "function", "function": {
+        "name": "app_guide", "description": "查这个 App 某个功能的说明：在哪、怎么用、规则是什么、你能替 TA 做什么",
+        "parameters": {"type": "object", "properties": {
+            "topic": {"type": "string", "enum": list(guide.TOPICS)}}, "required": ["topic"]}}},
     {"type": "function", "function": {
         "name": "propose_plan", "description": "为某个愿望提议一套路径（里程碑 / 习惯 / 小步），用户在界面上勾选后才加入计划",
         "parameters": {"type": "object", "properties": {
@@ -177,19 +213,26 @@ TOOLS = [
             "note": {"type": "string", "description": "一句话说明这样安排的理由"}},
             "required": ["wish"]}}},
     {"type": "function", "function": {
-        "name": "edit_plan", "description": "改计划里已经有的东西：里程碑 / 习惯 / 小步 / 愿望本身。改名字、改日期、改频率、标记完成、删掉都用它，改完立刻生效",
+        "name": "edit_plan", "description": "增删改蜕变计划里的东西：愿望 / 里程碑 / 习惯 / 小步 / 轨迹上的瞬间，立刻生效",
         "parameters": {"type": "object", "properties": {
-            "kind": {"type": "string", "enum": ["milestone", "habit", "step", "wish"]},
-            "target": {"type": "string", "description": "要改的那一项：照抄名字或方括号里的 id"},
-            "title": {"type": "string", "description": "新名字（不改就不填）"},
+            "action": {"type": "string", "enum": ["add", "change", "remove", "restore"],
+                       "description": "add 新加；change 改；remove 删掉（愿望、习惯是收起，记录都在）；restore 找回收起的愿望 / 习惯，或把先放一放的小步放回来"},
+            "kind": {"type": "string", "enum": ["wish", "milestone", "habit", "step", "moment"]},
+            "target": {"type": "string", "description": "要改的那一项：照抄名字或方括号里的 id（add 时不填）"},
+            "wish": {"type": "string", "description": "add 时放进哪个愿望，不填就是 TA 正在看的那个"},
+            "title": {"type": "string", "description": "名字（add 时必填；change 时是新名字）"},
             "due_day": {"type": "string", "description": "里程碑日期 / 愿望的计划日期，YYYY-MM-DD"},
-            "due_in_days": {"type": "integer", "description": "或者：从今天起多少天后"},
+            "due_in_days": {"type": "integer", "description": "或者：从今天起多少天后（「改到两周后」）"},
+            "shift_days": {"type": "integer", "description": "或者：在原来的日期上挪几天（「往后推两周」=14，「提前三天」=-3）"},
             "freq": {"type": "string", "enum": ["daily", "weekly"], "description": "习惯的频率"},
             "per_week": {"type": "integer"},
             "status": {"type": "string", "enum": ["done", "todo", "dropped"], "description": "里程碑 done/todo；小步 todo/dropped（先放一放）"},
             "vision_text": {"type": "string", "description": "愿望：向往的样子"},
-            "delete": {"type": "boolean", "description": "删掉（习惯是先收起，记录都在）"}},
-            "required": ["kind", "target"]}}},
+            "now_text": {"type": "string", "description": "愿望：出发时的自己"},
+            "text": {"type": "string", "description": "瞬间：发生了什么"},
+            "feeling": {"type": "string", "description": "瞬间：当时的感受"},
+            "day": {"type": "string", "description": "瞬间：哪一天，YYYY-MM-DD"}},
+            "required": ["kind"]}}},
     {"type": "function", "function": {
         "name": "add_habit", "description": "用户明确要求时，给愿望加一个重复做的习惯",
         "parameters": {"type": "object", "properties": {
@@ -210,11 +253,21 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {
             "step_id": {"type": "string"}, "title": {"type": "string", "description": "不知道 id 时用标题匹配"}}}}},
     {"type": "function", "function": {
-        "name": "log_good_news", "description": "记录一件好事（再小也算）",
-        "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}},
+        "name": "log_good_news", "description": "在好消息页记一条：小确幸（再小也算）或内心戏",
+        "parameters": {"type": "object", "properties": {"text": {"type": "string"},
+                                                       "type": {"type": "string", "enum": ["good", "meme"]}}, "required": ["text"]}}},
+    {"type": "function", "function": {
+        "name": "edit_good_news", "description": "改或删好消息页里已有的一条（页面上自己改不了）",
+        "parameters": {"type": "object", "properties": {
+            "target": {"type": "string", "description": "那条的原话、关键词或 [id]"},
+            "action": {"type": "string", "enum": ["change", "remove"]},
+            "text": {"type": "string", "description": "改成什么"},
+            "type": {"type": "string", "enum": ["good", "meme"], "description": "改成小确幸 / 内心戏"}},
+            "required": ["target", "action"]}}},
     {"type": "function", "function": {
         "name": "log_lazy_day", "description": "用户今天想偷懒 / 休息：记成偷懒日，当天的习惯和小步都暂停，所有进度都保留",
-        "parameters": {"type": "object", "properties": {"note": {"type": "string", "description": "用户说的原因，没说就留空"}}}}},
+        "parameters": {"type": "object", "properties": {"note": {"type": "string", "description": "用户说的原因，没说就留空"},
+                                                       "undo": {"type": "boolean", "description": "TA 说今天不偷懒了"}}}}},
     {"type": "function", "function": {
         "name": "adjust_habit", "description": "用户明确说某个习惯太难、想调整时：调低频率，或先收起",
         "parameters": {"type": "object", "properties": {
@@ -232,14 +285,21 @@ TOOLS = [
         "name": "knowledge_search", "description": "在团队审核的心灵学堂内容里检索（只读）",
         "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {
-        "name": "set_care_style", "description": "用户说明希望被怎样对待时，更新互动偏好",
+        "name": "update_settings", "description": "改 TA 的设置或画像，只填要改的",
         "parameters": {"type": "object", "properties": {
-            "care_style": {"type": "string", "enum": ["nudge", "analyze", "quiet"],
-                           "description": "nudge 轻轻提醒 / analyze 一起找原因 / quiet 先不提"},
-            "note": {"type": "string"}}, "required": ["care_style"]}}},
+            "nickname": {"type": "string", "description": "你怎么称呼 TA"},
+            "agent_name": {"type": "string", "description": "你的名字"},
+            "persona": {"type": "string", "enum": ["gentle", "clear", "lively"], "description": "你的性格：温柔 / 有条理 / 活泼"},
+            "proactive": {"type": "string", "enum": ["more", "normal", "less", "off"], "description": "你主动找 TA 的频率"},
+            "care_style": {"type": "string", "enum": ["nudge", "analyze", "quiet"], "description": "TA 中断时：轻轻提醒 / 一起找原因 / 先不提"},
+            "pet_name": {"type": "string"},
+            "theme": {"type": "string", "enum": ["forest", "midnight", "paper", "peach", "mist"],
+                      "description": "页面氛围：森林夜 / 深空 / 晨光 / 暖阳 / 海雾"},
+            "schedule_hint": {"type": "string", "description": "TA 的作息"},
+            "boundaries": {"type": "array", "items": {"type": "string"}, "description": "TA 不希望你碰的话题（整份替换）"}}}}},
 ]
 
-TOOL_MOOD = {"edit_plan": "satisfied", "update_notebook": "recall", "search_chats": "recall", "schedule_task": "satisfied", "cancel_task": "done", "list_tasks": "focused", "adjust_habit": "satisfied", "propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
+TOOL_MOOD = {"look_up": "focused", "app_guide": "searching", "edit_good_news": "satisfied", "edit_task": "done", "update_settings": "shy", "edit_plan": "satisfied", "update_notebook": "recall", "search_chats": "recall", "schedule_task": "satisfied", "cancel_task": "done", "list_tasks": "focused", "adjust_habit": "satisfied", "propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
              "add_step": "satisfied", "remember": "recall", "start_scene": "curious",
              "get_growth": "focused", "knowledge_search": "searching", "set_care_style": "shy"}
 
@@ -250,30 +310,40 @@ def core_block(p: dict, store: Store) -> str:
     lines = []
     if p.get("nickname"):
         lines.append(f"称呼：{p['nickname']}")
-    if p.get("intent_primary"):
-        lines.append(f"现在最想靠近：{p['intent_primary']}" + (f"（因为：{p['intent_why']}）" if p.get("intent_why") else ""))
+    ws = journey.wishes(store)
+    intent = (p.get("intent_primary") or "").strip()
+    if intent and not any(intent == w["title"] for w in ws):
+        lines.append(f"建档时 TA 说最想靠近：{intent}" + (f"（因为：{p['intent_why']}）" if p.get("intent_why") else "")
+                     + ("。这是当时的说法，不是一个愿望；TA 现在的愿望以下面为准" if ws else ""))
+    elif intent and p.get("intent_why"):
+        lines.append(f"TA 想要「{intent}」是因为：{p['intent_why']}")
     if p.get("traits"):
         lines.append("别人常觉得 TA：" + "、".join(p["traits"]))
     if p.get("schedule_hint"):
         lines.append("作息：" + p["schedule_hint"])
     if p.get("mbti_hint"):
         lines.append(f"MBTI（只是好玩，不用来判断）：{p['mbti_hint']}")
-    ws = journey.wishes(store)
     cur = journey.current(store)
     if ws:
-        lines.append("TA 的愿望：" + "；".join(f"「{w['title']}」" for w in ws) + "。")
+        lines.append(f"TA 的 {len(ws)} 个愿望和路径（蜕变计划页上能看到的就是这些）：\n" + "\n".join(
+            journey.path_text(store, w) + ("  ← TA 正在看这个" if cur and w["id"] == cur["id"] else "") for w in ws))
+    else:
+        lines.append("TA 还没有愿望。")
+    gone = [w for w in journey.wishes(store, include_archived=True) if w["archived"]]
+    if gone:
+        lines.append("收起的愿望（可以找回）：" + "；".join(f"[{w['id']}] {w['title']}" for w in gone[:6]))
     if cur:
-        lines.append("正在看的愿望和它的路径：\n" + journey.path_text(store, cur)
-                     + (f"\n  TA 定下时说自己：{cur['now_text']}" if cur["now_text"] else ""))
+        if cur["now_text"]:
+            lines.append(f"「{cur['title']}」定下时 TA 说自己：{cur['now_text']}")
         recent = journey.moments(store, cur["id"], limit=3)
         if recent:
-            lines.append("这个愿望下最近的瞬间：" + "；".join(f"{m['day'][5:]} {clip(m['text'], 30)}" for m in recent))
+            lines.append(f"「{cur['title']}」下最近的瞬间：" + "；".join(f"{m['day'][5:]} {clip(m['text'], 30)}" for m in recent))
     ts = [t for t in tasks.list_for(store.uid) if t["enabled"]]
     if ts:
         lines.append("你帮 TA 安排着的定时任务：" + "；".join(f"{t['title']}（{t['when']}）" for t in ts[:8]))
     if journey.is_resting(store):
         lines.append("今天是 TA 的偷懒日：习惯和小步都暂停了。今天别推荐任务、别提醒要做的事，陪 TA 聊天、休息就好。")
-    steps = [s for s in store.steps() if s["status"] == "todo"][:5]
+    steps = [s for s in store.steps() if s["status"] == "todo"][:8]
     if steps:
         lines.append("待做的小步：" + "；".join(f"[{s['id']}] {s['title']}" for s in steps))
     done = [s for s in store.steps() if s["status"] == "done"][:3]
@@ -292,7 +362,7 @@ def system_prompt(store: Store, retrieved: list[dict]) -> str:
     bound = ("- 这个人明确说过的边界（必须遵守）：" + "、".join(b) + "\n") if b else ""
     care = CARE_STYLE.get(p.get("care_style") or "", "")
     care = ("- 互动偏好（来自 TA 在「重新认识我」里的选择）：" + care + "\n") if care else ""
-    s = PERSONA.format(name=p.get("agent_name") or "小光", boundaries=bound, care=care,
+    s = PERSONA.format(name=p.get("agent_name") or "小光", boundaries=bound, care=care, app_map=guide.MAP,
                        voice=VOICES.get(p.get("persona") or "gentle", VOICES["gentle"]))
     s += "\n## 你知道的（核心）\n" + (core_block(p, store) or "（还很少）")
     nb = (p.get("notebook") or {}).get("text") or ""
@@ -331,10 +401,21 @@ def history(store: Store) -> list[dict]:
     return out
 
 
-def context_note(retrieved: list[dict]) -> str:
-    """每轮都在变的部分（时间、和这句话相关的记忆）放在对话后面，前面的长内容才能被缓存复用。"""
+NUDGE_USE = ("用法：别每句都提，也别一次说好几件。TA 聊到计划、问「我该干嘛」、或者话题自然停下来时，挑最要紧的一件，"
+             "用朋友的口吻提一句，带一个马上能做的小选择（「要不要现在打个卡？」「要不要把日子往后挪一周？」）。"
+             "TA 在难过、倾诉时先陪着，别提；这次对话里已经提过的别再提。")
+
+
+def context_note(retrieved: list[dict], store: Store | None = None) -> str:
+    """每轮都在变的部分（时间、和这句话相关的记忆、值得留意的事）放在对话后面，前面的长内容才能被缓存复用。"""
     t = now()
     s = f"现在是 {t:%Y-%m-%d %H:%M}（周{WEEKDAYS[t.weekday()]}）。用户消息前的［日期 时间］是系统标注，回复里不要模仿。"
+    if store is not None:
+        items = nudges.attention(store, t, limit=5)
+        if items and items[0]["kind"] != "rest":
+            quiet = (store.profile().get("care_style") == "quiet")
+            s += ("\n\n## 从 TA 的计划和记录里看到、可以顺手提的事\n" + nudges.as_text(items) + "\n" + NUDGE_USE
+                  + ("\nTA 选了「中断时先不提」：除非 TA 自己聊到计划，否则别提这些。" if quiet else ""))
     facts = [m for m in retrieved if m["status"] == "active"]
     guesses = [m for m in retrieved if m["status"] == "guess"]
     if facts:
@@ -390,6 +471,74 @@ def asked_to_remember(store: Store, user_text: str) -> bool:
     return short_yes and (bool(OFFER.search(last_ai)) or any(EXPLICIT_REMEMBER.search(t) for t in prev_user))
 
 
+# 改动 TA 自己写下的东西（计划、好消息、提醒、设置）之前要有 TA 的意思：
+# 这一句里有要改动的说法；或者是一句简短的同意，回应的是小光上一句的提问（「要我帮你删掉吗？」「可以」）。
+# 只是聊天、倾诉时（「最近好累」），小光不能自己动手，只能先问。
+CONSENT_TOOLS = {"edit_plan", "edit_good_news", "edit_task", "update_settings", "adjust_habit"}
+EDIT_ASK = re.compile(r"删|去掉|移除|拿掉|不要了|不用了|取消|收起|撤|恢复|找回|改|换成|换个|换一|调|挪|推迟|推后|往后推|提前|延后|往后|往前"
+                      r"|加|添|增|新建|新开|设成|设为|设置|定在|定个|定一个|定成|放进|放到|写进|写上|记下|记到|记成|记一|标成|标记"
+                      r"|放一放|先放|放回|不做了|先不做|标一下|标上|打卡|记上|记一下|完成了|做完|搞定|到达|达成|关掉|关了|关闭|打开|开启|停掉|暂停|重命名|名字|叫我|叫你|频率|日期|几号"
+                      r"|少一点|少点|少做|减|降|轻一点|帮我|帮忙|麻烦|弄一下|合并|重复了|不偷懒|不休息|别催|催我|督促|找我|提醒我"
+                      r"|性格|温柔|活泼|有条理|主题|氛围")
+AGREE_START = re.compile(r"(好|行|可以|嗯|对|是|要|ok|okay|当然|没问题|就这样|那就|同意|确定|确认|没错|中|成|去吧|弄吧|来吧|拜托|麻烦)", re.I)
+NEGATE = re.compile(r"不|别|算了|等等|再想想")
+
+
+def consented(store: Store, user_text: str) -> bool:
+    t = (user_text or "").strip()
+    if EDIT_ASK.search(t):
+        return True
+    if len(t) <= 20 and AGREE_START.match(t) and not NEGATE.search(t):
+        recent = [m for m in store.messages(6) if m["content"]]
+        last_ai = next((m["content"] for m in reversed(recent) if m["role"] == "assistant"), "")
+        return bool(re.search(r"[吗？?]", last_ai))
+    return False
+
+
+def _pick_task(uid: str, ref: str, prefer: bool | None = None) -> dict | None:
+    ts = tasks.list_for(uid)
+    if prefer is not None:
+        ts = sorted(ts, key=lambda t: t["enabled"] != prefer)
+    return next((t for t in ts if t["id"] == (ref or "").strip()), None) or journey._pick(ts, ref)
+
+
+SETTING_LABEL = {"nickname": "称呼", "agent_name": "我的名字", "persona": "我的性格", "proactive": "主动找你的频率",
+                 "care_style": "你中断时我怎么做", "pet_name": "宠物的名字", "theme": "页面氛围", "schedule_hint": "作息",
+                 "boundaries": "不想聊的话题"}
+SETTING_VALUE = {"persona": {"gentle": "温柔", "clear": "有条理", "lively": "活泼"},
+                 "proactive": {"more": "多一点", "normal": "刚好", "less": "少一点", "off": "不主动找"},
+                 "care_style": {"nudge": "轻轻提醒", "analyze": "一起找原因", "quiet": "先不提"},
+                 "theme": {"forest": "森林夜", "midnight": "深空", "paper": "晨光", "peach": "暖阳", "mist": "海雾"}}
+
+
+def update_settings(store: Store, args: dict) -> dict:
+    patch, changed = {}, []
+    for k in SETTING_LABEL:
+        v = args.get(k)
+        if v in (None, "", []):
+            continue
+        if k in SETTING_VALUE:
+            if v not in SETTING_VALUE[k]:
+                return {"ok": False, "error": f"{SETTING_LABEL[k]}没有这个选项"}
+            shown = SETTING_VALUE[k][v]
+        elif k == "boundaries":
+            v = [clip(str(x).strip(), 20) for x in (v if isinstance(v, list) else [v]) if str(x).strip()][:6]
+            shown = "、".join(v)
+        else:
+            v = clip(str(v).strip(), 8 if k == "pet_name" else 20 if k in ("nickname", "agent_name") else 60)
+            shown = v
+        patch[k] = v
+        changed.append(f"{SETTING_LABEL[k]}改成「{shown}」")
+    if not patch:
+        return {"ok": False, "error": "没有要改的设置"}
+    store.set_profile(patch)
+    store.log("profile", "小光帮你改了设置：" + "，".join(changed))
+    out = {"ok": True, "changed": changed}
+    if patch.get("proactive") == "more" and not any(t["enabled"] and t["kind"] == "ai" for t in tasks.list_for(store.uid)):
+        out["next"] = "TA 想被督促：接着问一句要不要每天定个时间（比如晚上 9 点）由你来看看当天的计划进度，TA 同意就 schedule_task(kind=ai, repeat=daily)"
+    return out
+
+
 def notebook_edit(store: Store, action: str, text: str, old: str = "", section: str = "") -> dict:
     nb = (store.profile().get("notebook") or {}).get("text") or ""
     text = clip((text or "").strip(), 120)
@@ -418,6 +567,15 @@ def notebook_edit(store: Store, action: str, text: str, old: str = "", section: 
 
 
 def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
+    # 「我到了 / 做到了」只是报告一件事实（和 complete_step 一样），不算改 TA 写下的东西
+    reached = name == "edit_plan" and args.get("kind") == "milestone" and args.get("status") == "done" and         not any(args.get(k) for k in ("title", "due_day", "due_in_days", "shift_days", "delete")) and args.get("action") in (None, "", "change")
+    if name in CONSENT_TOOLS and user_text and not reached and not consented(store, user_text):
+        return {"ok": False, "skipped": True, "need_consent": True,
+                "error": "TA 这句话没让你改。先用一句话说清你打算怎么改，问 TA 要不要；TA 同意了再改。这一轮别说已经改好了。"}
+    if name == "look_up":
+        return lookup.look_up(store, str(args.get("area") or "plan"), str(args.get("query") or ""))
+    if name == "app_guide":
+        return guide.guide(str(args.get("topic") or "overview"))
     if name == "search_memory":
         hits = store.search(str(args.get("query") or ""), k=5)
         return {"ok": True, "memories": [{"text": m["text"], "date": m["created_at"][:10]} for m in hits]}
@@ -484,11 +642,43 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         text = clip(str(args.get("text") or ""), 200)
         if not text:
             return {"ok": False, "error": "内容为空"}
-        r = store.add_record("good", text)
-        xp = growth.award(store, "good", ref="rec:" + r["id"], note="好消息")
-        store.log("record", "收下一条好消息")
+        kind = "meme" if args.get("type") == "meme" else "good"
+        r = store.add_record(kind, text)
+        xp = growth.award(store, "good", ref="rec:" + r["id"], note="好消息" if kind == "good" else "内心戏")
+        store.log("record", "收下一条好消息" if kind == "good" else "记下一段内心戏")
         return {"ok": True, "record": r, "xp": xp, "count": store.counts()["good"]}
+    if name == "edit_good_news":
+        rows = [dict(r) for r in store.c.execute("SELECT * FROM record WHERE type IN ('good','meme') ORDER BY day DESC, created_at DESC LIMIT 300")]
+        for r in rows:
+            r["title"] = r["text"]
+        r = journey._pick(rows, str(args.get("target") or ""))
+        if not r:
+            return {"ok": False, "error": "没找到这条好消息", "have": [f"{x['day'][5:]} {clip(x['text'], 20)}" for x in rows[:8]]}
+        if args.get("action") == "remove":
+            with store.lock:
+                store.c.execute("DELETE FROM record WHERE id=?", (r["id"],))
+            store.log("record", "删掉了一条好消息：" + clip(r["text"], 30))
+            return {"ok": True, "removed": True, "text": r["text"], "changed": ["删掉了"]}
+        fields, changed = {}, []
+        text = clip(str(args.get("text") or "").strip(), 200)
+        if text and text != r["text"]:
+            fields["text"] = text; changed.append("改成「" + clip(text, 30) + "」")
+        if args.get("type") in ("good", "meme") and args["type"] != r["type"]:
+            fields["type"] = args["type"]; changed.append("挪到" + ("小确幸" if args["type"] == "good" else "内心戏"))
+        if not fields:
+            return {"ok": False, "error": "没有要改的内容"}
+        with store.lock:
+            store.c.execute("UPDATE record SET " + ",".join(f"{k}=?" for k in fields) + " WHERE id=?", (*fields.values(), r["id"]))
+        store.log("record", "改了一条好消息")
+        return {"ok": True, "text": fields.get("text", r["text"]), "changed": changed}
     if name == "log_lazy_day":
+        if args.get("undo"):
+            if not journey.is_resting(store):
+                return {"ok": False, "error": "今天本来就不是偷懒日"}
+            with store.lock:
+                store.c.execute("DELETE FROM record WHERE type='rest' AND day=?", (day_key(),))
+            store.log("rest", "今天不偷懒了")
+            return {"ok": True, "undone": True, "note": "习惯和小步都回来了"}
         if journey.is_resting(store):
             return {"ok": True, "already": True, "note": "今天已经是偷懒日了"}
         note = clip(str(args.get("note") or "").strip(), 40)
@@ -497,13 +687,21 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         return {"ok": True, "record": r, "paused": [h["title"] for h in journey.habits(store)][:5],
                 "note": "当天的习惯和小步都暂停；宠物会陪 TA 一起睡。界面上会给出：明天继续 / 调整计划 / 聊聊天"}
     if name == "edit_plan":
-        patch = {k: args.get(k) for k in ("title", "due_day", "due_in_days", "freq", "per_week", "status", "vision_text", "delete") if args.get(k) not in (None, "")}
+        keys = ("title", "due_day", "due_in_days", "shift_days", "freq", "per_week", "status", "vision_text", "now_text",
+                "text", "feeling", "day", "wish", "why", "delete")
+        patch = {k: args.get(k) for k in keys if args.get(k) not in (None, "")}
         try:
-            out = journey.edit_item(store, str(args.get("kind") or ""), str(args.get("target") or ""), patch)
+            out = journey.edit_item(store, str(args.get("kind") or ""), str(args.get("target") or ""), patch,
+                                    str(args.get("action") or ""))
         except ValueError as e:
             return {"ok": False, "error": str(e)}
         if out.get("ok"):
-            store.log("plan", f"小光帮你改了「{out['title']}」：" + "，".join(out["changed"]))
+            out["action"] = str(args.get("action") or ("remove" if args.get("delete") else "change"))
+            store.log("plan", f"小光帮你处理了「{out['title']}」：" + "，".join(out["changed"]))
+            if out.get("reached"):
+                out["xp"] = growth.award(store, "action", ref="ms:" + out["id"], note="到达：" + out["title"])
+            if out.get("new_moment"):
+                out["xp"] = growth.award(store, "good", ref="moment:" + out["id"], note="留下一个瞬间")
         return out
     if name == "schedule_task":
         try:
@@ -520,6 +718,32 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         return {"ok": True, "hits": hits, "note": "没找到就照实说不记得了，别编" if not hits else ""}
     if name == "list_tasks":
         return {"ok": True, "tasks": [{"title": t["title"], "when": t["when"], "on": t["enabled"]} for t in tasks.list_for(store.uid)]}
+    if name == "edit_task":
+        act = str(args.get("action") or "")
+        t = _pick_task(store.uid, str(args.get("target") or ""), prefer={"on": False, "off": True}.get(act))
+        if not t:
+            return {"ok": False, "error": "没找到这个定时任务", "have": [x["title"] for x in tasks.list_for(store.uid)]}
+        try:
+            if act in ("on", "off"):
+                tasks.set_enabled(store.uid, t["id"], act == "on")
+                done = "重新打开了" if act == "on" else "关掉了，以后不会再响"
+            elif act == "delete":
+                tasks.delete(store.uid, t["id"])
+                done = "删掉了"
+            elif act == "change":
+                patch = {k: args[k] for k in ("title", "message", "time", "repeat", "days") if args.get(k) not in (None, "", [])}
+                if not patch:
+                    return {"ok": False, "error": "没有要改的内容"}
+                t = tasks.edit(store.uid, t["id"], patch) or t
+                done = f"改好了：{t['when']}"
+            else:
+                return {"ok": False, "error": "不认识的操作"}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        store.log("task", f"例行任务「{t['title']}」{done}")
+        return {"ok": True, "task": t["title"], "done": done}
+    if name == "update_settings":
+        return update_settings(store, args)
     if name == "cancel_task":
         t = tasks.find(store.uid, str(args.get("title") or ""))
         if not t:
@@ -644,7 +868,7 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
 
     hist = history(store)
     msgs = ([{"role": "system", "content": system_prompt(store, retrieved)}] + hist[:-1]
-            + [{"role": "system", "content": context_note(retrieved)}] + hist[-1:])
+            + [{"role": "system", "content": context_note(retrieved, store)}] + hist[-1:])
     reply, tool_log, mood_set = "", [], False
     blocked: set[str] = set()   # 这一轮被拦下的写入工具，不再给模型反复重试
     try:
@@ -675,13 +899,13 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
                 tool_log.append({"name": c["name"], "args": args, "result": result})
                 if result.get("skipped"):
                     blocked.add(c["name"])
-                else:
+                elif not result.get("unchanged"):
                     yield ("tool", {"name": c["name"], "args": args, "result": result})
                 if result.get("ok") and c["name"] in TOOL_MOOD:
                     mood_set = True
                     yield ("mood", {"id": MOODS[TOOL_MOOD[c["name"]]]})
                 msgs.append({"role": "tool", "tool_call_id": c["id"] or f"call_{i}",
-                             "content": json.dumps(result, ensure_ascii=False)[:2000]})
+                             "content": json.dumps(result, ensure_ascii=False)[:6000]})
     except llm.LLMError as e:
         if not reply:
             reply = "我这边连不上了，稍等一下再试试？你刚才说的我先记在这里。"

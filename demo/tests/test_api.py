@@ -1219,5 +1219,208 @@ class ApiTest(unittest.TestCase):
             self.assertIn("选定一首慵懒浪漫的爵士曲", miss["have"])
 
 
+    # ---- 小光能看、能改、会提醒（2.11） ----------------------------------------------
+    def _tool_events(self, ev, name):
+        return [d for e, d in ev if e == "tool" and d["name"] == name]
+
+    def test_agent_removes_and_restores_a_wish_after_asking(self):
+        """线上的 bug：小光问「要我帮你删掉早睡早起吗？」，用户说「可以」，结果「没有要改的内容」。"""
+        c, uid = self.onboarded("wish_rm")
+        _, d = c.req("POST", "/api/wish", {"action": "add", "title": "早睡早起", "category": "body"})
+        wid = d["journey"]["current"]
+        c.req("POST", "/api/habit", {"action": "add", "wish_id": wid, "title": "11 点上床", "freq": "daily"})
+        c.req("POST", "/api/wish", {"action": "add", "title": "财富与事业", "category": "wealth"})
+        self.fake.turns = [[("text", "我会建议保留「健康作息」，删掉「早睡早起」。要我帮你删掉「早睡早起」吗？")],
+                           [("tool_calls", [{"id": "w1", "name": "edit_plan", "arguments": json.dumps(
+                               {"kind": "wish", "target": "早睡早起", "delete": True})}])],
+                           [("text", "收起了，记录都还在。")]]
+        c.sse("你觉得删掉哪个呢")
+        s, ev = c.sse("可以")
+        tool = self._tool_events(ev, "edit_plan")[0]
+        self.assertTrue(tool["result"]["ok"], tool["result"])
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual([w["title"] for w in d["journey"]["wishes"]], ["健康作息", "财富与事业"])
+        with Store(uid) as st:
+            from core import agent, journey
+            self.assertNotIn("11 点上床", [h["title"] for h in journey.habits(st)])   # 收起的愿望，它的习惯也不再算
+            self.assertIn("收起的愿望", agent.core_block(st.profile(), st))
+            back = agent.run_tool(st, "edit_plan", {"action": "restore", "kind": "wish", "target": "早睡早起"}, "把早睡早起找回来")
+            self.assertTrue(back["ok"], back)
+            self.assertIn("11 点上床", [h["title"] for h in journey.habits(st)])
+            # 名字对不上时不能悄悄改到「正在看的那个」愿望上
+            miss = journey.edit_item(st, "wish", "学吉他", {"title": "x"})
+            self.assertFalse(miss["ok"])
+            self.assertIn("早睡早起", miss["have"])
+
+    def test_agent_needs_consent_before_changing_things(self):
+        c, uid = self.onboarded("consent")
+        _, d = c.req("GET", "/api/bootstrap")
+        c.req("POST", "/api/habit", {"action": "add", "wish_id": d["journey"]["current"], "title": "每天跑步", "freq": "daily"})
+        self.fake.turns = [[("tool_calls", [{"id": "x1", "name": "edit_plan", "arguments": json.dumps(
+                               {"action": "remove", "kind": "habit", "target": "每天跑步"})}])],
+                           [("text", "最近是不是太累了？要不要把跑步先收起来？")]]
+        s, ev = c.sse("最近好累啊")
+        self.assertFalse(self._tool_events(ev, "edit_plan"))          # 没让改，就不动，也不出卡片
+        tool_msg = next(m for m in self.fake.seen[-1] if m["role"] == "tool")
+        self.assertIn("need_consent", tool_msg["content"])
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(len(d["journey"]["wishes"][0]["habits"]), 1)
+        self.fake.turns = [[("tool_calls", [{"id": "x2", "name": "edit_plan", "arguments": json.dumps(
+                               {"action": "remove", "kind": "habit", "target": "跑步"})}])],
+                           [("text", "先收起来了。")]]
+        s, ev = c.sse("好呀")
+        self.assertTrue(self._tool_events(ev, "edit_plan")[0]["result"]["ok"])
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["journey"]["wishes"][0]["habits"], [])
+
+    def test_agent_adds_and_edits_every_kind_of_plan_item(self):
+        c, uid = self.onboarded("plan_crud")
+        from datetime import date, timedelta
+        from core import agent, journey
+        with Store(uid) as st:
+            run = lambda args, said="帮我加一下": agent.run_tool(st, "edit_plan", args, said)
+            w = run({"action": "add", "kind": "wish", "title": "学吉他", "due_in_days": 60})
+            self.assertTrue(w["ok"], w)
+            m = run({"action": "add", "kind": "milestone", "title": "弹完第一首曲子", "due_in_days": 20, "wish": "吉他"})
+            self.assertEqual(m["wish_title"], "学吉他")
+            self.assertTrue(run({"action": "add", "kind": "habit", "title": "练琴 15 分钟", "freq": "weekly", "per_week": 3})["ok"])
+            self.assertTrue(run({"action": "add", "kind": "step", "title": "买一套琴弦"})["ok"])
+            mo = run({"action": "add", "kind": "moment", "text": "第一次按响了 C 和弦", "feeling": "手指好痛但很开心"})
+            self.assertTrue(mo["ok"] and mo["xp"]["amount"] > 0, mo)
+            reached = run({"kind": "milestone", "target": "第一首曲子", "status": "done"}, "我弹完第一首了，标一下")
+            self.assertTrue(reached["ok"] and reached["xp"]["amount"] > 0, reached)
+            self.assertTrue(run({"action": "change", "kind": "moment", "target": "C 和弦", "feeling": "很开心"}, "改一下")["ok"])
+            self.assertTrue(run({"action": "remove", "kind": "moment", "target": "C 和弦"}, "删了吧")["ok"])
+            self.assertFalse(journey.moments(st))
+            self.assertTrue(run({"action": "change", "kind": "step", "target": "琴弦", "status": "dropped"}, "先放一放")["ok"])
+            self.assertTrue(run({"action": "restore", "kind": "step", "target": "琴弦"}, "放回来")["ok"])
+            self.assertTrue(run({"action": "remove", "kind": "habit", "target": "练琴"}, "收起")["ok"])
+            self.assertTrue(run({"action": "restore", "kind": "habit", "target": "练琴"}, "找回来")["ok"])
+            wish = next(x for x in journey.wishes(st) if x["title"] == "学吉他")
+            self.assertEqual(wish["target_day"], (date.today() + timedelta(days=60)).isoformat())
+
+    def test_look_up_and_app_guide_cover_every_area(self):
+        c, uid = self.onboarded("lookup")
+        c.req("POST", "/api/record", {"type": "good", "text": "楼下的猫冲我叫了一声"})
+        from core import agent, lookup, guide
+        with Store(uid) as st:
+            for area in lookup.AREAS:
+                out = agent.run_tool(st, "look_up", {"area": area}, "看看")
+                self.assertTrue(out["ok"] and out["text"], area)
+            self.assertIn("楼下的猫", agent.run_tool(st, "look_up", {"area": "good_news"})["text"])
+            self.assertIn("健康作息", agent.run_tool(st, "look_up", {"area": "plan"})["text"])
+            for t in guide.TOPICS:
+                self.assertTrue(agent.run_tool(st, "app_guide", {"topic": t})["text"])
+            self.assertEqual(guide.guide("里程碑怎么删")["topic"], "plan")
+            prompt = agent.system_prompt(st, [])
+            self.assertIn("好消息", prompt)
+            self.assertIn("look_up", prompt)
+
+    def test_good_news_tasks_settings_and_lazy_undo_via_agent(self):
+        c, uid = self.onboarded("misc_tools")
+        from core import agent, journey
+        with Store(uid) as st:
+            meme = agent.run_tool(st, "log_good_news", {"text": "开会时脑子里在想晚饭", "type": "meme"})
+            self.assertEqual(meme["record"]["type"], "meme")
+            agent.run_tool(st, "log_good_news", {"text": "喝到一杯好喝的拿铁"})
+            out = agent.run_tool(st, "edit_good_news", {"target": "拿铁", "action": "change", "text": "喝到一杯超好喝的燕麦拿铁"}, "改一下")
+            self.assertTrue(out["ok"], out)
+            self.assertTrue(agent.run_tool(st, "edit_good_news", {"target": "晚饭", "action": "remove"}, "删掉")["ok"])
+            texts = [r["text"] for r in st.records()]
+            self.assertIn("喝到一杯超好喝的燕麦拿铁", texts)
+            self.assertNotIn("开会时脑子里在想晚饭", texts)
+
+            agent.run_tool(st, "schedule_task", {"title": "早安鼓励", "kind": "ai", "repeat": "daily", "time": "08:30"})
+            self.assertTrue(agent.run_tool(st, "edit_task", {"target": "早安", "action": "off"}, "先关掉")["ok"])
+            self.assertTrue(agent.run_tool(st, "edit_task", {"target": "早安", "action": "on"}, "打开吧")["ok"])
+            ch = agent.run_tool(st, "edit_task", {"target": "早安", "action": "change", "time": "09:00"}, "改到九点")
+            self.assertIn("09:00", ch["done"])
+            self.assertTrue(agent.run_tool(st, "edit_task", {"target": "早安", "action": "delete"}, "删了")["ok"])
+            self.assertEqual(tasks.list_for(uid), [])
+
+            s_ = agent.run_tool(st, "update_settings", {"proactive": "more", "persona": "lively", "nickname": "小鱼"}, "多督促我")
+            self.assertTrue(s_["ok"], s_)
+            p = st.profile()
+            self.assertEqual((p["proactive"], p["persona"], p["nickname"]), ("more", "lively", "小鱼"))
+            self.assertFalse(agent.run_tool(st, "update_settings", {"theme": "neon"}, "换个主题")["ok"])
+
+            agent.run_tool(st, "log_lazy_day", {})
+            self.assertTrue(journey.is_resting(st))
+            self.assertTrue(agent.run_tool(st, "log_lazy_day", {"undo": True}, "不偷懒了")["ok"])
+            self.assertFalse(journey.is_resting(st))
+
+    def test_attention_drives_chat_context_and_proactive_cues(self):
+        from datetime import date, timedelta
+        c, uid = self.onboarded("nudges")
+        _, d = c.req("GET", "/api/bootstrap")
+        wid = d["journey"]["current"]
+        today = date.fromisoformat(d["journey"]["today"])
+        c.req("POST", "/api/milestone", {"action": "add", "wish_id": wid, "title": "连续一周 12 点前睡",
+                                          "due_day": (today + timedelta(days=2)).isoformat()})
+        c.req("POST", "/api/milestone", {"action": "add", "wish_id": wid, "title": "戒掉睡前刷手机",
+                                          "due_day": (today - timedelta(days=3)).isoformat()})
+        from core import agent, nudges
+        with Store(uid) as st:
+            kinds = [x["kind"] for x in nudges.attention(st)]
+            self.assertIn("milestone_due", kinds)
+            self.assertIn("milestone_overdue", kinds)
+            note = agent.context_note([], st)
+            self.assertIn("连续一周 12 点前睡", note)
+            self.assertIn("戒掉睡前刷手机", agent.run_tool(st, "look_up", {"area": "attention"})["text"])
+            cue = scheduler.pick_cue(st)
+            self.assertIn(cue["cue"], ("milestone_due", "milestone_overdue"))
+            self.assertTrue(cue["fact"])
+            st.add_record("rest", "今天偷个懒")
+            self.assertNotIn("可以顺手提的事", agent.context_note([], st))   # 偷懒日什么都不提
+
+
+    def test_ids_with_brackets_and_dropped_streams(self):
+        from core import journey
+        items = [{"id": "r_2ac0bb9e3216", "title": "喝到一杯燕麦拿铁"}, {"id": "w_1a2b3c4d5e6f", "title": "早睡早起"}]
+        self.assertEqual(journey._pick(items, "[r_2ac0bb9e3216]")["title"], "喝到一杯燕麦拿铁")
+        self.assertEqual(journey._pick(items, "[w_1a2b3c4d5e6f] 早睡早起")["title"], "早睡早起")
+
+        def broken():
+            yield b"data: {}"
+            raise ConnectionResetError("peer reset")
+        with self.assertRaises(llm.LLMError):
+            list(llm._lines(broken()))
+
+        c, uid = self.onboarded("dropped")
+
+        def half(messages, tools=None, **kw):
+            yield ("text", "嗯，先把明天要穿的衣服")
+            raise llm.LLMError("stream interrupted: ConnectionResetError")
+        orig, llm.stream_chat = llm.stream_chat, half
+        try:
+            s, ev = c.sse("今天不知道干啥")
+        finally:
+            llm.stream_chat = orig
+        self.assertTrue(any(e == "error" for e, _ in ev))
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["messages"][-1]["content"], "嗯，先把明天要穿的衣服")   # 半句也存下了
+
+
+    def test_push_back_moves_from_the_current_date_and_noop_is_quiet(self):
+        """「往后推两周」要在原来的日子上加 14 天（线上实测曾被算成从今天起两周，反而提前了）。"""
+        c, uid = self.onboarded("shift")
+        from datetime import date, timedelta
+        target = (date.today() + timedelta(days=26)).isoformat()
+        c.req("POST", "/api/wish", {"action": "add", "title": "早睡早起", "category": "body", "target_day": target})
+        self.fake.turns = [[("tool_calls", [{"id": "s1", "name": "edit_plan", "arguments": json.dumps(
+                               {"kind": "wish", "target": "早睡早起", "shift_days": 14})}])],
+                           [("text", "往后推了两周。")],
+                           [("tool_calls", [{"id": "s2", "name": "edit_plan", "arguments": json.dumps(
+                               {"kind": "wish", "target": "早睡早起", "due_day": (date.today() + timedelta(days=40)).isoformat()})}])],
+                           [("text", "嗯，就是这天。")]]
+        s, ev = c.sse("早睡早起的计划日期往后推两周吧")
+        self.assertTrue(self._tool_events(ev, "edit_plan")[0]["result"]["ok"])
+        _, d = c.req("GET", "/api/bootstrap")
+        w = next(x for x in d["journey"]["wishes"] if x["title"] == "早睡早起")
+        self.assertEqual(w["target_day"], (date.today() + timedelta(days=40)).isoformat())
+        s, ev = c.sse("改到那天对吧")
+        self.assertFalse(self._tool_events(ev, "edit_plan"))      # 已经是这样了：不出「没成功」的卡片
+
+
 if __name__ == "__main__":
     unittest.main()

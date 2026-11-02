@@ -16,7 +16,10 @@ const TOOL = {
   cancel_task: ["clock", "var(--c-sky)", "关掉了提醒"], list_tasks: ["list", "var(--c-sky)", "看了看例行任务"],
   search_chats: ["chat", "var(--c-violet)", "翻了翻以前的聊天"],
   update_notebook: ["book", "var(--c-violet)", "改了笔记本"],
-  edit_plan: ["flag", "var(--c-orange)", "改好了计划"], add_habit: ["clock", "var(--c-mint)", "加了一个习惯"],
+  edit_plan: ["flag", "var(--c-orange)", "改计划"], add_habit: ["clock", "var(--c-mint)", "加了一个习惯"],
+  look_up: ["eye", "var(--c-violet)", "看了看"], app_guide: ["book", "var(--c-sky)", "使用说明"],
+  edit_good_news: ["star", "var(--c-lemon)", "改好消息"], edit_task: ["clock", "var(--c-sky)", "例行任务"],
+  update_settings: ["compass", "var(--c-sky)", "改了设置"],
   checkin_habit: ["checkc", "var(--c-mint)", "习惯打卡"],
   remember: ["memory", "var(--c-violet)", "记住了"], correct_memory: ["edit", "var(--c-violet)", "改掉旧记忆"],
   search_memory: ["memory", "var(--c-violet)", "翻了翻记忆"], get_growth: ["sprout", "var(--c-mint)", "查了成长"],
@@ -24,6 +27,14 @@ const TOOL = {
   start_scene: ["wind", "var(--c-mint)", "开始练习"], checkin: ["chat", "var(--c-sky)", "今天来聊了"],
   propose_moment: ["sparkles", "var(--c-violet)", "要留在轨迹上吗"],
 };
+
+const LOOK = { plan: "你的蜕变计划", wish: "这个愿望", habits: "你的习惯打卡", steps: "你的小步", moments: "轨迹上的瞬间",
+  good_news: "你的好消息", rest: "偷懒日", memories: "记得的事", notebook: "笔记本", digests: "夜里整理",
+  tasks: "例行任务", settings: "你的设置", activity: "最近的动态", growth: "成长", report: "蜕变报告",
+  academy: "心灵学堂", ideas: "点子", attention: "最近要留意的事" };
+const GUIDE = { overview: "全部功能", chat: "对话", plan: "蜕变计划", rest: "偷懒日", report: "蜕变报告", goodnews: "好消息",
+  growth: "成长进化", ideas: "点子", academy: "心灵学堂", space: "我的空间", tasks: "例行任务", panel: "小光面板", proactive: "主动消息" };
+const PLAN_DONE = { add: "加进计划", change: "改了计划", remove: "删掉了", restore: "找回来了" };
 
 // 小光提议的计划：逐项勾选，用户点「加进计划」才写入
 function planFoot(el, result) {
@@ -124,12 +135,13 @@ function mountLive(list, scroll) {
 
 function toolCard(name, args, result, quiet = false) {
   const ok = result?.ok !== false;
-  let title = "", note = "", foot = "";
+  let title = "", note = "", foot = "", label = "";
   switch (name) {
     case "add_step": title = result.step?.title || args.title || ""; note = "写进蜕变计划了"; break;
     case "complete_step": title = ok ? result.step?.title : "没找到对应的一小步"; note = ok ? "打勾了，花园里多了一株" : "没有写入任何完成记录"; break;
     case "log_good_news": title = ok ? result.record?.text : "没有记下来"; note = ok ? `第 ${result.count} 颗星` : result.error; break;
-    case "log_lazy_day": title = result?.already ? "今天已经在偷懒了" : (result?.record?.text || "").split("：")[1] || "给自己放个假"; note = "习惯和小步都先暂停，小芽陪你一起睡";
+    case "log_lazy_day": if (result?.undone || args.undo) { title = ok ? "不偷懒了" : "没改成"; note = ok ? "习惯和小步都回来了" : result.error; label = "今天不偷懒了"; break; }
+      title = result?.already ? "今天已经在偷懒了" : (result?.record?.text || "").split("：")[1] || "给自己放个假"; note = "习惯和小步都先暂停，小芽陪你一起睡";
       foot = ok ? `<button class="btn btn-sm btn-ghost" data-lazy-pick="rest">明天继续</button><button class="btn btn-sm btn-ghost" data-lazy-pick="adjust">调整一下计划</button><button class="btn btn-sm btn-quiet" data-lazy-pick="chat">就想聊聊天</button>` : ""; break;
     case "propose_plan": title = ok ? `给「${result.wish_title}」的一套安排` : "没能提议"; note = ok ? "勾掉不想要的，再加进计划" : result.error;
       foot = ok ? " " : ""; break;
@@ -140,7 +152,14 @@ function toolCard(name, args, result, quiet = false) {
     case "list_tasks": title = `${(result.tasks || []).filter((x) => x.on).length} 个开着的例行任务`; note = (result.tasks || []).filter((x) => x.on).map((x) => `${x.title}（${x.when}）`).join("；"); break;
     case "search_chats": title = (result.hits || []).length ? `找到 ${(result.hits || []).length} 段` : "没翻到"; note = (result.hits || []).slice(0, 2).map((x) => `${x.date.slice(5, 10)} ${x.text}`).join(" / "); break;
     case "edit_plan": title = ok ? `「${result.title}」` : "这次没改成"; note = ok ? (result.changed || []).join("，") : result.error;
+      if (ok) label = result.kind === "wish" && result.action === "remove" ? "收起了愿望" : result.kind === "habit" && result.action === "remove" ? "收起了习惯" : PLAN_DONE[result.action] || "改了计划";
       foot = ok ? `<button class="btn btn-sm btn-ghost" data-go="plan">去蜕变计划看看</button>` : ""; break;
+    case "look_up": title = LOOK[args.area] || "你的记录"; note = ""; break;
+    case "app_guide": title = GUIDE[result.topic || args.topic] || "使用说明"; note = ""; break;
+    case "edit_good_news": title = ok ? (result.removed ? `删掉：${result.text}` : result.text) : "这次没改成"; note = ok ? (result.removed ? "" : (result.changed || []).join("，")) : result.error;
+      foot = ok ? `<button class="btn btn-sm btn-ghost" data-go="goodnews">去好消息看看</button>` : ""; break;
+    case "edit_task": title = ok ? result.task : "没找到这个任务"; note = ok ? result.done : result.error; break;
+    case "update_settings": title = ok ? (result.changed || []).join("，") : "这次没改成"; note = ok ? "想改回来跟我说，或者去「我的空间 → 设置」" : result.error; break;
     case "update_notebook": title = ok ? ({ add: "加进笔记本了", replace: "改好了", remove: "删掉了" }[args.action || "add"]) : "这次没改成";
       note = ok ? (args.text || args.old || "") : result.error; foot = ok ? `<button class="btn btn-sm btn-ghost" data-go-notebook>看看笔记本</button>` : ""; break;
     case "add_habit": title = ok ? result.habit.title : "没有加上"; note = ok ? `${result.habit.freq_text} · 放进「${result.wish_title}」了` : result.error; break;
@@ -174,7 +193,8 @@ function toolCard(name, args, result, quiet = false) {
   }
   const amount = result?.xp?.amount || (name === "checkin" ? result?.amount : 0);
   const xp = result?.xp ? xpNote(result.xp) : name === "checkin" ? xpNote(result) : "";
-  const [ic, col, label] = TOOL[name] || ["sparkles", "var(--accent)", "动作"];
+  const [ic, col, base] = TOOL[name] || ["sparkles", "var(--accent)", "动作"];
+  label = label || base;
   const el = document.createElement("div");
   el.className = `tool ${ok ? "" : "fail"}`;
   el.innerHTML = `${tile(ok ? ic : "close", ok ? col : "var(--danger)", 40)}

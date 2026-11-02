@@ -13,7 +13,7 @@ from __future__ import annotations
 import threading
 import time
 
-from . import digest, llm, tasks, webpush
+from . import digest, llm, nudges, tasks, webpush
 from .store import Store, UID_RE
 from .util import DATA, clip, day_key, hours_since, iso, now
 
@@ -60,12 +60,30 @@ def should_reach_out(p: dict, has_unseen: bool, ref=None) -> tuple[bool, str]:
     return True, "ok"
 
 
+# 计划里值得提的事 → 主动消息的参考文案（模型会按 TA 的记忆改写成自己的话）
+CUE_TEXT = {
+    "milestone_overdue": "「{t}」那个站点的日子过了，到了吗？没到也没关系，我们把日子挪一挪。",
+    "milestone_due": "「{t}」快到日子了，现在走到哪一步了？",
+    "habit_behind": "这周「{t}」有点赶不上了，要不要这周先少做一次？",
+    "habit_week": "「{t}」这周还差一点，今天要不要做一次？",
+    "habit_today": "今天的「{t}」做了吗？做了跟我说一声，我帮你打卡。",
+    "wish_due": "「{t}」快到你定的日子了，想不想一起看看这段路？",
+    "wish_overdue": "「{t}」定的日子已经过了，要不要一起回头看看，或者把日子往后挪？",
+    "old_step": "「{t}」放了好几天了，还想做吗？可以拆得再小一点。",
+    "no_path": "「{t}」还没有具体的路，要不要一起拆一拆？",
+}
+
+
 def pick_cue(store: Store) -> dict:
-    """What to talk about, in priority order (template copy from creative §C)."""
+    """What to talk about, in priority order: the plan first (things due / falling behind), then the old cues."""
     p = store.profile()
     recs = store.records(5)
     if recs and recs[0]["type"] == "rest" and recs[0]["day"] != day_key():
         return {"cue": "after_rest", "text": "昨天好好歇了一天，小芽也睡饱了。今天想从哪件小事开始？"}
+    for it in nudges.attention(store):
+        if it["kind"] in CUE_TEXT and (it["prio"] >= 2 or it["kind"] in ("old_step", "no_path")):
+            name = it["text"].split("「", 1)[1].split("」", 1)[0] if "「" in it["text"] else ""
+            return {"cue": it["kind"], "text": CUE_TEXT[it["kind"]].format(t=clip(name, 18)), "fact": it["text"]}
     todo = [s for s in store.steps() if s["status"] == "todo"]
     if todo:
         return {"cue": "step", "text": f"「{clip(todo[0]['title'], 18)}」还在等你。今天只做开头五分钟，也算。"}
@@ -85,7 +103,8 @@ def compose(store: Store) -> dict:
             "不说教、不鸡血、不催；不要用「不是……而是……」这类转折句式。只输出 JSON：{\"text\":\"...\"}")},
         {"role": "user", "content": (
             f"话题方向：{cue['cue']}；参考文案：{cue['text']}\n"
-            f"TA 想靠近：{p.get('intent_primary') or '未知'}\n"
+            + (f"这件事的真实情况：{cue['fact']}\n" if cue.get("fact") else "")
+            + f"TA 想靠近：{p.get('intent_primary') or '未知'}\n"
             "记忆：\n" + "\n".join("- " + m["text"] for m in mems))},
     ], timeout=25)
     text = clip((out or {}).get("text") or "", 120) or cue["text"]
@@ -143,7 +162,9 @@ def compose_task(st: Store, t: dict) -> str:
             f"你是「{p.get('agent_name') or '小光'}」，这个人的朋友。{VOICES.get(persona, VOICES['gentle'])}\n"
             "现在是 TA 让你定时做的一件事，到点了。按要求给 TA 发一条消息：1–3 句，口语，像朋友发微信；"
             "只用下面给出的真实信息，不编造；不说教、不鸡血；不要用「不是……而是……」句式。只输出 JSON：{\"text\":\"...\"}")},
-        {"role": "user", "content": (f"例行任务：{t['title']}\n要求：{t['message'] or t['title']}\n\n关于 TA：\n{core_block(p, st)}\n\n最近的对话：\n"
+        {"role": "user", "content": (f"例行任务：{t['title']}\n要求：{t['message'] or t['title']}\n\n关于 TA：\n{core_block(p, st)}\n\n"
+                                     f"从 TA 的计划里看到值得提的事（督促、复盘类的任务就用这些，挑最要紧的一两件）：\n"
+                                     f"{nudges.as_text(nudges.attention(st)) or '没有特别的'}\n\n最近的对话：\n"
                                      + "\n".join(("TA：" if m["role"] == "user" else "你：") + clip(m["content"], 80) for m in recent))},
     ], timeout=30)
     text = clip(str((out or {}).get("text") or "").strip(), 200)
