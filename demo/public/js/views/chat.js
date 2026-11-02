@@ -96,7 +96,33 @@ const HINTS = [
   ["今天被老师夸了", "star"], ["水桶效应是什么意思", "book"], ["我什么时候能进化？", "sprout"],
 ];
 
-function toolCard(name, args, result) {
+// 正在进行的一轮对话。回复是流式的、可能要十几秒；这期间用户切去别的页面，
+// 对话页会被整个重画，所以这一轮的内容不能只放在页面元素上：放在这里，回来时接着画。
+let live = null;   // { text, acc, memories, tools: [], done, sceneToStart, am, scroll }
+
+function liveEls() {
+  const am = live?.am;
+  if (!am || !am.isConnected) return null;
+  return { am, col: am.querySelector(".col"), txt: am.querySelector(".txt"), when: am.querySelector(".when") };
+}
+
+// 在当前的对话页里画出「这一轮」：用户那句 + 小光正在写的回复（已经收到的部分和工具卡片）
+function mountLive(list, scroll) {
+  list.append(bubble({ role: "user", content: live.text }));
+  const am = document.createElement("div");
+  am.className = "msg assistant";
+  am.innerHTML = `${agentMini()}<div class="col"><div class="bub"><div class="txt"><span class="dots"><i></i><i></i><i></i></span></div></div><div class="when"></div></div>`;
+  list.append(am);
+  live.am = am;
+  live.scroll = scroll;
+  const e = liveEls();
+  if (live.memories) { const r = recall(live.memories); if (r) e.col.insertBefore(r, e.when); }
+  for (const t of live.tools) e.col.insertBefore(toolCard(t.name, t.args, t.result, true), e.when);
+  if (live.acc) e.txt.innerHTML = richText(live.acc) + (live.done ? "" : '<span class="caret"></span>');
+  scroll();
+}
+
+function toolCard(name, args, result, quiet = false) {
   const ok = result?.ok !== false;
   let title = "", note = "", foot = "";
   switch (name) {
@@ -169,8 +195,8 @@ function toolCard(name, args, result) {
     f.innerHTML = `<span class="muted">${pick === "rest" ? "好，明天我们再继续。" : "好，想说什么都行，我听着。"}</span>`;
     if (pick === "chat") document.querySelector(".composer textarea")?.focus();
   }));
-  if (amount) setTimeout(() => flyXP(el.querySelector(".tool-xp"), amount), 250);
-  if (ok && ["log_good_news", "complete_step", "checkin_habit"].includes(name)) setTimeout(() => burstAt(el.querySelector(".tile"), 26), 150);
+  if (amount && !quiet) setTimeout(() => flyXP(el.querySelector(".tool-xp"), amount), 250);
+  if (ok && !quiet && ["log_good_news", "complete_step", "checkin_habit"].includes(name)) setTimeout(() => burstAt(el.querySelector(".tile"), 26), 150);
   return el;
 }
 
@@ -239,6 +265,11 @@ export function renderChat(root) {
     list.append(bubble(m));
   }
   const scroll = () => { thread.scrollTop = thread.scrollHeight; };
+  if (live) {
+    if (lastDay !== "今天") { list.insertAdjacentHTML("beforeend", `<div class="day"><span>今天</span></div>`); lastDay = "今天"; }
+    list.querySelector(".opener")?.remove();
+    mountLive(list, scroll);
+  }
   requestAnimationFrame(scroll);
   // 主动消息已经画在对话里了：打开对话就算看过，不然它会一直挡住小光的下一条
   if ((d.inbox || []).length) api.inboxSeen().then(() => setData({ inbox: [] })).catch(() => {});
@@ -259,61 +290,62 @@ export function renderChat(root) {
     ta.value = b.dataset.fill; state.composerDraft = ta.value; grow(); ta.focus();
   }));
 
-  let busy = false;
   async function sendMsg() {
     const text = ta.value.trim();
-    if (!text || busy) return;
-    busy = true;
+    if (!text || live) return;          // 上一轮还没回完（哪怕是在别的页面发的）
     const sentAt = Date.now() - 5000;
     ta.value = ""; state.composerDraft = ""; grow();
     if (lastDay !== "今天") { list.insertAdjacentHTML("beforeend", `<div class="day"><span>今天</span></div>`); lastDay = "今天"; }
     list.querySelector(".opener")?.remove();
-    list.append(bubble({ role: "user", content: text }));
-    const am = document.createElement("div");
-    am.className = "msg assistant";
-    am.innerHTML = `${agentMini()}<div class="col"><div class="bub"><div class="txt"><span class="dots"><i></i><i></i><i></i></span></div></div><div class="when"></div></div>`;
-    list.append(am);
-    scroll();
-    const col = am.querySelector(".col");
-    const txt = am.querySelector(".txt");
-    let acc = "", started = false, sceneToStart = null;
+    live = { text, acc: "", memories: null, tools: [], done: false, sceneToStart: null };
+    mountLive(list, scroll);
+    const turn = live;
+    const sc = () => turn.scroll?.();
+    let started = false;
 
     try {
       await streamChat(text, {
         mood: ({ id }) => setAgentMood(id),
-        context: ({ memories }) => { const r = recall(memories); if (r) col.insertBefore(r, am.querySelector(".when")); },
+        context: ({ memories }) => {
+          turn.memories = memories;
+          const e = liveEls(); const r = e && recall(memories);
+          if (r) e.col.insertBefore(r, e.when);
+        },
         delta: ({ text: t }) => {
-          if (!started) { started = true; txt.innerHTML = ""; }
-          acc += t;
-          txt.innerHTML = richText(acc) + '<span class="caret"></span>';
-          scroll();
+          turn.acc += t;
+          const e = liveEls();
+          if (e) { if (!started) { started = true; e.txt.innerHTML = ""; } e.txt.innerHTML = richText(turn.acc) + '<span class="caret"></span>'; sc(); }
         },
         tool: ({ name, args, result }) => {
-          col.insertBefore(toolCard(name, args, result), am.querySelector(".when"));
-          if (name === "start_scene" && result?.ok) sceneToStart = result.scene;
+          turn.tools.push({ name, args, result });
+          const e = liveEls();
+          if (e) e.col.insertBefore(toolCard(name, args, result), e.when);
+          if (name === "start_scene" && result?.ok) turn.sceneToStart = result.scene;
           if (name === "complete_step" || name === "log_good_news") pulseAgent("bounce");
-          scroll();
+          sc();
         },
         error: () => { setAgentMood("error"); toast("模型服务暂时连不上", "err"); },
       });
     } catch (e) {
-      acc = acc || "我这边连不上了，稍后再试试。你刚才说的我先留着。";
+      turn.acc = turn.acc || "我这边连不上了，稍后再试试。你刚才说的我先留着。";
       setAgentMood("error");
       toast(e.message || "发送失败", "err");
     } finally {
-      txt.innerHTML = richText(acc || "嗯。");
-      am.querySelector(".when").textContent = fmtTime(new Date().toISOString());
-      busy = false;
+      turn.done = true;
+      let e = liveEls();
+      if (e) { e.txt.innerHTML = richText(turn.acc || "嗯。"); e.when.textContent = fmtTime(new Date().toISOString()); }
       try {
         const data = await refresh();
         // 只用这一轮刚写下的回复（防止拿到别的时间点的消息）
         const last = (data.messages || []).slice(-1)[0];
-        if (last?.role === "assistant" && Date.parse(last.created_at) >= sentAt && last.content && last.content.length > acc.length) txt.innerHTML = richText(last.content);
+        e = liveEls();
+        if (e && last?.role === "assistant" && Date.parse(last.created_at) >= sentAt && last.content && last.content.length > turn.acc.length) e.txt.innerHTML = richText(last.content);
       } catch {}
-      if (sceneToStart) setTimeout(() => startScene(sceneToStart), 900);
+      if (live === turn) live = null;    // 之后重画对话页就直接用服务器上的记录了
+      if (turn.sceneToStart && state.route === "chat") setTimeout(() => startScene(turn.sceneToStart), 900);
       setTimeout(() => setAgentMood("idle"), 2600);
-      scroll();
-      ta.focus();
+      sc();
+      if (liveEls() || document.contains(ta)) ta.focus();
     }
   }
   send.addEventListener("click", sendMsg);
