@@ -173,6 +173,10 @@ export const ICONS = {
   report: '<path d="M7 3.5h7l4 4v13H7z"/><path d="M14 3.5v4h4M9.5 12h6M9.5 15.5h4"/>',
   quote: '<path d="M9.5 7.5H6v4.5h3.5V15c0 1.5-1 2.5-2.5 2.5M18.5 7.5H15v4.5h3.5V15c0 1.5-1 2.5-2.5 2.5"/>',
   lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
+  home: '<path d="M4 11.2 12 4.5l8 6.7"/><path d="M6.2 9.6V19.5h11.6V9.6"/><path d="M10 19.5v-5h4v5"/>',
+  minus: '<path d="M6 12h12"/>',
+  box: '<path d="M4.5 8 12 4l7.5 4v8L12 20l-7.5-4z"/><path d="M4.5 8 12 12l7.5-4M12 12v8"/>',
+  chevron: '<path d="m7 10 5 5 5-5"/>',
 };
 
 export function icon(name, size = "") {

@@ -446,8 +446,11 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(s, 200)
         self.assertEqual(d2["xp"]["amount"], 10)
         self.assertEqual(d2["growth"]["today"]["by_source"]["action"], 10)
-        earned = {b["id"] for b in d2["growth"]["badges"] if b["earned"]}
-        self.assertIn("step_1", earned)
+        # 金币：小步 10 + 第一份建材 40 + 每日任务「完成 1 个小步」10；经验：小步 10 + 每日任务 5
+        self.assertEqual((d2["xp"]["coin_event"], d2["xp"]["first_gift"], d2["xp"]["coins"]), (10, 40, 60))
+        self.assertEqual((d2["xp"]["amount"], d2["xp"]["amount_total"]), (10, 15))
+        self.assertEqual(d2["growth"]["coins"], 60)
+        self.assertGreaterEqual(d2["growth"]["coins"], d2["town"]["catalog"][0]["price"])   # 够盖第一栋小木屋
 
     def test_memory_confirm_edit_forget(self):
         c, uid = self.onboarded("mem")
@@ -570,8 +573,8 @@ class ApiTest(unittest.TestCase):
         goods = [c.req("POST", "/api/record", {"type": "good", "text": f"好事{i}"})[1]["xp"]["amount"] for i in range(6)]
         self.assertEqual(goods, [6, 6, 6, 6, 6, 0])          # 好消息每天 30 封顶
         _, d = c.req("GET", "/api/bootstrap")
-        self.assertEqual(d["growth"]["today"]["total"], 60)
-        self.assertLessEqual(d["growth"]["today"]["total"], 120)
+        self.assertEqual(d["growth"]["today"]["events"], 60)          # 真实的事；每日任务的经验另算
+        self.assertLessEqual(d["growth"]["today"]["events"], 120)
         with Store(uid) as st:                                # 同一件事不重复计分
             from core import growth
             r = growth.award(st, "good", ref="rec:same")
@@ -579,43 +582,190 @@ class ApiTest(unittest.TestCase):
             self.assertTrue(r["capped"] or r["amount"] >= 0)
             self.assertTrue(r2.get("duplicate") or r2.get("capped"))
 
-    def test_pet_branches_by_affinity_and_evolves_once(self):
+    def test_old_account_moves_into_a_town(self):
+        """老账号：经验和等级一分不少，过去的经验按一半换成金币，宠物 / 徽章的记忆收起来，升级只庆祝一次。"""
         from core import growth
-        c, uid = self.onboarded("branch")
-        with Store(uid) as st:   # 300 经验，好消息为主，分布在过去几天（绕开每日上限）
+        c, uid = self.onboarded("migrate")
+        with Store(uid) as st:   # 假装这是升级前的老账号：300 经验，小光还记着小芽
+            st.c.execute("DELETE FROM coin")
+            st.c.execute("DELETE FROM town_item")
+            st.set_profile({"town_v": 0, "town_seen_level": 0, "town_welcome": "",
+                            "notebook": {"text": "喜欢早上跑步。\n给宠物小芽起名叫豆豆。", "by": "digest"}})
             for i in range(30):
                 st.c.execute("INSERT INTO xp(id, day, source, amount, ref, note, created_at) VALUES(?,?,?,?,?,?,?)",
                              (f"x{i}", f"2026-01-{i % 28 + 1:02d}", "good" if i % 3 else "action", 10, f"seed:{i}", "",
                               f"2026-01-{i % 28 + 1:02d}T10:00:00+08:00"))
+            pet = st.add_memory("TA 的宠物小芽快分化了", "event")
+            keep = st.add_memory("TA 喜欢早上跑步", "preference")
         _, d = c.req("GET", "/api/bootstrap")
-        self.assertEqual(d["growth"]["stage"]["key"], "baby")
-        self.assertEqual(d["growth"]["leaning"], "deer")
-        self.assertEqual(d["growth"]["evolved"]["to"], "baby")      # 300 经验：蛋已经孵化
+        g, t = d["growth"], d["town"]
+        self.assertEqual((g["total"], g["level"]["lv"]), (300, 8))     # 旧算法 300 经验是 Lv8，换曲线后保底
+        self.assertEqual(g["coins"], 150)
+        self.assertEqual(t["size"], 7)
+        self.assertEqual(t["welcome"]["kind"], "migrated")
+        self.assertIsNone(g["level_up"])                               # 老账号已经到的等级不补庆祝
+        self.assertEqual({i["kind"] for i in t["items"]}, {"sign", "road"})
+        with Store(uid) as st:
+            self.assertEqual(st.get_memory(pet["id"])["status"], "archived")
+            self.assertEqual(st.get_memory(keep["id"])["status"], "active")
+            self.assertNotIn("小芽", st.profile()["notebook"]["text"])
+            self.assertIn("跑步", st.profile()["notebook"]["text"])
+        _, d = c.req("GET", "/api/bootstrap")                         # 只迁移一次
+        self.assertEqual(d["growth"]["coins"], 150)
+        c.req("POST", "/api/town", {"action": "welcome_seen"})
+        _, out = c.req("POST", "/api/record", {"type": "good", "text": "跨过 320 的那一件"})
+        self.assertEqual(out["xp"]["first_gift"], 0)                  # 换过金币的老账号不再送第一份建材
         _, d = c.req("GET", "/api/bootstrap")
-        self.assertIsNone(d["growth"]["evolved"])                   # 只报一次
-        self.assertTrue(all(n["silhouette"] for n in d["growth"]["tree"] if n.get("tier")))
-        c.req("POST", "/api/record", {"type": "good", "text": "第 306"})
-        c.req("POST", "/api/record", {"type": "good", "text": "跨过 310 的那一件"})
+        self.assertEqual(d["growth"]["level"]["lv"], 8)                 # 曲线上还不到 Lv9（740），保底不掉
+        self.assertEqual(d["growth"]["level"]["to_next"], growth.xp_for_level(9) - d["growth"]["total"])
+        with Store(uid) as st:   # 过去的几天又攒了一些，跨过 Lv9
+            for i in range(45):
+                st.c.execute("INSERT INTO xp(id, day, source, amount, ref, note, created_at) VALUES(?,?,?,?,?,?,?)",
+                             (f"y{i}", "2026-02-01", "action", 10, f"seed:y{i}", "", "2026-02-01T10:00:00+08:00"))
         _, d = c.req("GET", "/api/bootstrap")
-        _, d2 = c.req("GET", "/api/bootstrap")
-        evolved = [x["growth"]["evolved"] for x in (d, d2) if x["growth"]["evolved"]]
-        # the record call itself returns a bootstrap, so the flag may have been consumed there
-        self.assertLessEqual(len(evolved), 1)
-        self.assertEqual(d2["growth"]["branch"], "deer")
-        self.assertEqual(d2["growth"]["stage"]["key"], "deer-1")
-        self.assertIsNone(d2["growth"]["evolved"])
-        self.assertEqual(growth.leaning([{"id": k, "xp": 10, "share": 1 / 3, "branch": b}
-                                         for k, b in (("action", "fox"), ("good", "deer"), ("practice", "whale"))]), "star")
+        self.assertEqual(d["growth"]["level"]["lv"], 9)
+        self.assertEqual(d["growth"]["level_up"]["to"], 9)
+        self.assertIn("小图书馆", [i["name"] for i in d["growth"]["level_up"]["unlocks"]])
+        self.assertIsNone(d["town"]["welcome"])
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertIsNone(d["growth"]["level_up"])                     # 只报一次
 
-    def test_badges_unlock_once(self):
-        c, _ = self.onboarded("badges")
-        _, out = c.req("POST", "/api/record", {"type": "good", "text": "第一颗星"})
-        self.assertIn("good_1", [b["id"] for b in out["growth"]["badges_new"]])
+    def test_town_buy_place_move_store(self):
+        c, uid = self.onboarded("town")
         _, d = c.req("GET", "/api/bootstrap")
-        self.assertNotIn("good_1", [b["id"] for b in d["growth"]["badges_new"]])
-        self.assertTrue(next(b for b in d["growth"]["badges"] if b["id"] == "good_1")["earned"])
-        cats = {b["cat"] for b in d["growth"]["badges"]}
-        self.assertTrue({"对话", "计划", "好消息", "练习", "记忆", "学堂", "报告", "陪伴", "成长"} <= cats)
+        self.assertEqual(d["growth"]["coins"], 0)
+        s, err = c.req("POST", "/api/town", {"action": "buy", "kind": "cottage", "x": 2, "y": 2, "nonce": "first-try"})
+        self.assertEqual(s, 400)                                       # 还没做事，没有金币
+        c.req("POST", "/api/step", {"action": "add", "title": "整理书桌"})
+        sid = next(x for x in c.req("GET", "/api/bootstrap")[1]["steps"] if x["status"] == "todo")["id"]
+        _, d = c.req("POST", "/api/step", {"action": "done", "id": sid})
+        self.assertEqual(d["growth"]["coins"], 60)
+        buy = {"action": "buy", "kind": "cottage", "x": 2, "y": 2, "nonce": "click-0001"}
+        s, d = c.req("POST", "/api/town", buy)
+        self.assertEqual(s, 200, d)
+        self.assertEqual(d["built"]["name"], "小木屋")
+        self.assertIn("整理书桌", d["built"]["story"]["text"])        # 记下那之前做成的事
+        self.assertEqual(d["growth"]["coins"], 20)
+        s, d = c.req("POST", "/api/town", buy)                        # 同一次点击重发：不再扣钱
+        self.assertTrue(d["built"]["again"])
+        self.assertEqual(d["growth"]["coins"], 20)
+        self.assertEqual(sum(1 for i in d["town"]["items"] if i["kind"] == "cottage"), 1)
+        for bad, why in ((dict(buy, nonce="click-0002"), "这里已经有东西了"),
+                         (dict(buy, nonce="click-0003", x=1, y=1), "金币还差"),
+                         (dict(buy, nonce="click-0004", kind="house", x=1, y=1), "Lv3"),
+                         (dict(buy, nonce="click-0005", kind="road", x=9, y=9), "还没开出来")):
+            s, err = c.req("POST", "/api/town", bad)
+            self.assertEqual(s, 400, bad)
+            self.assertIn(why, err["error"])
+        self.assertEqual(c.req("GET", "/api/bootstrap")[1]["growth"]["coins"], 20)   # 失败的不扣钱
+        hid = next(i for i in d["town"]["items"] if i["kind"] == "cottage")["id"]
+        _, d = c.req("POST", "/api/town", {"action": "move", "id": hid, "x": 4, "y": 1})
+        self.assertEqual((d["moved"]["x"], d["moved"]["y"]), (4, 1))
+        self.assertEqual(c.req("POST", "/api/town", {"action": "move", "id": hid, "x": 0, "y": 0})[0], 400)   # 路牌在那儿
+        _, d = c.req("POST", "/api/town", {"action": "store", "id": hid})
+        self.assertIn(hid, [i["id"] for i in d["town"]["warehouse"]])
+        self.assertNotIn(hid, [i["id"] for i in d["town"]["items"]])
+        _, d = c.req("POST", "/api/town", {"action": "place", "id": hid, "x": 3, "y": 3})
+        self.assertIn(hid, [i["id"] for i in d["town"]["items"]])
+        self.assertEqual(d["growth"]["coins"], 20)                    # 挪、收、放都不花钱
+        _, d = c.req("POST", "/api/town", {"action": "rename", "name": "晴 天 镇"})
+        self.assertEqual(d["town"]["name"], "晴天镇")
+        ledger = c.req("GET", "/api/bootstrap")[1]["growth"]["ledger"]
+        self.assertIn(("建造：小木屋", -40), [(e["note"], e["coins"]) for e in ledger])
+        self.assertIn(("完成：整理书桌", 10, 10), [(e["note"], e["xp"], e["coins"]) for e in ledger])   # 同一件事一行
+
+    def test_daily_tasks_pay_once_and_chat_gives_no_coins(self):
+        from core.util import day_key
+        c, uid = self.onboarded("daily")
+        with Store(uid) as st:   # 今天的四件：固定的行动 + 小确幸 + 做一次练习 + 记两件好事
+            st.set_profile({"daily_pick": {"day": day_key(), "ids": ["act", "good", "practice", "record2"], "scene": "gratitude"}})
+        self.fake.turns = [[("text", "嗨")]]
+        c.sse("在吗")                                                 # 每天第一次来聊：只有经验
+        _, d = c.req("GET", "/api/bootstrap")
+        dl = d["growth"]["daily"]
+        self.assertEqual((d["growth"]["today"]["by_source"]["checkin"], d["growth"]["coins"]), (8, 0))
+        self.assertEqual([t["id"] for t in dl["tasks"]], ["act", "good", "practice", "record2"])
+        self.assertEqual(dl["max"], {"xp": 5 + 5 + 8 + 10 + 10, "coins": 10 + 8 + 12 + 18 + 20})
+        self.assertFalse(any(t["done"] for t in dl["tasks"]))
+        _, out = c.req("POST", "/api/record", {"type": "good", "text": "晒到了太阳"})
+        self.assertEqual([x["id"] for x in out["xp"]["daily"]], ["good"])
+        self.assertEqual((out["xp"]["amount"], out["xp"]["amount_total"]), (6, 11))   # 好消息 6 + 每日任务 5
+        _, out = c.req("POST", "/api/record", {"type": "good", "text": "又一件"})
+        self.assertEqual([x["id"] for x in out["xp"]["daily"]], ["record2"])            # 第二件：记两件好事
+        _, out = c.req("POST", "/api/record", {"type": "good", "text": "第三件"})
+        self.assertEqual(out["xp"]["daily"], [])                       # 一天只发一次
+        from core import scenes
+        _, d = c.req("POST", "/api/scene/start", {"scene": "gratitude"})
+        for i in range(len(scenes.SCENES["gratitude"]["steps"])):
+            _, sc = c.req("POST", "/api/scene/answer", {"run_id": d["run"]["id"], "text": f"第{i}件"})
+        self.assertEqual([x["id"] for x in sc["xp"]["daily"]], ["practice"])
+        # 偷懒：行动那项先暂停，另外三件做到了就拿全勤
+        _, d = c.req("POST", "/api/record", {"type": "rest", "text": "今天偷个懒"})
+        act = next(t for t in d["growth"]["daily"]["tasks"] if t["id"] == "act")
+        self.assertTrue(act["rest"] and not act["done"])
+        self.assertTrue(d["growth"]["daily"]["bonus"]["paid"])
+        coins, xp = d["growth"]["coins"], d["growth"]["total"]
+        for _ in range(2):
+            _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual((d["growth"]["coins"], d["growth"]["total"]), (coins, xp))   # 刷新不会多发
+        self.assertEqual(d["growth"]["daily"]["got"], {"xp": 5 + 8 + 10 + 10, "coins": 8 + 12 + 18 + 20})
+        with Store(uid) as st:
+            n = st.c.execute("SELECT COUNT(*) FROM coin WHERE kind='daily'").fetchone()[0]
+            self.assertEqual(n, 4)                                     # 小确幸 + 两件好事 + 练习 + 全勤
+            self.assertIn("今天的每日任务四件都做到了", [a["text"] for a in st.activity(10)])
+
+    def test_daily_tasks_rotate_and_fit_the_person(self):
+        from core import growth
+        from core.util import day_key
+        c, uid = self.onboarded("rotate")
+        with Store(uid) as st:
+            picks = []
+            for day in ("2026-03-01", "2026-03-02", "2026-03-03", "2026-03-04"):
+                p = growth._pick(st, day)
+                self.assertEqual(p["ids"][0], "act")                   # 第一件永远是行动
+                self.assertEqual([growth.DAILY[i]["slot"] for i in p["ids"]], list(growth.SLOTS))
+                self.assertNotIn("habit2", p["ids"])                   # 没有两个习惯就不出「两个习惯」
+                self.assertNotIn("wish2", p["ids"])                    # 只有一个愿望
+                picks.append(tuple(p["ids"]))
+                self.assertEqual(growth._pick(st, day), p)             # 同一天再问一遍不变
+            self.assertGreater(len(set(picks)), 1)                     # 每天不一样
+            st.set_profile({"daily_pick": {"day": day_key(), "ids": ["act", "good", "pick", "act3"], "scene": "meditation"}})
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["growth"]["daily"]["pick"], "meditation")   # 点子页的今日推荐就是它
+        self.assertIn("短冥想", next(t for t in d["growth"]["daily"]["tasks"] if t["id"] == "pick")["label"])
+        from core import scenes
+        _, run = c.req("POST", "/api/scene/start", {"scene": "gratitude"})   # 做别的练习：不算「今天推荐的」
+        for i in range(len(scenes.SCENES["gratitude"]["steps"])):
+            _, sc = c.req("POST", "/api/scene/answer", {"run_id": run["run"]["id"], "text": "好"})
+        self.assertEqual(sc["xp"]["daily"], [])
+        _, run = c.req("POST", "/api/scene/start", {"scene": "meditation"})
+        for i in range(len(scenes.SCENES["meditation"]["steps"])):
+            _, sc = c.req("POST", "/api/scene/answer", {"run_id": run["run"]["id"], "text": "好"})
+        self.assertEqual([x["id"] for x in sc["xp"]["daily"]], ["pick"])
+
+    def test_level_curve_grows_and_never_drops(self):
+        from core import growth
+        self.assertEqual([growth.xp_for_level(l) for l in (1, 2, 3, 5, 10, 20)], [0, 40, 95, 250, 900, 3325])
+        self.assertEqual(growth.level_of(39)["lv"], 1)
+        self.assertEqual(growth.level_of(40)["lv"], 2)
+        lv = growth.level_of(322, floor=9)                             # 老账号保底 Lv9
+        self.assertEqual((lv["lv"], lv["into"], lv["to_next"]), (9, 0, growth.xp_for_level(10) - 322))
+        self.assertEqual(growth.level_of(2000, floor=9)["lv"], 15)      # 曲线追上来以后照常升
+
+    def test_last_step_of_a_wish_says_so(self):
+        c, uid = self.onboarded("cleared")
+        _, d = c.req("GET", "/api/bootstrap")
+        wid = d["journey"]["current"]
+        for t in ("第一步", "第二步"):
+            c.req("POST", "/api/step", {"action": "add", "title": t, "wish_id": wid})
+        todo = [x for x in c.req("GET", "/api/bootstrap")[1]["steps"] if x["status"] == "todo" and x["wish_id"] == wid]
+        _, out = c.req("POST", "/api/step", {"action": "done", "id": todo[0]["id"]})
+        self.assertIsNone(out["cleared"])                              # 还有一步
+        _, out = c.req("POST", "/api/step", {"action": "done", "id": todo[1]["id"]})
+        self.assertEqual((out["cleared"]["wish_id"], out["cleared"]["done"]), (wid, 2))
+        from core import nudges
+        with Store(uid) as st:
+            self.assertIn("steps_cleared", [x["kind"] for x in nudges.attention(st)])
 
     # ---- nightly digest ------------------------------------------------------------
     def test_digest_protects_explicit_memory(self):
@@ -898,7 +1048,10 @@ class ApiTest(unittest.TestCase):
         mid = d["milestone"]["id"]
         _, d = c.req("POST", "/api/milestone", {"action": "done", "id": mid})
         self.assertEqual(d["journey"]["wishes"][0]["milestones"][0]["status"], "done")
-        self.assertIn("第一站", [b["name"] for b in d["growth"]["badges"] if b["earned"]])
+        self.assertEqual([(i["name"], i["note"]) for i in d["town"]["warehouse"]], [("纪念碑", "能连续跑 5 公里")])
+        _, d = c.req("POST", "/api/milestone", {"action": "todo", "id": mid})
+        _, d = c.req("POST", "/api/milestone", {"action": "done", "id": mid})
+        self.assertEqual(len(d["town"]["warehouse"]), 1)               # 改回来再到达，不会再送一块
         # 休息日：记一次、重复点不重复记、可以撤销
         _, d = c.req("POST", "/api/record", {"type": "rest"})
         _, d = c.req("POST", "/api/record", {"type": "rest"})
@@ -983,11 +1136,11 @@ class ApiTest(unittest.TestCase):
             _, d = c.req("POST", "/api/habit", {"action": "ease", "id": hid})
             self.assertEqual(d["eased"], want)
         self.assertEqual(c.req("POST", "/api/habit", {"action": "ease", "id": hid})[0], 400)
-        # 一键偷懒（带原因）：行动这项任务暂停并算作完成，休息记录留在时间线上
+        # 一键偷懒（带原因）：每日任务的行动这项先暂停，休息记录留在时间线上
         c2, uid = self.member("rest_mode2")       # 今天还没做任何行动的人
         _, d = c2.req("POST", "/api/record", {"type": "rest", "text": "今天偷个懒：有点累"})
-        q = next(x for x in d["growth"]["quests"] if x["id"] == "action")
-        self.assertTrue(q["done"] and q.get("rest"))
+        q = next(x for x in d["growth"]["daily"]["tasks"] if x["id"] == "act")
+        self.assertTrue(q["rest"] and not q["done"])
         self.assertIn("今天偷个懒：有点累", [a["text"] for a in d["activity"]])
         c = c2
         # 偷懒日小光不主动打扰（演示用的强制触发不受影响）
@@ -996,7 +1149,7 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(scheduler.deliver(st)["reason"], "今天是偷懒日，不打扰")
         # 不偷懒了：任务恢复
         _, d = c.req("POST", "/api/record", {"type": "rest", "undo": True})
-        self.assertFalse(next(x for x in d["growth"]["quests"] if x["id"] == "action").get("rest"))
+        self.assertFalse(next(x for x in d["growth"]["daily"]["tasks"] if x["id"] == "act")["rest"])
 
     def test_chat_lazy_day_and_adjust_habit(self):
         c, uid = self.onboarded("lazy_chat")
@@ -1320,6 +1473,10 @@ class ApiTest(unittest.TestCase):
             prompt = agent.system_prompt(st, [])
             self.assertIn("好消息", prompt)
             self.assertIn("look_up", prompt)
+            self.assertIn("小镇", prompt)
+            self.assertNotIn("宠物「", prompt)
+            g = agent.run_tool(st, "get_growth", {}, "我能建什么")
+            self.assertTrue(g["ok"] and "coins" in g["growth"] and g["growth"]["town"]["land"] == "5×5")
 
     def test_good_news_tasks_settings_and_lazy_undo_via_agent(self):
         c, uid = self.onboarded("misc_tools")

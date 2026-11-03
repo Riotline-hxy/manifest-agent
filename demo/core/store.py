@@ -14,6 +14,9 @@ Tables
   activity(id, kind, text, at)  audit log shown under the avatar
   inbox(id, text, cue, created_at, seen)                  proactive messages
   scene_run(id, scene, step, answers, status)             灵感 scene progress
+  xp(id, day, source, amount, ref, note)                  经验账本（growth.py）
+  coin(id, day, kind, amount, ref, note)                  金币账本：收入为正、花费为负（growth.py）
+  town_item(id, kind, x, y, placed, note, story, ...)     小镇里的建筑和仓库（town.py）
 """
 from __future__ import annotations
 
@@ -21,6 +24,7 @@ import math
 import re
 import sqlite3
 import threading
+from contextlib import contextmanager
 
 from . import metrics
 from .util import DATA, clip, day_key, dumps, fts_doc, fts_query, iso, loads, new_id, now, parse_iso
@@ -42,18 +46,22 @@ DEFAULT_PROFILE = {
     "custom_moods": [],     # 用户自己加的心情词
     "digest_on": True,      # 例行任务「夜里整理记忆」的开关
     "notebook": {},         # 小光的笔记本：夜里整理时更新的、关于 TA 的长期笔记 {text, updated_at}
-    "pet_name": "小芽", "pet_branch": "", "pet_branch_at": "", "pet_stage_seen": "",
     "last_digest_day": "", "current_wish": "", "cheer": {},
-    "xp": 0, "badges": [], "last_chat_at": "", "last_proactive_at": "", "created_at": "",
+    "xp": 0, "last_chat_at": "", "last_proactive_at": "", "created_at": "",
+    # 我的小镇（town.py）：名字、数据版本、已经庆祝过的等级、第一次进小镇时的欢迎（new / migrated）
+    "town_name": "", "town_v": 0, "town_seen_level": 0, "town_welcome": "",
+    "level_floor": 1,       # 老账号按旧算法到过的等级：换成递增曲线后不掉级
+    "daily_pick": {},       # 今天的每日任务和今日推荐的练习 {day, ids, scene}，当天定下就不变
 }
 
-_locks: dict[str, threading.Lock] = {}
+_locks: dict[str, threading.RLock] = {}
 _locks_guard = threading.Lock()
 
 
-def _lock_for(uid: str) -> threading.Lock:
+def _lock_for(uid: str) -> threading.RLock:
+    # 可重入：发奖励、买建筑要把几步写操作包在一把锁里，中间还会调 set_profile 这类自己也加锁的方法
     with _locks_guard:
-        return _locks.setdefault(uid, threading.Lock())
+        return _locks.setdefault(uid, threading.RLock())
 
 
 class Store:
@@ -80,6 +88,22 @@ class Store:
     def __exit__(self, *a):
         self.close()
 
+    @contextmanager
+    def tx(self):
+        """一把锁 + 一个写事务：几步写操作要么都成，要么都不成（发奖励、买建筑）。
+        嵌套调用时里层直接用外层的事务。"""
+        with self.lock:
+            if self.c.in_transaction:
+                yield
+                return
+            self.c.execute("BEGIN IMMEDIATE")
+            try:
+                yield
+            except BaseException:
+                self.c.execute("ROLLBACK")
+                raise
+            self.c.execute("COMMIT")
+
     def _schema(self):
         self.c.executescript(
             """
@@ -104,7 +128,16 @@ class Store:
             CREATE INDEX IF NOT EXISTS xp_day ON xp(day, source);
             CREATE TABLE IF NOT EXISTS article_read(
               id TEXT PRIMARY KEY, at TEXT);
-            CREATE TABLE IF NOT EXISTS badge(id TEXT PRIMARY KEY, at TEXT);
+            CREATE TABLE IF NOT EXISTS badge(id TEXT PRIMARY KEY, at TEXT);   -- 旧徽章（已下架，数据保留不读）
+            CREATE TABLE IF NOT EXISTS coin(
+              id TEXT PRIMARY KEY, day TEXT, kind TEXT, amount INTEGER, ref TEXT, note TEXT, created_at TEXT);
+            CREATE INDEX IF NOT EXISTS coin_day ON coin(day, kind);
+            CREATE UNIQUE INDEX IF NOT EXISTS coin_ref ON coin(ref) WHERE ref != '';
+            CREATE TABLE IF NOT EXISTS town_item(
+              id TEXT PRIMARY KEY, kind TEXT, x INTEGER, y INTEGER, placed INTEGER DEFAULT 1,
+              note TEXT DEFAULT '', story TEXT DEFAULT '', source TEXT DEFAULT 'shop', price INTEGER DEFAULT 0,
+              ref TEXT DEFAULT '', created_at TEXT, placed_at TEXT);
+            CREATE UNIQUE INDEX IF NOT EXISTS town_cell ON town_item(x, y) WHERE placed = 1;
             CREATE TABLE IF NOT EXISTS stat(k TEXT PRIMARY KEY, n INTEGER DEFAULT 0);
             CREATE TABLE IF NOT EXISTS digest(
               day TEXT PRIMARY KEY, summary TEXT, highlights TEXT, stats TEXT, ops TEXT,
@@ -209,7 +242,7 @@ class Store:
     def revisions(self, limit: int = 40) -> list[dict]:
         return [dict(r) for r in self.c.execute("SELECT * FROM memory_rev ORDER BY at DESC, rowid DESC LIMIT ?", (limit,))]
 
-    # ---- counters (badges) ----------------------------------------------------
+    # ---- counters --------------------------------------------------------------
     def stat(self, k: str) -> int:
         r = self.c.execute("SELECT n FROM stat WHERE k=?", (k,)).fetchone()
         return int(r["n"]) if r else 0
@@ -290,7 +323,8 @@ class Store:
         return dict(self.c.execute("SELECT * FROM step WHERE id=?", (sid,)).fetchone())
 
     def steps(self, limit: int = 100) -> list[dict]:
-        return [dict(r) for r in self.c.execute("SELECT * FROM step ORDER BY created_at DESC LIMIT ?", (limit,))]
+        # rowid 兜底：同一秒加进来的几步（比如一起加进计划的）也保持加入的先后
+        return [dict(r) for r in self.c.execute("SELECT * FROM step ORDER BY created_at DESC, rowid DESC LIMIT ?", (limit,))]
 
     def set_step(self, sid: str, status: str) -> dict | None:
         with self.lock:
@@ -313,13 +347,6 @@ class Store:
                 scored = sorted(((len(want & set(tokens(x["title"]))), x) for x in todo), key=lambda z: -z[0])
                 hit = scored[0][1] if scored and scored[0][0] >= 2 else None
         return self.set_step(hit["id"], "done") if hit else None
-
-    def gain_xp(self, n: int = 10) -> dict:
-        """Legacy helper kept for older call sites; new code uses growth.award,
-        which enforces the daily/source caps and de-duplication."""
-        from . import growth
-        out = growth.award(self, "action", ref=new_id("legacy"), note="经验", amount=n)
-        return rank(int(self.profile().get("xp") or 0)) | {"gain": out.get("amount", 0)}
 
     # ---- records (好消息 / 偷懒日 / 新发现) ---------------------------------
     def add_record(self, type_: str, text: str, day: str | None = None) -> dict:
@@ -437,16 +464,3 @@ class Store:
     def update_scene(self, rid: str, step: int, answers: list, status: str = "active") -> None:
         self.scene_update(rid, step, answers, status)
 
-
-RANKS = [(0, "萌芽"), (60, "微光"), (160, "小光"), (320, "星光")]
-
-
-def rank(xp: int) -> dict:
-    cur = RANKS[0]
-    nxt = None
-    for i, r in enumerate(RANKS):
-        if xp >= r[0]:
-            cur = r
-            nxt = RANKS[i + 1] if i + 1 < len(RANKS) else None
-    return {"xp": xp, "rank": cur[1], "next_rank": nxt[1] if nxt else None,
-            "next_at": nxt[0] if nxt else None, "floor": cur[0]}

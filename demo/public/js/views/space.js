@@ -5,7 +5,8 @@ import { state, setData, go } from "../store.js";
 import { esc, toast, sheet, h, confirmSheet, fmtDay, icon, tile } from "../ui.js";
 import { burstAt } from "../fx.js";
 import { mountBall, setAgentColor } from "../ball.js";
-import { petSVG } from "../pet.js";
+import { townSVG, builtCount } from "../town.js";
+import { timelineHTML, nowIso } from "../timeline.js";
 import { THEMES, AGENT_COLORS, applyTheme, agentColor, themeOf } from "../theme.js";
 import { themeCard, placeInd } from "../app.js";
 import { openAccount, logout } from "../account.js";
@@ -20,7 +21,7 @@ const REASON = { user_corrected: "你在聊天里更正", user_edit: "你亲手�
 export function renderSpace(root) {
   const d = state.data;
   const p = d.profile || {};
-  const g = d.growth || {};
+  const t = d.town;
   const mems = d.memories || [];
   const tab = state.spaceTab || "memory";
   root.innerHTML = `
@@ -34,10 +35,10 @@ export function renderSpace(root) {
             <span><b class="num">${mems.filter((m) => m.status === "active").length}</b>条记忆</span>
             <span><b class="num">${d.counts?.good || 0}</b>颗星</span>
             <span><b class="num">${d.counts?.done || 0}</b>个小步</span>
-            <span><b class="num">${(g.badges || []).filter((b) => b.earned).length}</b>枚徽章</span>
+            <span><b class="num">${t ? builtCount(t) : 0}</b>栋房子</span>
           </div>
         </div>
-        <div class="me-pet" data-go="growth">${petSVG(g.stage?.art || "pet-egg", { cls: "alive" })}</div>
+        ${t ? `<button class="me-town" data-go="town" aria-label="去我的小镇">${townSVG(t, { still: true })}</button>` : ""}
       </section>
       <div class="tabs space-tabs">${TABS.map(([k, l]) => `<button class="${k === tab ? "on" : ""}" data-tab="${k}">${l}</button>`).join("")}<span class="ind"></span></div>
       <div class="space-body"></div>
@@ -46,7 +47,7 @@ export function renderSpace(root) {
   const tabs = root.querySelector(".space-tabs");
   requestAnimationFrame(() => placeInd(tabs));
   tabs.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { state.spaceTab = b.dataset.tab; renderSpace(root); }));
-  root.querySelector("[data-go]").addEventListener("click", () => go("growth"));
+  root.querySelector("[data-go]")?.addEventListener("click", () => go("town"));
   ({ memory: memoryTab, digest: digestTab, timeline: timelineTab, settings: settingsTab })[tab](root.querySelector(".space-body"), root);
 }
 
@@ -171,10 +172,8 @@ function digestTab(body, root) {
 }
 
 function timelineTab(body) {
-  const ICON = { plan: "flag", record: "star", memory: "memory", scene: "wind", growth: "sprout", onboarding: "compass", profile: "settings", proactive: "letter", step: "flag" };
-  body.innerHTML = `<div class="tl card">${(state.data.activity || []).map((a, i) => `<div class="act" style="--i:${i}">${icon(ICON[a.kind] || "checkc")}
-    <div><div class="t">${esc(a.text)}</div><div class="w">${esc(fmtDay(a.at))} ${esc((a.at || "").slice(11, 16))}</div></div></div>`).join("")
-    || `<div class="empty"><p>还没有动静。</p></div>`}</div>`;
+  const d = state.data;
+  body.innerHTML = `<div class="tl space-tl card">${timelineHTML(d.activity, { sums: d.growth?.day_totals, tasks: d.tasks, today: d.journey?.today, now: nowIso(), limit: 80 })}</div>`;
 }
 
 function settingsTab(body, root) {
@@ -202,7 +201,7 @@ function settingsTab(body, root) {
         <button class="btn btn-sm btn-ghost" data-name-edit2>修改</button></div>
       <div class="set-row">${tile("user", "var(--c-orange)", 40)}<div class="sl"><b>账号</b><small>${guest ? "现在是体验账号，注册后记录会一直留着" : `已登录：${esc(state.user?.username || "")}`}</small></div>
         <button class="btn btn-sm btn-ghost" data-account>${guest ? "注册 / 退出" : "退出登录"}</button></div>
-      <div class="set-row">${tile("sprout", "var(--c-mint)", 40)}<div class="sl"><b>宠物的名字</b><small>现在叫「${esc(p.pet_name || "小芽")}」</small></div>
+      <div class="set-row">${tile("home", "var(--c-mint)", 40)}<div class="sl"><b>小镇的名字</b><small>现在叫「${esc(state.data.town?.name || "我的小镇")}」</small></div>
         <button class="btn btn-sm btn-ghost" data-rename>改名</button></div>
       <div class="set-row">${tile("bell", "var(--c-lemon)", 40)}<div class="sl"><b>手机通知</b><small data-push-note>正在看这台设备……</small></div>
         <div class="set-acts" data-push-acts></div></div>
@@ -230,10 +229,11 @@ function settingsTab(body, root) {
   body.querySelector("[data-name-edit2]").addEventListener("click", () => nameSheet(root));
   body.querySelector("[data-account]").addEventListener("click", () => (guest ? openAccount() : confirmLogout()));
   body.querySelector("[data-rename]").addEventListener("click", () => {
-    const input = h("input", { class: "field", maxlength: "8" });
-    input.value = p.pet_name || "小芽";
-    const s = sheet({ title: "给宠物起个名字", sticker: "sprout", body: input, footer: [h("button", { class: "btn btn-main", onclick: async () => {
-      s.close(); save({ pet_name: input.value.trim() || "小芽" });
+    const input = h("input", { class: "field", maxlength: "10", placeholder: "比如：晴天镇" });
+    input.value = state.data.town?.name === "我的小镇" ? "" : state.data.town?.name || "";
+    const s = sheet({ title: "给小镇起个名字", sticker: "home", body: input, footer: [h("button", { class: "btn btn-main", onclick: async () => {
+      s.close();
+      try { setData(await api.town("rename", { name: input.value })); toast("改好了"); renderSpace(root); } catch (e) { toast(e.message, "err"); }
     } }, "就叫这个")] });
   });
   body.querySelector("[data-proactive]").addEventListener("click", async () => {

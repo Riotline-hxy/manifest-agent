@@ -5,15 +5,16 @@ import { api } from "../api.js";
 import { state } from "../store.js";
 import { esc, toast, sheet, h, icon, tile } from "../ui.js";
 import { confetti, countUp } from "../fx.js";
-import { petSVG, jarSVG } from "../pet.js";
+import { jarSVG } from "../art.js";
+import { townSVG } from "../town.js";
 
 const NODE = { start: ["flag", "var(--c-orange)"], good: ["star", "var(--c-lemon)"], action: ["checkc", "var(--c-mint)"],
   rest: ["moon", "var(--c-violet)"], theme: ["quote", "var(--c-pink)"] };
-const petNow = () => state.data.growth?.stage?.art || "pet-baby";
+const townArt = () => (state.data.town ? townSVG(state.data.town, { still: true }) : "");
 
 export async function renderReport(root) {
   const days = state.reportDays || 14;
-  root.innerHTML = `<div class="view-inner"><div class="empty">${petSVG(petNow(), { cls: "alive" })}<p>正在把小事串起来…</p></div></div>`;
+  root.innerHTML = `<div class="view-inner"><div class="empty"><div class="rh-town">${townArt()}</div><p>正在把小事串起来…</p></div></div>`;
   let r;
   try {
     r = await api.report(days, true);
@@ -53,7 +54,7 @@ function draw(root, r) {
           </div>
           ${r.empty ? "" : `<button class="btn btn-main btn-lg" data-play>${icon("play")}播放回顾</button>`}
         </div>
-        <div class="rh-pet">${petSVG(petNow(), { cls: "alive" })}</div>
+        <div class="rh-pet rh-town">${townArt()}</div>
       </section>
 
       ${r.empty ? `<div class="empty"><h3>这 ${r.period} 天的记录还不够</h3><p>报告不会凭空编故事。多聊几句、记几件好事再来。</p></div>` : `
@@ -105,11 +106,11 @@ function draw(root, r) {
 // ------------------------------------------------------------ 故事模式 ----
 function slides(r) {
   const n = r.narrative || {};
-  const pet = petNow();
+  const art = townArt();
   const firstGood = r.nodes.find((x) => x.kind === "good");
   const theme = r.nodes.find((x) => x.kind === "theme");
   const out = [
-    { tone: "a", html: `<div class="s-art">${petSVG(pet, { cls: "alive" })}</div><div class="s-k">${r.period} 天</div><h2>这是你的<br>蜕变回顾</h2><p>${esc(r.facts.name || "你")}，准备好了吗？</p>` },
+    { tone: "a", html: `<div class="s-art town">${art}</div><div class="s-k">${r.period} 天</div><h2>这是你的<br>蜕变回顾</h2><p>${esc(r.facts.name || "你")}，准备好了吗？</p>` },
     { tone: "b", html: `<div class="s-k">这段时间你</div>
         <div class="s-nums"><div><b class="num" data-c="${r.facts.good}">0</b><span>条好消息</span></div>
         <div><b class="num" data-c="${r.facts.done}">0</b><span>个小步</span></div>
@@ -120,7 +121,7 @@ function slides(r) {
   if (theme) out.push({ tone: "d", html: `<div class="s-k">你写下的好事里，反复出现的是</div><h2 class="huge">${esc(theme.title)}</h2><p>它也许比你以为的更重要。</p>` });
   if (r.surprise) out.push({ tone: "e", html: `<div class="s-k">你可能没注意到</div><h2 class="mid">${esc(r.surprise)}</h2>` });
   if (n.text) out.push({ tone: "f", html: `<div class="s-k">小光写给你</div><p class="s-letter">${esc(n.text)}</p>` });
-  out.push({ tone: "a", end: true, html: `<div class="s-art">${petSVG(pet, { cls: "alive" })}</div><h2>下一段，<br>不用更快。</h2><p>想留个纪念，可以做一张只公开你选的内容的分享卡。</p>
+  out.push({ tone: "a", end: true, html: `<div class="s-art town">${art}</div><h2>下一段，<br>不用更快。</h2><p>想留个纪念，可以做一张只公开你选的内容的分享卡。</p>
     <div class="s-acts"><button class="btn btn-main btn-lg" data-s-share>做分享卡</button><button class="btn btn-ghost btn-lg" data-s-close>回到报告</button></div>` });
   return out;
 }

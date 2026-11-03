@@ -22,7 +22,7 @@
   --btn: #f7cb4d; --btn-ink: #3b2a00; --btn-deep: #c99a1c;
   --good: #7ed957; --good-ink: #10300a; --good-deep: #3d8f2a; --good-soft: rgba(126,217,87,.16);
   --danger: #ff7a6e; --input: rgba(0,0,0,.22); --scrim: rgba(3,16,11,.62);
-  --sil: rgba(255,255,255,.13); --pet-shadow: rgba(0,0,0,.28); --press: rgba(0,0,0,.3);
+  --press: rgba(0,0,0,.3);
   --shadow: 0 12px 34px rgba(0,0,0,.28);
   --sky-a: #13294a; --sky-b: #0c2a26; --jar-glass: rgba(255,255,255,.1); --jar-edge: rgba(255,255,255,.45);
   --ground-a: #2c7a57; --ground-b: #1a5038;
@@ -37,7 +37,7 @@
   --btn: #f2f2f4; --btn-ink: #111114; --btn-deep: #8e8e98;
   --good: #4fd1a5; --good-ink: #062b1e; --good-deep: #2f9c78; --good-soft: rgba(79,209,165,.14);
   --danger: #ff7a6e; --input: rgba(255,255,255,.05); --scrim: rgba(0,0,0,.6);
-  --sil: rgba(255,255,255,.1); --pet-shadow: rgba(0,0,0,.4); --press: rgba(0,0,0,.5);
+  --press: rgba(0,0,0,.5);
   --shadow: 0 12px 34px rgba(0,0,0,.45);
   --sky-a: #15152a; --sky-b: #0e0e14; --jar-glass: rgba(255,255,255,.08); --jar-edge: rgba(255,255,255,.35);
   --ground-a: #2a2a35; --ground-b: #1c1c24;
@@ -52,7 +52,7 @@
   --btn: #1d1d1f; --btn-ink: #ffffff; --btn-deep: #4a4a50;
   --good: #2fae5b; --good-ink: #ffffff; --good-deep: #23854a; --good-soft: rgba(47,174,91,.12);
   --danger: #e5534b; --input: #ffffff; --scrim: rgba(20,20,24,.32);
-  --sil: rgba(0,0,0,.08); --pet-shadow: rgba(0,0,0,.1); --press: rgba(0,0,0,.18);
+  --press: rgba(0,0,0,.18);
   --shadow: 0 10px 30px rgba(20,20,30,.08);
   --sky-a: #2b2f5e; --sky-b: #1d2240; --jar-glass: rgba(139,124,255,.08); --jar-edge: rgba(139,124,255,.45);
   --ground-a: #cfe9c9; --ground-b: #a9d6a0;
@@ -67,7 +67,7 @@
   --btn: #ff8a65; --btn-ink: #ffffff; --btn-deep: #e0673f;
   --good: #3fb37f; --good-ink: #ffffff; --good-deep: #2d8c61; --good-soft: rgba(63,179,127,.13);
   --danger: #e5534b; --input: #ffffff; --scrim: rgba(80,40,20,.25);
-  --sil: rgba(120,60,30,.1); --pet-shadow: rgba(120,60,30,.12); --press: rgba(120,60,30,.2);
+  --press: rgba(120,60,30,.2);
   --shadow: 0 10px 30px rgba(120,60,30,.09);
   --sky-a: #5b3a6b; --sky-b: #3a2440; --jar-glass: rgba(255,255,255,.6); --jar-edge: rgba(255,138,101,.55);
   --ground-a: #ffd9b8; --ground-b: #ffc39a;
@@ -82,7 +82,7 @@
   --btn: #5b9dff; --btn-ink: #ffffff; --btn-deep: #3d7fe0;
   --good: #34b27b; --good-ink: #ffffff; --good-deep: #278a5e; --good-soft: rgba(52,178,123,.13);
   --danger: #e5534b; --input: #ffffff; --scrim: rgba(20,40,70,.28);
-  --sil: rgba(30,60,110,.09); --pet-shadow: rgba(30,60,110,.12); --press: rgba(30,60,110,.2);
+  --press: rgba(30,60,110,.2);
   --shadow: 0 10px 30px rgba(30,60,110,.09);
   --sky-a: #23365e; --sky-b: #172443; --jar-glass: rgba(91,157,255,.08); --jar-edge: rgba(91,157,255,.45);
   --ground-a: #cfe8dc; --ground-b: #a9d6c2;
@@ -159,24 +159,11 @@ h1, h2, h3, h4 { font-weight: 700; margin: 0; letter-spacing: -0.01em; }
 .sparkle::before { content: ""; position: absolute; inset: 0; background: #fffbe6; clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%); filter: drop-shadow(0 0 6px rgba(255,240,180,.95)); }
 @keyframes twinkle { 0%,100% { transform: scale(.55) rotate(0); opacity: .35; } 50% { transform: scale(1) rotate(20deg); opacity: 1; } }
 
-/* 宠物 SVG 的公共动效 */
-.pet { overflow: visible; }
-.pet-shadow { fill: var(--pet-shadow); }
-.pet .pet-body { transform-origin: 100px 186px; }
-.pet.alive .pet-body { animation: pet-bob 3.6s ease-in-out infinite; }
-.pet.alive .pe { animation: blink 4.8s infinite; }
-.pet.alive .pet-shadow { animation: shadow-bob 3.6s ease-in-out infinite; transform-origin: 100px 186px; }
-@keyframes pet-bob { 0%,100% { transform: translateY(0) scale(1, 1); } 50% { transform: translateY(-6px) scale(1.01, .99); } }
-@keyframes shadow-bob { 50% { transform: scaleX(.88); opacity: .7; } }
-@keyframes blink { 0%, 93%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
-.pet.sleeping .pet-body { animation: pet-sleep 4.8s ease-in-out infinite; }
-.pet.sleeping .pe { animation: none; }
-@keyframes pet-sleep { 50% { transform: scale(1.025, .975); } }
-.pet .zzz text { fill: var(--text-2); font-family: var(--font); font-weight: 900; font-size: 18px; opacity: 0; animation: zzz 3.6s ease-in-out infinite; }
-.pet .zzz text:nth-child(2) { font-size: 22px; animation-delay: 1.2s; }
-.pet .zzz text:nth-child(3) { font-size: 26px; animation-delay: 2.4s; }
-@keyframes zzz { 0% { opacity: 0; transform: translate(-6px, 10px); } 30% { opacity: .8; } 100% { opacity: 0; transform: translate(8px, -12px); } }
-.pet.sil .pet-shadow { opacity: .5; }
+/* 打盹的 z（偷懒日的小屋）*/
+.zzz text { fill: var(--text-2); font-family: var(--font); font-weight: 900; font-size: 12px; opacity: 0; animation: zzz 3.6s ease-in-out infinite; }
+.zzz text:nth-child(2) { font-size: 14px; animation-delay: 1.2s; }
+.zzz text:nth-child(3) { font-size: 17px; animation-delay: 2.4s; }
+@keyframes zzz { 0% { opacity: 0; transform: translate(-4px, 8px); } 30% { opacity: .8; } 100% { opacity: 0; transform: translate(6px, -10px); } }
 
 @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }

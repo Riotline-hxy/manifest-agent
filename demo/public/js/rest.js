@@ -1,10 +1,10 @@
 // 偷懒日：一个轻量、没有负担的休息模式。
 // 一键选择 → 小光接住 → 用户自己决定：明天继续 / 调整一下计划 / 和小光聊聊天。
-// 当天的习惯和小步都暂停，所有进度保留；宠物陪你一起睡。计划页、对话、面板共用这里的流程。
+// 当天的习惯和小步都暂停，所有进度保留，什么都不扣。计划页、对话、面板共用这里的流程。
 import { api } from "./api.js";
 import { state, setData, go } from "./store.js";
 import { esc, icon, toast, sheet, h } from "./ui.js";
-import { petSVG } from "./pet.js";
+import { napSVG } from "./town.js";
 import { agentMini } from "./ball.js";
 
 const REASONS = ["有点累", "心情不太好", "今天太忙了", "就是想歇歇"];
@@ -21,17 +21,15 @@ export const restedYesterday = () => {
   const y = new Date(new Date(J.today + "T00:00:00Z").getTime() - 864e5).toISOString().slice(0, 10);
   return (J.rest_days || []).includes(y) && !isResting();
 };
-export const petArt = () => state.data?.growth?.stage?.art || "baby";
-export const petName = () => state.data?.growth?.pet_name || "小芽";
 
 // 一键偷懒。onDone 在记好之后调用（用于刷新所在页面）
 export function openLazy({ onDone } = {}) {
   if (isResting()) return restInfo({ onDone });
   let reason = "", choice = "rest";
   const body = h("div", { class: "lazy", html: `
-    <div class="lazy-scene">${petSVG(petArt(), { sleep: true, cls: "alive" })}</div>
+    <div class="lazy-scene">${napSVG()}</div>
     <div class="lazy-say"><span class="lazy-av">${agentMini()}</span>
-      <p>收到！今天给自己放个假吧，${esc(petName())}也想睡一会儿。明天我们再继续。需要我帮你调整一下计划吗？</p></div>
+      <p>收到！今天给自己放个假吧，小镇的灯会一直亮着等你。明天我们再继续。需要我帮你调整一下计划吗？</p></div>
     <div class="lbl">想歇歇的原因 <span class="muted">（可选）</span></div>
     <div class="lazy-reasons">${REASONS.map((r) => `<button type="button" class="chip" data-r="${r}">${r}</button>`).join("")}</div>
     <div class="lazy-choices" role="radiogroup">${CHOICES.map(([k, t, sub]) => `<button type="button" class="lazy-opt ${k === choice ? "on" : ""}" role="radio" aria-checked="${k === choice}" data-c="${k}">
@@ -53,7 +51,7 @@ export function openLazy({ onDone } = {}) {
       else if (choice === "chat") {
         state.autoSend = reason ? `今天${reason}，不太想做任务，想和你随便聊聊。` : "今天不太想做任务，想和你随便聊聊。";
         go("chat");
-      } else toast(`好好休息，${petName()}陪你一起睡`, "", "moon");
+      } else toast("好好休息，明天见", "", "moon");
     } catch (e) { toast(e.message, "err"); }
   };
   const s = sheet({ title: "今天偷个懒", body, sticker: "moon",
@@ -65,12 +63,12 @@ export function openLazy({ onDone } = {}) {
 function restInfo({ onDone } = {}) {
   const rec = (state.data.records || []).find((r) => r.type === "rest" && r.day === state.data.journey.today);
   const body = h("div", { class: "lazy", html: `
-    <div class="lazy-scene">${petSVG(petArt(), { sleep: true, cls: "alive" })}</div>
-    <p class="lazy-now">今天是偷懒日${rec && rec.text.includes("：") ? `（${esc(rec.text.split("：")[1])}）` : ""}。习惯和小步都先暂停，${esc(petName())}睡得正香。</p>` });
+    <div class="lazy-scene">${napSVG()}</div>
+    <p class="lazy-now">今天是偷懒日${rec && rec.text.includes("：") ? `（${esc(rec.text.split("：")[1])}）` : ""}。习惯和小步都先暂停，什么进度都不会少。</p>` });
   const s = sheet({ title: "今天在偷懒", body, sticker: "moon",
     footer: [
       h("button", { class: "btn btn-ghost", onclick: async () => {
-        try { setData(await api.rest(true)); s.close(); onDone?.(); toast(`${petName()}醒了，我们继续`, "", "sun"); } catch (e) { toast(e.message, "err"); }
+        try { setData(await api.rest(true)); s.close(); onDone?.(); toast("醒啦，我们继续", "", "sun"); } catch (e) { toast(e.message, "err"); }
       } }, "不偷懒了"),
       h("button", { class: "btn btn-ghost", onclick: () => { s.close(); adjustSheet({ onDone }); } }, "调整一下计划"),
       h("button", { class: "btn btn-main", onclick: () => s.close() }, "继续睡"),
@@ -119,19 +117,19 @@ export function adjustSheet({ onDone } = {}) {
   s.panel.classList.add("lazy-sheet");
 }
 
-// 计划页「今天」卡片顶部的条：平时一句提醒 + 按钮；偷懒日换成陪睡的小芽
+// 计划页「今天」卡片顶部的条：平时一句提醒 + 按钮；偷懒日换成夜里亮着灯的小屋
 export function restBannerHTML() {
   if (isResting()) {
     const rec = (state.data.records || []).find((r) => r.type === "rest" && r.day === state.data.journey.today);
     const why = rec && rec.text.includes("：") ? rec.text.split("：")[1] : "";
     return `<div class="rest-on">
-      <div class="rest-pet">${petSVG(petArt(), { sleep: true, cls: "alive" })}</div>
-      <div class="rest-txt"><b>今天是偷懒日${why ? ` · ${esc(why)}` : ""}</b><p>${esc(petName())}陪你一起睡。习惯和小步都先暂停，明天再继续。</p>
+      <div class="rest-pet">${napSVG()}</div>
+      <div class="rest-txt"><b>今天是偷懒日${why ? ` · ${esc(why)}` : ""}</b><p>习惯和小步都先暂停，明天再继续。经验、金币、小镇都不会少。</p>
         <div class="rest-acts"><button class="btn btn-sm btn-ghost" data-rest-adjust>${icon("leaf")}调整一下计划</button>
           <button class="btn btn-sm btn-ghost" data-rest-chat>${icon("chat")}和小光聊聊</button>
           <button class="btn btn-sm btn-quiet" data-rest-off>不偷懒了</button></div></div></div>`;
   }
-  return `<div class="rest-off">${restedYesterday() ? `<span>昨天好好歇了一天，${esc(petName())}也睡饱了。今天从哪件小事开始？</span>` : `<span>不用每一天都拼尽全力。</span>`}
+  return `<div class="rest-off">${restedYesterday() ? `<span>昨天好好歇了一天。今天从哪件小事开始？</span>` : `<span>不用每一天都拼尽全力。</span>`}
     <button class="btn btn-sm btn-ghost" data-lazy>${icon("moon")}今天偷个懒</button></div>`;
 }
 
@@ -140,6 +138,6 @@ export function bindRestBanner(root, rerender) {
   root.querySelector("[data-rest-adjust]")?.addEventListener("click", () => adjustSheet({ onDone: rerender }));
   root.querySelector("[data-rest-chat]")?.addEventListener("click", () => { state.autoSend = "今天在偷懒，不太想做任务，想和你随便聊聊。"; go("chat"); });
   root.querySelector("[data-rest-off]")?.addEventListener("click", async () => {
-    try { setData(await api.rest(true)); toast(`${petName()}醒了，我们继续`, "", "sun"); rerender(); } catch (e) { toast(e.message, "err"); }
+    try { setData(await api.rest(true)); toast("醒啦，我们继续", "", "sun"); rerender(); } catch (e) { toast(e.message, "err"); }
   });
 }

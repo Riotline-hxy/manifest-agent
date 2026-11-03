@@ -8,7 +8,7 @@
   4. 后台：记忆写入管线（core/memory.py）
 
 边界（讨论稿 2.4）：写入类工具返回真实回执，失败时模型必须说「没写进去」；
-学堂只有只读检索，没有编辑 / 发布工具；经验值只能由 growth.award 计算。
+学堂只有只读检索，没有编辑 / 发布工具；经验和金币只能由 growth.award 计算，小镇的买卖只在界面上由用户自己点。
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import re
 from datetime import timedelta
 import threading
 
-from . import academy, growth, guide, journey, llm, lookup, memory, nudges, tasks
+from . import academy, growth, guide, journey, llm, lookup, memory, nudges, tasks, town
 from .scenes import SCENES
 from .store import Store
 from .util import clip, day_key, now, parse_iso
@@ -116,10 +116,11 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
   不要向 TA 解释工具、系统、识别这些内部机制。
 - 用户明确更正或否定以前记住的事（「我现在不喜欢寿司了」「那条不对」）→ correct_memory，写清新的说法；
   只是随口提到、没有明确更正时不要改。普通聊天里的其他信息不用你记，夜里会统一整理。
-- 用户问成长、等级、宠物、还差多少 XP、什么时候进化 → get_growth，用工具返回的真实数字回答，不要自己编。
+- 用户问等级、经验、金币、小镇、每日任务、还差多少能建什么 → get_growth，用工具返回的真实数字回答，不要自己编。
+  你不能替 TA 买或摆建筑（那是 TA 自己在「我的小镇」里点的），可以说说能建什么、带 TA 去看看。
 - 定时任务：新安排 → schedule_task；关掉、重新打开、删掉、改时间 → edit_task。
 - 用户问某个心理 / 显化概念 → knowledge_search，只说检索到的内容，并说明是团队整理的版本。
-- TA 想改设置（怎么称呼 TA、你的名字和性格、主动消息多少、被打断时你怎么做、宠物名、页面氛围）→ update_settings。
+- TA 想改设置（怎么称呼 TA、你的名字和性格、主动消息多少、被打断时你怎么做、小镇的名字、页面氛围）→ update_settings。
   「以后别催我」→ care_style=quiet；「多来找我」「督促我」→ proactive=more。
 - 需要用工具时先调用、再开口，不要先说一句再去调用（否则会说两遍）。
 - 调用工具后，用一句自然的话告诉对方你做了什么；工具返回 ok=false 时必须说没写成，不能说「已经记好了」。
@@ -280,7 +281,7 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {
             "scene": {"type": "string", "enum": list(SCENES)}}, "required": ["scene"]}}},
     {"type": "function", "function": {
-        "name": "get_growth", "description": "查询真实的成长状态：经验值、今日上限、下一形态、宠物分支、徽章",
+        "name": "get_growth", "description": "查询真实的成长状态：等级、经验、金币、今天的每日任务、小镇里建了什么、下一级解锁什么",
         "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {
         "name": "knowledge_search", "description": "在团队审核的心灵学堂内容里检索（只读）",
@@ -293,7 +294,7 @@ TOOLS = [
             "persona": {"type": "string", "enum": ["gentle", "clear", "lively"], "description": "你的性格：温柔 / 有条理 / 活泼"},
             "proactive": {"type": "string", "enum": ["more", "normal", "less", "off"], "description": "你主动找 TA 的频率"},
             "care_style": {"type": "string", "enum": ["nudge", "analyze", "quiet"], "description": "TA 中断时：轻轻提醒 / 一起找原因 / 先不提"},
-            "pet_name": {"type": "string"},
+            "town_name": {"type": "string", "description": "TA 的小镇叫什么（10 个字以内）"},
             "theme": {"type": "string", "enum": ["forest", "midnight", "paper", "peach", "mist"],
                       "description": "页面氛围：森林夜 / 深空 / 晨光 / 暖阳 / 海雾"},
             "schedule_hint": {"type": "string", "description": "TA 的作息"},
@@ -351,9 +352,8 @@ def core_block(p: dict, store: Store) -> str:
     if done:
         lines.append("最近完成：" + "；".join(s["title"] for s in done))
     total = growth.total_xp(store)
-    stg = growth.stage_of(total, p.get("pet_branch") or "")
-    lines.append(f"陪伴第 {store.counts()['days']} 天；累计经验 {total}（Lv{growth.level_of(total)['lv']}）；"
-                 f"宠物「{p.get('pet_name') or '小芽'}」现在是{stg['name']}。具体数字用 get_growth 查。")
+    lines.append(f"陪伴第 {store.counts()['days']} 天；累计经验 {total}（Lv{growth.level(store)['lv']}）。"
+                 + town.summary(store) + "具体数字用 get_growth 查。")
     return "\n".join(lines)
 
 
@@ -370,7 +370,8 @@ def system_prompt(store: Store, retrieved: list[dict]) -> str:
     if nb:
         s += "\n\n## 你的笔记本（你每天夜里整理的、关于 TA 的长期笔记）\n" + nb
     edge = (now() - timedelta(hours=HISTORY_HOURS)).date().isoformat()
-    older = [d for d in store.digests(14) if d["day"] < edge][:7]
+    # 宠物和徽章已经下架：旧小结里提到它们的那几天不再放进来，免得小光还以为它们在
+    older = [d for d in store.digests(14) if d["day"] < edge and not town.RETIRED.search(d["summary"] or "")][:7]
     if older:
         s += ("\n\n## 更早几天的小结（那几天的原话已经不在下面的对话里了，需要细节就用 search_chats）\n"
               + "\n".join(f"- {d['day'][5:]}：{d['summary']}" for d in reversed(older)))
@@ -510,7 +511,7 @@ def _pick_task(uid: str, ref: str, prefer: bool | None = None) -> dict | None:
 
 
 SETTING_LABEL = {"nickname": "称呼", "agent_name": "我的名字", "persona": "我的性格", "proactive": "主动找你的频率",
-                 "care_style": "你中断时我怎么做", "pet_name": "宠物的名字", "theme": "页面氛围", "schedule_hint": "作息",
+                 "care_style": "你中断时我怎么做", "town_name": "小镇的名字", "theme": "页面氛围", "schedule_hint": "作息",
                  "boundaries": "不想聊的话题"}
 SETTING_VALUE = {"persona": {"gentle": "温柔", "clear": "有条理", "lively": "活泼"},
                  "proactive": {"more": "多一点", "normal": "刚好", "less": "少一点", "off": "不主动找"},
@@ -532,7 +533,7 @@ def update_settings(store: Store, args: dict) -> dict:
             v = [clip(str(x).strip(), 20) for x in (v if isinstance(v, list) else [v]) if str(x).strip()][:6]
             shown = "、".join(v)
         else:
-            v = clip(str(v).strip(), 8 if k == "pet_name" else 20 if k in ("nickname", "agent_name") else 60)
+            v = clip(str(v).strip(), 10 if k == "town_name" else 20 if k in ("nickname", "agent_name") else 60)
             shown = v
         patch[k] = v
         changed.append(f"{SETTING_LABEL[k]}改成「{shown}」")
@@ -645,7 +646,13 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
             return {"ok": False, "error": "没找到这一步"}
         xp = growth.award(store, "action", ref="step:" + s["id"], note="完成：" + s["title"])
         store.log("plan", "完成了：" + s["title"])
-        return {"ok": True, "step": s, "xp": xp}
+        out = {"ok": True, "step": s, "xp": xp}
+        cleared = journey.steps_cleared(store, s)
+        if cleared:
+            out["cleared"] = cleared
+            out["next"] = (f"这是「{cleared['title']}」最后一个待做的小步，这一段的 {cleared['done']} 个小步都做完了。"
+                           "真心祝贺 TA，说具体一点；再问一句要不要一起想想接下来的一两个小步（TA 同意就用 propose_plan 提议，别直接加）")
+        return out
     if name == "log_good_news":
         text = clip(str(args.get("text") or ""), 200)
         if not text:
@@ -692,8 +699,9 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         note = clip(str(args.get("note") or "").strip(), 40)
         r = store.add_record("rest", "今天偷个懒" + (f"：{note}" if note else ""))
         store.log("rest", r["text"])
+        growth.settle_daily(store)   # 偷懒日：每日任务里行动那项先暂停，不挡全勤
         return {"ok": True, "record": r, "paused": [h["title"] for h in journey.habits(store)][:5],
-                "note": "当天的习惯和小步都暂停；宠物会陪 TA 一起睡。界面上会给出：明天继续 / 调整计划 / 聊聊天"}
+                "note": "当天的习惯和小步都暂停，什么进度都不扣。界面上会给出：明天继续 / 调整计划 / 聊聊天"}
     if name == "edit_plan":
         keys = ("title", "due_day", "due_in_days", "shift_days", "freq", "per_week", "status", "vision_text", "now_text",
                 "text", "feeling", "day", "wish", "why", "delete")
@@ -821,17 +829,20 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         return {"ok": True, "scene": sid, "title": SCENES[sid]["title"],
                 "note": "界面会接手引导，你只需用一句话邀请对方开始。"}
     if name == "get_growth":
-        g = growth.state(store, consume=False)   # leave the celebration flags for the UI
+        g = growth.state(store, consume=False)   # 升级的庆祝留给界面
+        t = town.state(store)
+        lv = g["level"]
+        afford = sorted((c for c in t["catalog"] if c["unlocked"] and c["price"] <= t["coins"] and c["cat"] == "build"),
+                        key=lambda c: -c["price"])
         return {"ok": True, "growth": {
-                    "total": g["total"], "level": g["level"]["lv"], "today": g["today"], "stage": g["stage"]["name"],
-                    "next": g["next"], "to_next": g["to_next"],
-                    "branch": (g["branch_info"] or {}).get("name", ""),
-                    "leaning": ("" if g["branch"] else ("隐藏形态（别透露名字）" if g["leaning"] == "star"
-                                                        else growth.BRANCHES[g["leaning"]]["name"])),
-                    "affinity": [{a["label"]: a["xp"]} for a in g["affinity"]],
-                    "badges_earned": [b["name"] for b in g["badges"] if b["earned"]],
-                    "quests_done": g["quests_done"], "pet_name": g["pet_name"]},
-                "rules": growth.rules_text()}
+                    "total": g["total"], "level": lv["lv"], "to_next_level": lv["to_next"],
+                    "today_xp": g["today"]["total"], "coins": g["coins"], "coins_today": g["coins_today"],
+                    "daily": [{"task": x["label"], "done": x["done"], "rest": x["rest"], "coins": x["coins"]} for x in g["daily"]["tasks"]],
+                    "daily_bonus": g["daily"]["bonus"],
+                    "town": {"name": t["name"], "land": f"{t['size']}×{t['size']}", "built": [i["name"] for i in t["items"] if i["source"] != "gift"][-12:],
+                             "warehouse": [i["name"] for i in t["warehouse"]], "can_afford": [c["name"] for c in afford[:3]],
+                             "next_unlock": t["next"]}},
+                "summary": town.summary(store), "rules": growth.rules_text()}
     if name == "knowledge_search":
         hits = academy.search(str(args.get("query") or ""))
         if not hits:

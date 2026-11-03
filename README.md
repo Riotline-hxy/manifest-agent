@@ -3,6 +3,7 @@
 显化陪伴 agent 的网页 demo。线上：https://manifest.noryx.cn
 
 - 方案说明（创意 / 技术 / UI，写于 2.6.0；之后加的首页体验、后台、推送见下文）：[docs/三方向方案-v2.md](docs/三方向方案-v2.md)
+- 3.0 起，成长系统从「宠物进化 + 徽章」换成了「我的小镇」，见下面的「成长：我的小镇」。宠物和徽章的全部资料备份在仓库外的 `备份区/成长进化系统_宠物与勋章_2026-11-02/`
 - v0.3 讨论稿原文：[docs/xiaoguang_v03.txt](docs/xiaoguang_v03.txt) · 会议纪要（10-22）：[docs/meeting.txt](docs/meeting.txt)（[PDF](docs/meeting.pdf)）
 - 创意稿（建档题、引导场景、人设一句话）：[creative/](creative/)
 - 更早的 demo 和原型已从仓库删除，需要时在 git 历史里找（2026-11-01 之前的提交）
@@ -48,6 +49,20 @@ python -m unittest discover -s demo/tests -v
 
 用脚本化的假模型跑真服务器，不消耗额度。模型对比：`python demo/bench_models.py`（需要 key，结果写到 `docs/bench-<日期>.json`，不进 git）。
 
+## 成长：我的小镇
+
+每个人一座小镇，现实里做成的事都在这里盖起来。规则全在后端（`core/growth.py`、`core/town.py`），前端和小光只读。
+
+- **经验**：长期成长，只增不减。行动 +10、记录 +6、练习 +12、每天第一次来聊 +8；每类每天 30、总共 120；同一件事只算一次。
+- **等级**：升一级要 40 + 15×(n−1) 经验（Lv10 = 900，Lv20 = 3325）。老账号按旧算法（每 40 一级）到过的等级记成保底，不会掉。等级解锁新建筑和更大的土地（5×5 → 10×10，Lv20）。
+- **金币**：建造用的建材。完成小步 +10、习惯打卡 +8、到达里程碑 +30、好消息 +4、瞬间 +5、做完练习 +10，每类每天有上限；聊天只给经验、不给金币。第一次做成一件真事送 40，够盖第一栋小木屋。
+- **每日任务**（小光面板「每日任务」）：每天四件，固定一件行动，另外三件从任务池里按天轮换、只挑这个人用得上的；每件给经验和金币，四件都做到再给一份，一天最多 +38 经验、+68 金币。做了真实的事就自动完成、自动发，每天 0 点换新；偷懒日里行动类先暂停，不挡全勤。和愿望里的小步是两套东西：小步没有期限，不会被刷新。
+- **一段小步走完**：一个愿望的小步全部做完时，弹一张卡片：想想新的小步（去和小光聊）/ 之后再说；小光也会在聊到时问一次。
+- 数值怎么定的、各类用户一天大概拿多少，见 [docs/成长数值设计.md](docs/成长数值设计.md)。
+- **小镇**：商店里 22 样东西（建筑 / 自然 / 道路 / 装饰），点一样、再点一块空地就建好；同一次点击带同一个请求号，重发不会扣两次。建筑不会坏、不会因为中断消失，可以挪位置、收进仓库，都不花钱。每栋建筑记下它是哪天建的、那之前做成了什么；到达里程碑送一块刻着名字的纪念碑。
+- **老账号**：第一次打开时，过去的经验按一半换成金币（等级保底），小光关于宠物 / 徽章的记忆收起来（`town.ensure`）。旧的 `badge` 表和 `pet_*` 画像原样留在库里，不再读。
+- 小镇是手写的等距 SVG（`public/js/town.js`，没有图片、引擎和滤镜），深色氛围是夜里（窗户和路灯会亮），浅色氛围是白天。
+
 ## 目录
 
 ```
@@ -56,10 +71,11 @@ demo/
   routes.py          接口
   core/
     auth.py          账号与会话（PBKDF2、HttpOnly cookie）
-    store.py         每用户一个 SQLite：画像、记忆(FTS5)+修订记录、小步、记录、对话、经验账本、徽章、夜间整理
+    store.py         每用户一个 SQLite：画像、记忆(FTS5)+修订记录、小步、记录、对话、经验 / 金币账本、小镇、夜间整理
     agent.py         人设、11 个工具、流式工具循环（remember 需要用户明确要求）
     digest.py        夜里的记忆整理（增量、受保护记忆需原话依据）
-    growth.py        经验账本、每日上限、宠物分化、27 枚徽章、今日任务
+    growth.py        经验和金币：账本、每日上限、去重、每日任务、升级标记
+    town.py          我的小镇：商店、土地、买 / 挪 / 收、建筑的故事、纪念碑、老账号开镇
     academy.py       心灵学堂（只读）
     scenes.py        引导场景的步骤状态机（含「重新认识我」）
     scheduler.py     后台线程：03:00 后整理昨天、主动消息
@@ -74,8 +90,8 @@ demo/
   public/
     index.html       应用；admin.html 管理后台
     manifest.webmanifest · sw.js · icons/   PWA：装到桌面、收推送
-    css/             base · components · shell · chat · pages · journey · lesson · gate · admin · fonts(生成)
-    js/              app · store · api · ui(线性图标) · theme(五种氛围) · pet(扁平 SVG 宠物/植物) · fx(动效/庆祝)
+    css/             base · components · shell · chat · pages · journey · town · lesson · gate · admin · fonts(生成)
+    js/              app · store · api · ui(线性图标) · theme(五种氛围) · town(等距小镇 SVG) · art(星罐) · fx(动效/庆祝)
                      · ball(Emotion Ball 适配) · lesson(「一课」) · scene · tasks(例行任务) · push(通知/安装)
                      · journey · rest · account · admin · views/（gate 首页 · trial 引导体验 · chat · plan · space …）
     fonts/           源流圆体 CN + Nunito 的按需切片（生成）
@@ -97,5 +113,5 @@ deploy/              部署脚本与 systemd 服务（服务文件改了要手�
 ## 形象与素材
 
 - 小光的形象是 Emotion Ball（[sam70361/emotion-ball](https://github.com/sam70361/emotion-ball)）：引擎非商业免费，**球形角色外观永不商用**。本仓库用于竞赛 demo，页面有署名并保留其 LICENSE / NOTICE；商用前需换成自研形象，只改 `public/js/ball.js`。
-- 宠物、植物、宝箱、星罐是代码画的扁平 SVG（`public/js/pet.js`），和小光同一种造型语言；位图只有 PWA 图标（`tools/build_icons.py` 画的）。
+- 小镇的建筑、树、路和星罐都是代码画的 SVG（`public/js/town.js`、`public/js/art.js`）；位图只有 PWA 图标（`tools/build_icons.py` 画的）。
 - 字体：源流圆体 CN（Resource Han Rounded，SIL OFL 1.1）与 Nunito（SIL OFL 1.1）。

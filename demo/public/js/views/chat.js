@@ -4,7 +4,7 @@ import { api, streamChat } from "../api.js";
 import { state, setData, refresh, go, xpNote } from "../store.js";
 import { esc, richText, fmtDay, fmtTime, toast, icon, tile, sheet, h } from "../ui.js";
 import { mountBall, setAgentMood, pulseAgent, agentMini, MOOD_TEXT } from "../ball.js";
-import { flyXP, burstAt } from "../fx.js";
+import { flyGain, burstAt } from "../fx.js";
 import { startScene } from "../scene.js";
 import { openLazy, adjustSheet, isResting } from "../rest.js";
 import { askNotify } from "../tasks.js";
@@ -22,7 +22,7 @@ const TOOL = {
   update_settings: ["compass", "var(--c-sky)", "改了设置"],
   checkin_habit: ["checkc", "var(--c-mint)", "习惯打卡"],
   remember: ["memory", "var(--c-violet)", "记住了"], correct_memory: ["edit", "var(--c-violet)", "改掉旧记忆"],
-  search_memory: ["memory", "var(--c-violet)", "翻了翻记忆"], get_growth: ["sprout", "var(--c-mint)", "查了成长"],
+  search_memory: ["memory", "var(--c-violet)", "翻了翻记忆"], get_growth: ["home", "var(--c-mint)", "查了成长"],
   knowledge_search: ["book", "var(--c-coral)", "心灵学堂"], set_care_style: ["compass", "var(--c-sky)", "互动偏好"],
   start_scene: ["wind", "var(--c-mint)", "开始练习"], checkin: ["chat", "var(--c-sky)", "今天来聊了"],
   propose_moment: ["sparkles", "var(--c-violet)", "要留在轨迹上吗"],
@@ -95,7 +95,7 @@ function proposalFoot(el, result) {
       foot.querySelector("[data-go-plan]").addEventListener("click", () => go("plan"));
       el.querySelector(".tool-k").textContent = "留在轨迹上了";
       burstAt(el.querySelector(".tile"), 22);
-      if (out.xp?.amount) flyXP(el.querySelector(".tile"), out.xp.amount);
+      flyGain(el.querySelector(".tile"), out.xp);
     } catch (err) { e.currentTarget.disabled = false; toast(err.message, "err"); }
   });
 }
@@ -104,7 +104,7 @@ const GOOD_PH = { good: "今天有什么让你嘴角上扬的小事？", meme: "
 
 const HINTS = [
   ["帮我记住我喜欢吃寿司", "memory"], ["我三天没健身了", "moon"], ["你对我了解多少？", "eye"],
-  ["今天被老师夸了", "star"], ["水桶效应是什么意思", "book"], ["我什么时候能进化？", "sprout"],
+  ["今天被老师夸了", "star"], ["水桶效应是什么意思", "book"], ["我的小镇还能建什么？", "home"],
 ];
 
 // 正在进行的一轮对话。回复是流式的、可能要十几秒；这期间用户切去别的页面，
@@ -141,7 +141,7 @@ function toolCard(name, args, result, quiet = false) {
     case "complete_step": title = ok ? result.step?.title : "没找到对应的一小步"; note = ok ? "打勾了，花园里多了一株" : "没有写入任何完成记录"; break;
     case "log_good_news": title = ok ? result.record?.text : "没有记下来"; note = ok ? `第 ${result.count} 颗星` : result.error; break;
     case "log_lazy_day": if (result?.undone || args.undo) { title = ok ? "不偷懒了" : "没改成"; note = ok ? "习惯和小步都回来了" : result.error; label = "今天不偷懒了"; break; }
-      title = result?.already ? "今天已经在偷懒了" : (result?.record?.text || "").split("：")[1] || "给自己放个假"; note = "习惯和小步都先暂停，小芽陪你一起睡";
+      title = result?.already ? "今天已经在偷懒了" : (result?.record?.text || "").split("：")[1] || "给自己放个假"; note = "习惯和小步都先暂停，什么都不会少";
       foot = ok ? `<button class="btn btn-sm btn-ghost" data-lazy-pick="rest">明天继续</button><button class="btn btn-sm btn-ghost" data-lazy-pick="adjust">调整一下计划</button><button class="btn btn-sm btn-quiet" data-lazy-pick="chat">就想聊聊天</button>` : ""; break;
     case "propose_plan": title = ok ? `给「${result.wish_title}」的一套安排` : "没能提议"; note = ok ? "勾掉不想要的，再加进计划" : result.error;
       foot = ok ? " " : ""; break;
@@ -174,9 +174,10 @@ function toolCard(name, args, result, quiet = false) {
     }
     case "get_growth": {
       const g = result.growth || {};
-      title = `${g.pet_name || "小芽"} · ${g.stage || ""} · Lv${g.level || 1}`;
-      note = g.next ? `累计 ${g.total} 经验，再 ${g.to_next} 到「${g.next.name}」` : `累计 ${g.total} 经验`;
-      foot = `<button class="btn btn-sm btn-ghost" data-go="growth">去看进化图</button>`; break;
+      const tn = g.town || {};
+      title = `${tn.name || "我的小镇"} · Lv${g.level || 1} · ${g.coins ?? 0} 金币`;
+      note = tn.can_afford?.length ? `金币够盖「${tn.can_afford[0]}」了` : tn.next_unlock ? `再 ${g.to_next_level} 经验升级 · Lv${tn.next_unlock.lv} 解锁${(tn.next_unlock.items || [])[0] || "更大的地"}` : `累计 ${g.total} 经验`;
+      foot = `<button class="btn btn-sm btn-ghost" data-go="town">去小镇看看</button>`; break;
     }
     case "knowledge_search": {
       const l = result.articles || [];
@@ -186,13 +187,14 @@ function toolCard(name, args, result, quiet = false) {
     }
     case "set_care_style": title = ok ? result.shown : "没有更新"; note = "以后按这个方式陪你"; break;
     case "start_scene": title = result.title || ""; note = "马上开始"; break;
-    case "checkin": title = "今天的第一句话"; note = "陪伴任务完成"; break;
+    case "checkin": title = "今天的第一句话"; note = "每天第一次来聊，经验 +8"; break;
     case "propose_moment": title = ok ? result.proposal?.text : "没能提议"; note = ok ? (result.proposal?.feeling ? `当时的感受：${result.proposal.feeling}` : "还没保存，你决定") : result.error;
       foot = ok ? " " : ""; break;
     default: title = ok ? "完成" : "没有写成"; note = result?.error || "";
   }
-  const amount = result?.xp?.amount || (name === "checkin" ? result?.amount : 0);
-  const xp = result?.xp ? xpNote(result.xp) : name === "checkin" ? xpNote(result) : "";
+  const gain = result?.xp || (name === "checkin" ? result : null);
+  const amount = (gain?.amount || 0) + Math.max(0, gain?.coins || 0);
+  const xp = gain ? xpNote(gain) : "";
   const [ic, col, base] = TOOL[name] || ["sparkles", "var(--accent)", "动作"];
   label = label || base;
   const el = document.createElement("div");
@@ -215,7 +217,7 @@ function toolCard(name, args, result, quiet = false) {
     f.innerHTML = `<span class="muted">${pick === "rest" ? "好，明天我们再继续。" : "好，想说什么都行，我听着。"}</span>`;
     if (pick === "chat") document.querySelector(".composer textarea")?.focus();
   }));
-  if (amount && !quiet) setTimeout(() => flyXP(el.querySelector(".tool-xp"), amount), 250);
+  if (amount && !quiet) setTimeout(() => flyGain(el.querySelector(".tool-xp"), gain), 250);
   if (ok && !quiet && ["log_good_news", "complete_step", "checkin_habit"].includes(name)) setTimeout(() => burstAt(el.querySelector(".tile"), 26), 150);
   return el;
 }
@@ -402,7 +404,7 @@ export function renderChat(root) {
           s.close();
           setData(out);
           setAgentMood("happy"); pulseAgent("bounce");
-          if (out.xp?.amount) flyXP(btn, out.xp.amount);
+          flyGain(btn, out.xp);
           burstAt(btn, 30);
           toast(kind === "meme" ? "收下这段内心戏了" : "收下了，星空里又亮了一颗");
         } catch (e) { toast(e.message, "err"); }

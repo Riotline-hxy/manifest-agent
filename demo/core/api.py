@@ -1,10 +1,10 @@
 """Pieces shared by server.py and routes.py."""
 from __future__ import annotations
 
-from . import academy, cheer, growth, journey, scenes, scheduler, tasks
+from . import academy, cheer, growth, journey, scenes, scheduler, tasks, town
 from .store import Store
 
-VERSION = "2.11.0"
+VERSION = "3.0.0"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
@@ -46,7 +46,6 @@ def preferences(p: dict) -> dict:
         "care_label": {"nudge": "轻轻提醒我", "analyze": "一起找原因", "quiet": "先别提"}.get(p.get("care_style") or "", "还没选"),
         "pace": p.get("pace") or "gentle",
         "proactive": p.get("proactive") or "normal",
-        "pet_name": p.get("pet_name") or "小芽",
         "intent": p.get("intent_primary") or "",
         "why": p.get("intent_why") or "",
         "nickname": p.get("nickname") or "",
@@ -56,12 +55,13 @@ def preferences(p: dict) -> dict:
 
 def bootstrap(st: Store) -> dict:
     """Everything the client needs to render the whole shell in one request."""
-    g = growth.state(st)          # may persist one-shot flags, so read profile after it
+    g = growth.state(st)          # 会结算每日任务、交出「升级了」的一次性标记，所以先于读画像
     p = st.profile()
     read = st.read_ids()
     return {
         "profile": {k: v for k, v in p.items() if k not in ("last_proactive_at",)},
         "growth": g,
+        "town": town.state(st),
         "counts": st.counts(),
         "memories": st.memories(limit=120),
         "steps": st.steps(400),

@@ -244,7 +244,7 @@ function done(root, goal, r) {
         <div class="tc-n">下次来，不用再从头讲一遍。</div></div></div>
       <div class="tcard card" style="--i:2">${tile("sprout", "var(--c-mint)", 42)}
         <div><div class="tc-k">成长记录</div><div class="tc-t">${day} · 定下了第一小步</div>
-        <div class="tc-n">做完回来说一声，这里会再多一条，小芽也会跟着长一点。</div></div></div>
+        <div class="tc-n">做完回来说一声，这里会再多一条，你的小镇也会多一块砖。</div></div></div>
       <div class="tcard card" style="--i:3">${tile("letter", "var(--c-sky)", 42)}
         <div><div class="tc-k">明天，小光会来问你</div><div class="tc-t">「${esc(r.tomorrow || "")}」</div>
         <div class="tc-n">没做成也没关系，它会照你喜欢的方式陪你看看卡在哪。</div></div></div>

@@ -4,7 +4,7 @@
 import { api } from "../api.js";
 import { state, setData, go, xpNote } from "../store.js";
 import { esc, toast, confirmSheet, icon, tile, sheet, h } from "../ui.js";
-import { flyXP, burstAt, confetti } from "../fx.js";
+import { flyGain, burstAt, confetti } from "../fx.js";
 import { agentMini } from "../ball.js";
 import { CATS, catOf, MOODS, curvePath, backdropSVG, figureSVG, visionSVG, playFx } from "../journey.js";
 import { restBannerHTML, bindRestBanner } from "../rest.js";
@@ -108,7 +108,9 @@ export function renderPlan(root, { fresh = "" } = {}) {
             <button class="check" data-done="${esc(s.id)}" aria-label="完成「${esc(s.title)}」">${icon("check")}</button>
             <div class="step-main"><div class="st">${esc(s.title)}</div>${s.why ? `<div class="sw">${esc(s.why)}</div>` : ""}</div>
             <button class="btn btn-quiet btn-sm" data-drop="${esc(s.id)}">先放一放</button></div>`).join("")
-            || `<p class="muted j-none">现在没有待做的小步。</p>`}</div>
+            || (steps.some((s) => s.status === "done")
+              ? `<div class="j-cleared"><span>${icon("checkc")}这个愿望的小步都做完了。</span><button class="btn btn-sm btn-main" data-think>${icon("sparkles")}和小光想想下一步</button></div>`
+              : `<p class="muted j-none">现在没有待做的小步。</p>`)}</div>
           <div class="j-adds">
             <button class="btn btn-ghost btn-sm" data-add="step">${icon("plus")}小步</button>
             <button class="btn btn-ghost btn-sm" data-add="habit">${icon("plus")}习惯</button>
@@ -180,6 +182,10 @@ export function renderPlan(root, { fresh = "" } = {}) {
   root.querySelector(".j-list").addEventListener("toggle", (e) => { state.planListOpen = e.target.open; });
   root.querySelectorAll("[data-open-day]").forEach((b) => b.addEventListener("click", () => dayCard(root, model, [b.dataset.openDay])));
   root.querySelectorAll("[data-add]").forEach((b) => b.addEventListener("click", () => addSheet(root, w, b.dataset.add)));
+  root.querySelector("[data-think]")?.addEventListener("click", () => {
+    state.autoSend = `「${w.title}」的小步都做完了。帮我想想接下来可以做的两三个小步吧，先问问我现在的情况。`;
+    go("chat");
+  });
   root.querySelectorAll("[data-talk]").forEach((b) => b.addEventListener("click", () => {
     state.autoSend = talkChips(w)[+b.dataset.talk][1];
     go("chat");
@@ -203,7 +209,7 @@ export function renderPlan(root, { fresh = "" } = {}) {
       const out = await api.habit(undo ? "uncheck" : "check", { id: hb.id });
       if (!undo) {
         burstAt(b, 26);
-        if (out.xp?.amount) flyXP(b, out.xp.amount);
+        flyGain(b, out.xp);
       }
       setTimeout(() => { setData(out); renderPlan(root, { fresh: undo ? "" : today }); }, undo ? 0 : 420);
     } catch (e) { toast(e.message, "err"); renderPlan(root); }
@@ -221,7 +227,7 @@ export function renderPlan(root, { fresh = "" } = {}) {
       const out = await api.milestone("done", { id: m.id });
       const r = b.getBoundingClientRect();
       confetti(r.left + r.width / 2, r.top + r.height / 2, 70, 0.8);
-      if (out.xp?.amount) flyXP(b, out.xp.amount);
+      flyGain(b, out.xp);
       toast(`到达「${m.title}」`, "", "flag");
       setTimeout(() => { setData(out); renderPlan(root, { fresh: today }); }, 380);
     } catch (e) { toast(e.message, "err"); }
@@ -242,7 +248,7 @@ export function renderPlan(root, { fresh = "" } = {}) {
     try {
       const out = await api.step("done", { id: b.dataset.done });
       burstAt(b, 30);
-      if (out.xp?.amount) flyXP(b, out.xp.amount); else toast(xpNote(out.xp) || "完成了");
+      if (out.xp?.amount || out.xp?.coins > 0) flyGain(b, out.xp); else toast(xpNote(out.xp) || "完成了");
       setTimeout(() => { setData(out); renderPlan(root, { fresh: today }); }, 480);
     } catch (e) { card.classList.remove("checking"); toast(e.message, "err"); }
   }));
@@ -537,7 +543,7 @@ function composeSheet(root, w, day = "") {
       setData(out);
       renderPlan(root, { fresh: pickDay });
       const dot = root.querySelector(".j-node.fresh");
-      if (out.xp?.amount && dot) setTimeout(() => flyXP(dot, out.xp.amount), 500);
+      if ((out.xp?.amount || out.xp?.coins > 0) && dot) setTimeout(() => flyGain(dot, out.xp), 500);
       else toast(xpNote(out.xp) ? `留下了 · ${xpNote(out.xp)}` : "留下了", "", "sparkles");
     } catch (e) { btn.disabled = false; toast(e.message, "err"); }
   };

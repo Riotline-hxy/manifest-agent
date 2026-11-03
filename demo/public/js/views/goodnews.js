@@ -3,8 +3,8 @@
 import { api } from "../api.js";
 import { state, setData, xpNote } from "../store.js";
 import { esc, fmtDay, toast, icon, tile } from "../ui.js";
-import { flyXP, burstAt } from "../fx.js";
-import { jarSVG } from "../pet.js";
+import { flyGain, burstAt } from "../fx.js";
+import { jarSVG } from "../art.js";
 
 const KIND = {
   good: { ic: "star", color: "var(--c-lemon)", label: "小确幸", ph: "今天有什么让你嘴角上扬的小事？再小也算。" },
@@ -40,7 +40,9 @@ export function renderNews(root, { fresh = "" } = {}) {
       <section class="night-sky">
         <div class="sky-field">${stars.slice(0, 60).map((r, i) => {
           const rnd = seeded(r.id);
-          return `<button class="star ${r.id === fresh ? "new" : ""}" style="left:${6 + rnd() * 72}%;top:${10 + rnd() * 74}%;--s:${14 + rnd() * 14}px;--d:${-rnd() * 4}s;--i:${i}">
+          const x = 6 + rnd() * 72, y = 10 + rnd() * 74;
+          const tip = `${y < 46 ? "tip-down" : ""} ${x < 20 ? "tip-l" : x > 64 ? "tip-r" : ""}`;
+          return `<button class="star ${r.id === fresh ? "new" : ""} ${tip}" style="left:${x}%;top:${y}%;--s:${14 + rnd() * 14}px;--d:${-rnd() * 4}s;--i:${i}">
             <span class="tip"><b>${esc(fmtDay(r.created_at))}</b>${esc(r.text)}</span></button>`;
         }).join("")}</div>
         <div class="sky-count"><div class="sky-jar">${jarSVG(stars.length)}</div><div><span class="num">${stars.length}</span><small>件小确幸</small></div></div>
@@ -92,7 +94,7 @@ export function renderNews(root, { fresh = "" } = {}) {
     try {
       const out = await api.record(kind, text);
       setData(out);
-      if (out.xp?.amount) flyXP(btn, out.xp.amount);
+      flyGain(btn, out.xp);
       burstAt(btn, kind === "good" ? 36 : 18);
       toast(kind === "good" ? `收下了${xpNote(out.xp) ? " · " + xpNote(out.xp) : ""}` : "收下这段内心戏了", "", KIND[kind].ic);
       renderNews(root, { fresh: out.record?.id || "" });

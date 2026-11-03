@@ -15,9 +15,10 @@ const GROUPS = [["默契", "让小光更懂你"], ["愿望", "把想要的说清
 export function renderIdeas(root) {
   const ideas = state.data.ideas || [];
   const counts = state.data.scene_counts || {};
-  const fresh = ideas.filter((i) => i.scene && !counts[i.scene]);
-  const pool = fresh.length ? fresh : ideas.filter((i) => i.scene);
-  const pick = pool[new Date().getDate() % pool.length];
+  // 今日推荐由后端每天定一次（和每日任务里的「做今天推荐的练习」是同一个），做完也不会换
+  const dl = state.data.growth?.daily || {};
+  const pick = ideas.find((i) => i.scene && i.scene === dl.pick) || ideas.find((i) => i.scene);
+  const task = (dl.tasks || []).find((t) => t.id === "pick" || t.id === "practice");
   const unread = (state.data.academy || []).filter((a) => !a.read).slice(0, 3);
 
   root.innerHTML = `
@@ -30,7 +31,7 @@ export function renderIdeas(root) {
           <h2>${esc(pick.title)}</h2>
           <p>${esc(pick.desc)}</p>
           <div class="ft-meta"><span class="pill">${icon("clock")}约 ${pick.minutes} 分钟</span>
-            <span class="pill">${counts[pick.scene] ? `做过 ${counts[pick.scene]} 次` : "还没试过"}</span><span class="pill acc">完成 +12 经验</span></div>
+            <span class="pill">${counts[pick.scene] ? `做过 ${counts[pick.scene]} 次` : "还没试过"}</span><span class="pill acc">完成 +12 经验 · +10 金币</span>${task && !task.done ? `<span class="pill good">今天的每日任务再 +${task.xp} 经验 · +${task.coins} 金币</span>` : ""}</div>
           <button class="btn btn-main btn-lg" data-idea="${esc(pick.id)}">开始 ${icon("arrow")}</button>
         </div>
         <div class="ft-side"><div class="speech ft-say">今天想试试这个吗？</div><div class="ft-ball"></div></div>

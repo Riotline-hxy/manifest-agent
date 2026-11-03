@@ -13,7 +13,7 @@ export function openAccount() {
     <div class="acct-head"><span class="acct-av">${esc(name.slice(0, 1))}</span>
       <div><b>${esc(name)}</b><small>${guest ? "体验账号" : `账号：${esc(u.username || "")}`}</small></div></div>
     ${guest ? `<div class="acct-guest">
-      <p>体验账号只跟着这次登录。注册一个账号，现在的计划、记忆和小芽都会原样留下，换设备也能登录。</p>
+      <p>体验账号只跟着这次登录。注册一个账号，现在的计划、记忆和小镇都会原样留下，换设备也能登录。</p>
       <input class="field" id="acUser" maxlength="20" placeholder="用户名（2–20 位）" autocomplete="username">
       <input class="field" id="acPass" type="password" maxlength="64" placeholder="密码（至少 6 位）" autocomplete="new-password">
       <button class="btn btn-main" id="acReg">${icon("shield")}注册并保留这些记录</button></div>` : ""}

@@ -79,7 +79,7 @@ def pick_cue(store: Store) -> dict:
     p = store.profile()
     recs = store.records(5)
     if recs and recs[0]["type"] == "rest" and recs[0]["day"] != day_key():
-        return {"cue": "after_rest", "text": "昨天好好歇了一天，小芽也睡饱了。今天想从哪件小事开始？"}
+        return {"cue": "after_rest", "text": "昨天好好歇了一天，小镇也安安静静地等着你。今天想从哪件小事开始？"}
     for it in nudges.attention(store):
         if it["kind"] in CUE_TEXT and (it["prio"] >= 2 or it["kind"] in ("old_step", "no_path")):
             name = it["text"].split("「", 1)[1].split("」", 1)[0] if "「" in it["text"] else ""

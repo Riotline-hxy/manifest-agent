@@ -894,6 +894,26 @@ def edit_item(st, kind: str, ref: str, patch: dict, action: str = "") -> dict:
     return _done(kind, m, changed, patch)
 
 
+# ---------------------------------------------------------------- 一段小步走完了 ----
+
+def steps_cleared(st, step: dict) -> dict | None:
+    """刚完成的这一步是不是这个愿望最后一个待做的小步。是的话返回这个愿望，前端会弹一张「这一段走完了」，
+    小光也会问要不要一起想想下一步。没挂愿望的小步算在第一个愿望下（和计划页、面板一致）。"""
+    ws = wishes(st)
+    if not ws:
+        return None
+    wid = step.get("wish_id") or ws[0]["id"]
+    w = next((x for x in ws if x["id"] == wid), None)
+    if not w:
+        return None
+    mine = "(wish_id=? OR (? = ? AND (wish_id='' OR wish_id IS NULL)))"
+    args = (wid, wid, ws[0]["id"])
+    if st.c.execute(f"SELECT COUNT(*) FROM step WHERE status='todo' AND {mine}", args).fetchone()[0]:
+        return None
+    done = st.c.execute(f"SELECT COUNT(*) FROM step WHERE status='done' AND {mine}", args).fetchone()[0]
+    return {"wish_id": wid, "title": w["title"], "category": w["category"], "done": done}
+
+
 # ---------------------------------------------------------------- 打包给前端 ----
 
 def board(st) -> dict:

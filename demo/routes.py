@@ -5,7 +5,7 @@ the only source of the user id.
 """
 from __future__ import annotations
 
-from core import academy, admin, auth, digest, metrics, webpush, growth, journey, llm, onboarding, report, scenes, scheduler, tasks, trial
+from core import academy, admin, auth, digest, metrics, webpush, growth, journey, llm, onboarding, report, scenes, scheduler, tasks, town, trial
 from core.store import Store
 from core.util import clip, day_key, iso
 from core.api import VERSION, ApiError, bootstrap, public_user
@@ -226,7 +226,7 @@ def chat(h, u, b, q):
 
 PROFILE_FIELDS = {"nickname", "agent_name", "agent_hue", "agent_avatar_id", "intent_primary", "intent_why",
                   "schedule_hint", "traits", "mbti_hint", "boundaries", "proactive",
-                  "care_style", "pace", "pet_name", "theme", "persona", "custom_moods"}
+                  "care_style", "pace", "theme", "persona", "custom_moods"}
 
 
 def profile(h, u, b, q):
@@ -305,6 +305,7 @@ def step(h, u, b, q):
                 raise ApiError(404, "这一步不在待办里")
             result["xp"] = growth.award(st, "action", ref="step:" + s["id"], note="完成：" + s["title"])
             st.log("plan", "完成了：" + s["title"])
+            result["cleared"] = journey.steps_cleared(st, s)   # 这个愿望的小步都做完了：前端弹一张鼓励
         elif act in ("todo", "drop"):
             s = st.set_step(str(b.get("id") or ""), "todo" if act == "todo" else "dropped")
             if not s:
@@ -335,6 +336,10 @@ def record(h, u, b, q):
         xp = None
         if type_ in ("good", "meme"):
             xp = growth.award(st, "good", ref="rec:" + r["id"], note="小确幸" if type_ == "good" else "内心戏")
+        else:   # 偷懒日：每日任务里行动那项先暂停，另外两件做到了就能拿全勤
+            daily = growth.settle_daily(st)
+            if daily:
+                xp = {"ok": True, "amount": 0, "coins": sum(d["coins"] for d in daily), "daily": daily}
         st.log("rest" if type_ == "rest" else "record",
                {"good": "记下一件小确幸", "meme": "记下一段内心戏", "rest": "今天偷个懒：" + text.replace("今天偷个懒：", "")}[type_])
         return 200, {"xp": xp, "record": r, **bootstrap(st)}
@@ -501,6 +506,34 @@ def inbox_seen(h, u, b, q):
 def growth_get(h, u, b, q):
     with Store(u["id"]) as st:
         return 200, growth.state(st)
+
+
+def town_get(h, u, b, q):
+    with Store(u["id"]) as st:
+        return 200, town.state(st)
+
+
+def town_api(h, u, b, q):
+    """我的小镇：买并放下 / 挪位置（仓库里的放出来也是它）/ 收进仓库 / 改名 / 看过欢迎。金币只在后端算。"""
+    act = b.get("action")
+    out = {}
+    with Store(u["id"]) as st:
+        try:
+            if act == "buy":
+                out["built"] = town.buy(st, str(b.get("kind") or ""), b.get("x"), b.get("y"), str(b.get("nonce") or ""))
+            elif act in ("move", "place"):
+                out["moved"] = town.move(st, str(b.get("id") or ""), b.get("x"), b.get("y"))
+            elif act == "store":
+                out["stored"] = town.store_item(st, str(b.get("id") or ""))
+            elif act == "rename":
+                out["name"] = town.rename(st, str(b.get("name") or ""))
+            elif act == "welcome_seen":
+                town.welcome_seen(st)
+            else:
+                raise ApiError(400, "未知操作")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, {**out, **bootstrap(st)}
 
 
 def digest_now(h, u, b, q):
@@ -670,6 +703,8 @@ ROUTES = {
     ("POST", "/api/proactive/now"): (proactive_now, True),
     ("POST", "/api/inbox/seen"): (inbox_seen, True),
     ("GET", "/api/growth"): (growth_get, True),
+    ("GET", "/api/town"): (town_get, True),
+    ("POST", "/api/town"): (town_api, True),
     ("POST", "/api/memory/digest"): (digest_now, True),
     ("POST", "/api/wish"): (wish_api, True),
     ("POST", "/api/moment"): (moment_api, True),

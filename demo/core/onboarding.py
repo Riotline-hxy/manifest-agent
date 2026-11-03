@@ -46,7 +46,7 @@ QUESTIONS = [
      "options": ["别说教", "别鸡血催促", "无"], "ph": "别提某个话题……", "optional": True, "skip": True},
 ]
 
-# 小光的形象是固定的（v0.3：Agent 形象稳定，成长发生在宠物身上）；可以换的只有颜色和背景氛围
+# 小光的形象是固定的（Agent 形象稳定，成长发生在用户自己的小镇上）；可以换的只有颜色和背景氛围
 THEMES = {"forest", "midnight", "paper", "peach", "mist"}
 AGENT_COLORS = {"#f7cb4d", "#f2f2f4", "#8b7cff", "#ff8a65", "#4fd1a5", "#5b9dff", "#ff8fb1"}
 HUE_BY_AVATAR = {"soft": ""}
@@ -120,7 +120,6 @@ def seed_guest(store: Store) -> None:
         "intent_primary": "自信与表达", "intent_why": "交换项目时想敢开口说英语", "schedule_hint": "夜猫",
         "traits": ["敏感", "拖延但爆发", "需要被提醒"], "mbti_hint": "INFJ", "boundaries": ["别鸡血催促"],
         "care_style": "analyze", "onboarded": True, "proactive": "normal", "xp": 0, "persona": "gentle",
-        "pet_name": "小芽", "pet_branch": "",
         "created_at": at(0, 21), "last_chat_at": at(14, 22), "last_proactive_at": at(13, 9),
     })
     mem = [
@@ -184,9 +183,9 @@ def seed_guest(store: Store) -> None:
             "INSERT OR REPLACE INTO scene_run(id, scene, step, answers, status, created_at) VALUES(?,?,?,?,?,?)",
             (rid, sid, 9, "[]", "done", at(d, 20)))
 
-    # 经验账本：按日期逐条记，走 award 的同一套限额与去重
+    # 经验账本：按日期逐条记，走 award 的同一套限额与去重；金币最后按老账号的规则一次换算（town.seed_demo）
     def backdated_award(source, ref, d, hour=21):
-        out = growth.award(store, source, ref=ref, note="")
+        out = growth.award(store, source, ref=ref, note="", coins=False)
         if out.get("ok") and out.get("amount"):
             row = out["row"]
             store.c.execute("UPDATE xp SET created_at=?, day=? WHERE id=?", (at(d, hour), at(d, hour)[:10], row["id"]))
@@ -278,7 +277,7 @@ def seed_guest(store: Store) -> None:
     ])
     store.c.execute("UPDATE step SET wish_id=? WHERE wish_id='' OR wish_id IS NULL", (conf["id"],))
 
-    # 路径：习惯（带打卡历史，今天留给访客自己打）+ 里程碑。历史打卡不补经验，保持 306 的进化演示
+    # 路径：习惯（带打卡历史，今天留给访客自己打）+ 里程碑。历史打卡不补经验
     def seed_habit(w, title, freq, per_week, days, created_d):
         h = journey.add_habit(store, w["id"], title, freq, per_week)
         store.c.execute("UPDATE habit SET created_at=? WHERE id=?", (at(created_d, 9), h["id"]))
@@ -312,7 +311,6 @@ def seed_guest(store: Store) -> None:
     # 建示例数据时顺手写下的「加了习惯 / 定了里程碑」之类的动态不是用户做的，清掉
     store.c.execute("DELETE FROM activity WHERE kind IN ('plan','journey','task') AND at >= ?", (seeded_at,))
 
-    # 示例账号里已经发生的进化与徽章算作「看过」，免得第一次打开就弹一串庆祝
-    total = growth.total_xp(store)
-    store.set_profile({"pet_stage_seen": growth.stage_of(total, "")["key"]})
-    growth.badges(store, total=total)
+    # 示例账号的小镇：经验换成金币、摆上几样东西；已经到的等级算作「看过」，免得一打开就弹庆祝
+    from . import town
+    town.seed_demo(store)

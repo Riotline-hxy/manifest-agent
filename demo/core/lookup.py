@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from . import academy, growth, journey, nudges, report, tasks
+from . import academy, growth, journey, nudges, report, tasks, town
 from .scenes import SCENES
 from .util import clip, now
 
@@ -23,9 +23,9 @@ AREAS = {
     "notebook": "你的笔记本",
     "digests": "最近几天夜里整理的小结",
     "tasks": "定时提醒和例行任务",
-    "settings": "TA 的画像和设置：称呼、你的名字和性格、主动消息频率、互动偏好、宠物名、主题……",
+    "settings": "TA 的画像和设置：称呼、你的名字和性格、主动消息频率、互动偏好、小镇的名字、主题……",
     "activity": "最近的动态日志：TA 和你在各个页面做过的事",
-    "growth": "成长：经验、等级、宠物形态、今天的任务、徽章",
+    "growth": "成长和小镇：经验、等级、金币、今天的每日任务、小镇里建了什么、仓库、下一级解锁什么",
     "report": "最近 14 / 30 天的蜕变报告里的数字",
     "academy": "心灵学堂的文章，和 TA 读过哪些",
     "ideas": "点子页的练习，和 TA 做过哪些",
@@ -179,7 +179,7 @@ def look_up(st, area: str, query: str = "") -> dict:
               f"你的名字：{p.get('agent_name') or '小光'}；性格：{PERSONA.get(p.get('persona') or 'gentle')}",
               f"主动消息：{PROACTIVE.get(p.get('proactive') or 'normal')}（23:00–08:00 不发）",
               f"互动偏好：{CARE.get(p.get('care_style') or '', '没选')}",
-              f"宠物名字：{p.get('pet_name') or '小芽'}；页面氛围：{THEME.get(p.get('theme') or '', p.get('theme') or '默认')}",
+              f"小镇的名字：{p.get('town_name') or '我的小镇'}；页面氛围：{THEME.get(p.get('theme') or '', p.get('theme') or '默认')}",
               f"建档时最想靠近：{p.get('intent_primary') or '没填'}" + (f"（因为：{p['intent_why']}）" if p.get("intent_why") else ""),
               "别人常觉得 TA：" + ("、".join(p.get("traits") or []) or "没填"),
               f"作息：{p.get('schedule_hint') or '没填'}",
@@ -193,12 +193,15 @@ def look_up(st, area: str, query: str = "") -> dict:
 
     elif area == "growth":
         g = growth.state(st, consume=False)
-        L.append(f"累计 {g['total']} 经验，Lv{g['level']['lv']}；{g['pet_name']}现在是{g['stage']['name']}"
-                 + (f"，再 {g['to_next']} 经验到「{g['next']['name']}」" if g["next"] else ""))
-        L.append(f"今天拿了 {g['today']['total']}/{g['today']['cap']}；今日任务：" + "；".join(
-            f"{x['label']} {'✓' if x['done'] else f'{x['got']}/{x['need']}'}" for x in g["quests"]))
-        got = [b["name"] for b in g["badges"] if b["earned"]]
-        L.append("徽章：" + ("、".join(got) or "还没有"))
+        lv = g["level"]
+        L.append(f"累计 {g['total']} 经验，Lv{lv['lv']}，再 {lv['to_next']} 经验升级；金币 {g['coins']}（今天 +{g['coins_today']}）")
+        L.append(f"今天的经验 {g['today']['total']}/{g['today']['cap']}；每日任务：" + "；".join(
+            f"{x['label']} {'✓' if x['done'] else '休息中' if x['rest'] else '还没做'}" for x in g["daily"]["tasks"])
+            + f"；全勤 +{g['daily']['bonus']['coins']} {'✓' if g['daily']['bonus']['done'] else ''}")
+        L.append(town.summary(st))
+        t = town.state(st)
+        if t["items"]:
+            L.append("小镇里：" + "、".join(f"{i['name']}（{i['created_at'][5:10]}）" for i in t["items"] if i["kind"] != "road")[:300])
         L.append("规则：" + growth.rules_text())
 
     elif area == "report":

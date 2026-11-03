@@ -92,6 +92,13 @@ def attention(st, ref=None, limit: int = 6) -> list[dict]:
             add(2, "habit_week", f"「{h['title']}」这周做了 {h['week']}/{h['need']} 次，还剩 {days_left} 天",
                 "轻轻问一句今天要不要做一次")
 
+    first = ws[0]["id"] if ws else ""
+    for w in ws:   # 一段小步走完了，还没想下一步：小光可以主动问一句（不催）
+        mine = [x for x in st.steps(200) if (x.get("wish_id") or first) == w["id"] and x["status"] in ("todo", "done")]
+        if mine and not any(x["status"] == "todo" for x in mine):
+            add(1, "steps_cleared", f"愿望「{w['title']}」的 {len(mine)} 个小步都做完了，还没有下一步",
+                "聊到这个愿望时夸一句，问一次要不要一起想想接下来的一两个小步；TA 说之后再说，这几天就别再提")
+
     for s_ in st.steps(60):
         if s_["status"] != "todo" or (s_.get("wish_id") and s_["wish_id"] not in live):
             continue
