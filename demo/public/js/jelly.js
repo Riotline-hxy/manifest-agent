@@ -156,23 +156,23 @@ const BASE = {
   oL: 1, oR: 1, kL: -.6, kR: -.6, sL: 1.06, sR: 1.06, tilt: 0,
   lookX: 0, lookY: 0, glint: .85, heart: 0,
   mx: 0, my: 11, mw: 3.4, m0: 0, m1: 1.6, m2: 2.2, m3: 1.6, m4: 0, a0: 0, a1: 0, a2: 0, a3: 0, a4: 0, ms: 1, mf: 0, md: 6,
-  blush: 0, yaw: -8, pitch: 0, roll: 0, sx: 1, sy: 1, breath: 1, listen: 0,
+  blush: 0, yaw: 10, pitch: 0, roll: 0, sx: 1, sy: 1, breath: 1, listen: 0,
   fx_zzz: 0, fx_tear: 0, fx_q: 0, fx_hearts: 0, fx_dots: 0, fx_anger: 0,
 };
 const EXPR = {
   idle:      { n: '平常', h: '安静陪着你' },
-  happy:     { n: '开心', h: '替你高兴', oL: 0, oR: 0, kL: 1, kR: 1, m: [0, 2.6, 3.4, 2.6, 0], mw: 4.8, my: 11, blush: .45, yaw: -4, pitch: -4, act: 'hop' },
-  wink:      { n: '眨眼', h: '跟你说个秘密', oR: 0, kR: 1, glint: 1, m: [0, 1.8, 2.2, 1.3, -.4], mw: 3.6, mx: 3, my: 11, yaw: -14, roll: 6, act: 'nudge' },
-  surprised: { n: '惊讶', h: '诶？真的吗', sL: 1.18, sR: 1.18, eyeY: -5, glint: 1, m: [0, -1.9, -2.6, -1.9, 0], mw: 1.7, mf: 1, md: 5.6, my: 15, sx: .96, sy: 1.05, pitch: -7, yaw: -2, act: 'pop' },
+  happy:     { n: '开心', h: '替你高兴', oL: 0, oR: 0, kL: 1, kR: 1, m: [0, 2.6, 3.4, 2.6, 0], mw: 4.8, my: 11, blush: .45, yaw: 8, pitch: -4, act: 'hop' },
+  wink:      { n: '眨眼', h: '跟你说个秘密', oR: 0, kR: 1, glint: 1, m: [0, 1.8, 2.2, 1.3, -.4], mw: 3.6, mx: 3, my: 11, yaw: 16, roll: 6, act: 'nudge' },
+  surprised: { n: '惊讶', h: '诶？真的吗', sL: 1.18, sR: 1.18, eyeY: -5, glint: 1, m: [0, -1.9, -2.6, -1.9, 0], mw: 1.7, mf: 1, md: 5.6, my: 15, sx: .96, sy: 1.05, pitch: -7, yaw: 6, act: 'pop' },
   shy:       { n: '害羞', h: '被你夸到了', oL: .9, oR: .9, sL: .92, sR: .92, lookX: -4, lookY: 4, blush: 1, m: [1, -1, 1, -1, 1], mw: 4, my: 14, yaw: -28, roll: -5, pitch: 8 },
   love:      { n: '喜欢', h: '好喜欢这个', heart: 1, blush: .6, m: [0, 5.2, 7, 5.2, 0], mw: 6, my: 12, pitch: -4, fx_hearts: 1, act: 'bounce' },
   think:     { n: '思考', h: '让我想一想', oL: .85, oR: .85, lookX: 6, lookY: -7, m: [1, .5, 0, -.5, -1], mw: 3.2, mx: 7, my: 15, yaw: 18, pitch: -9, roll: 3, fx_dots: 1 },
-  sleepy:    { n: '困了', h: '该睡啦，晚安', oL: 0, oR: 0, kL: -.25, kR: -.25, m: [0, -1, -1.4, -1, 0], mw: 1.3, mf: 1, md: 3.4, my: 16, pitch: 10, roll: 5, yaw: -6, sy: .97, sx: 1.02, breath: 2, fx_zzz: 1 },
+  sleepy:    { n: '困了', h: '该睡啦，晚安', oL: 0, oR: 0, kL: -.25, kR: -.25, m: [0, -1, -1.4, -1, 0], mw: 1.3, mf: 1, md: 3.4, my: 16, pitch: 10, roll: 5, yaw: 8, sy: .97, sx: 1.02, breath: 2, fx_zzz: 1 },
   sad:       { n: '难过', h: '抱抱你', oL: .8, oR: .8, tilt: -.75, sL: .96, sR: .96, lookY: 3, m: [5, 1.5, 0, 1.5, 5], mw: 6, my: 15, pitch: 12, sy: .95, sx: 1.03, fx_tear: 1 },
   grumpy:    { n: '不服', h: '哼，再来一次', oL: .66, oR: .66, tilt: .62, lookX: -2, glint: .5, m: [3, .6, 0, .6, 3], mw: 4.5, my: 16, sx: 1.05, sy: .96, yaw: -16, fx_anger: 1, act: 'puff' },
   // innocent "嗯？": both eyes open and round (a half-lid or uneven eyes reads as 质疑/轻蔑), a head tilt, a glance up, a tiny round mouth
   confused:  { n: '疑惑', h: '嗯？没太懂', sL: 1.1, sR: 1.04, glint: 1, lookX: 3, lookY: -3, m: [0, -.8, -1.1, -.8, 0], mw: 1.5, mf: 1, md: 3.2, my: 14, roll: 13, yaw: 6, pitch: -4, fx_q: 1, act: 'nudge' },
-  listen:    { n: '在听', h: '你说，我在听', sL: 1.08, sR: 1.08, glint: .8, m: [0, .7, .9, .7, 0], mw: 1.8, my: 12, pitch: 3, yaw: -2, listen: 1 },
+  listen:    { n: '在听', h: '你说，我在听', sL: 1.08, sR: 1.08, glint: .8, m: [0, .7, .9, .7, 0], mw: 1.8, my: 12, pitch: 3, yaw: 8, listen: 1 },
 };
 const ORDER = Object.keys(EXPR);
 function paramsOf(name) {
@@ -562,7 +562,7 @@ export class Jelly {
       });
     }
     const yr = rad(yaw), s2 = Math.sin(2 * yr);
-    w(E.side, 'transform', `translate(${f1(7 - 9 * s2)} ${f1(4 + pitch * .25)})`);
+    w(E.side, 'transform', `translate(${f1(7 - 14 * s2)} ${f1(4 + pitch * .25)})`);
     w(E.spec, 'transform', `translate(${f1(-12 * s2)} ${f1(-pitch * .3)})`);
     const lift = clamp(-ay / 90, 0, .7), k = 1 - lift, sw = (this.maxX / 104) * k * sx;
     w(E.shadow, 'transform', `translate(0 128) scale(${f3(sw)} ${f3(k)}) translate(0 -128)`);
