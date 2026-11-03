@@ -282,7 +282,7 @@ def onboard_plan(h, u, b, q):
     if lst("boundaries"):
         bits.append("TA 不希望被：" + "、".join(lst("boundaries")) + "。")
     try:
-        return 200, trial.plan(b.get("goal"), b.get("history"), bool(b.get("finish")), " ".join(bits))
+        return 200, trial.plan(b.get("goal"), b.get("history"), bool(b.get("finish")), " ".join(bits), bool(b.get("revise")))
     except ValueError as e:
         raise ApiError(400, str(e))
 

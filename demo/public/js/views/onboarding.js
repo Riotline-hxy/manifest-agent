@@ -28,8 +28,14 @@ const RHYTHMS = [["早起型", "早起型", "sun", "var(--c-lemon)", "早起的�
 const TRAITS = ["想得多", "理性派", "行动派", "拖延但爆发", "需要被提醒", "喜欢独处"];
 const NOPES = [["别说教", "说教"], ["别鸡血催促", "鸡血催促"], ["别追问太多", "追问太多"]];
 const SPANS = [[30, "一个月"], [90, "三个月"], [180, "半年"]];
+const REVISE_HINTS = ["时间对不上", "太难了，再小一点", "换一个习惯", "小步再具体点"];
+// 把用户手上的这一版（包括自己改过的字）讲给小光听，它在这个基础上改
+const planText = (P) => `我拆的是：愿望「${P.title}」，${{ 30: "一个月", 90: "三个月", 180: "半年" }[P.days] || "一个月"}；`
+  + P.rows.filter((x) => x.on && x.text.trim()).map((x) => `${{ ms: "里程碑", habit: "习惯", step: "小步" }[x.kind]}「${x.text.trim()}」`).join("，") + "。";
 const ROW = { ms: ["flag", "var(--c-violet)", "里程碑"], habit: ["clock", "var(--c-mint)", "习惯"], step: ["steps", "var(--c-orange)", "小步"] };
 const label = (list, v) => (list.find((x) => x[0] === v) || [])[1] || "";
+// 「认识小光」入口的底色：和小光自己的颜色拉开对比
+const tileFor = (look) => ({ dawn: "var(--c-sky)", lilac: "var(--c-sky)", night: "var(--c-sky)", sea: "var(--c-mint)", sky: "var(--c-mint)", mint: "var(--c-sky)" })[String(look).split(".")[1]] || "var(--c-violet)";
 
 export function renderOnboarding(root) {
   const carry = takeCarry();
@@ -77,7 +83,7 @@ export function renderOnboarding(root) {
       <div class="ob-hub-t"><h1>欢迎来到显伴</h1><p>三件小事，从哪个开始都行</p></div>
       <div class="ob-entries">${ENTRIES.map((e, i) => `
         <button class="ob-entry ${done[e.k] ? "done" : ""}" data-open="${e.k}" style="--i:${i}">
-          <span class="ob-e-ic">${e.k === "agent" ? lookPicture(A.agent_avatar_id) : tile(e.ic, e.c, 46)}</span>
+          <span class="ob-e-ic">${e.k === "agent" ? `<span class="tile ob-tile-look" style="--tile:${tileFor(A.agent_avatar_id)};width:46px;height:46px">${lookPicture(A.agent_avatar_id)}</span>` : tile(e.ic, e.c, 46)}</span>
           <span class="ob-e-main"><b>${e.t}</b><small>${esc(done[e.k] ? summary[e.k]() : e.h)}</small></span>
           <span class="ob-e-st">${done[e.k] ? icon("check") : icon("arrow")}</span></button>`).join("")}</div>
       <button class="btn btn-main btn-lg ob-enter" data-enter>${n === 3 ? "都好了，进入显伴" : "进入显伴"}</button>
@@ -186,7 +192,7 @@ export function renderOnboarding(root) {
     const ta = comp.querySelector("textarea"), send = comp.querySelector(".send");
     const left = comp.querySelector(".trial-left"), finishBtn = comp.querySelector("[data-act=finish]");
     const history = [{ role: "assistant", content: goal.open }];
-    let waiting = false;
+    let waiting = false, revising = null, revCard = null;   // revising：正在改的那一版路；revCard：它的卡片
     const scroll = () => requestAnimationFrame(() => thread.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "end" }));
     const msg = (role, text) => {
       const el = document.createElement("div");
@@ -200,13 +206,15 @@ export function renderOnboarding(root) {
     const refresh = () => {
       const n = rounds();
       send.classList.toggle("ready", !waiting && !!ta.value.trim());
-      left.textContent = n >= 3 ? "" : `还能聊 ${3 - n} 句`;
-      finishBtn.hidden = n < 1 || waiting;
+      left.textContent = n >= 3 || revising ? "" : `还能聊 ${3 - n} 句`;
+      finishBtn.hidden = n < 1 || waiting || !!revising;
       ta.disabled = waiting;
     };
     async function ask(text, opts = {}) {
       if (waiting) return;
       waiting = true;
+      const was = revising;
+      if (was) { history.push({ role: "assistant", content: planText(was) }); opts = { ...opts, revise: true }; revCard?.classList.add("dim"); }
       if (text) { history.push({ role: "user", content: text }); msg("user", text); }
       comp.querySelector(".hints").classList.add("hide");
       ta.value = ""; refresh();
@@ -217,11 +225,12 @@ export function renderOnboarding(root) {
           about: { persona: A.persona, nickname: A.nickname, traits: A.traits, boundaries: A.boundaries } });
         history.push({ role: "assistant", content: r.reply });
         wait.querySelector(".txt").textContent = r.reply;
-        if (r.plan) { comp.hidden = true; planCard(goal, r); }
+        if (r.plan) { comp.hidden = true; revising = null; revCard?.remove(); revCard = null; planCard(goal, r); }
         else ball.set("35", { force: true });
       } catch (e) {
         wait.remove();
         if (text) { history.pop(); ta.value = text; }
+        if (was) { history.pop(); revCard?.classList.remove("dim"); }
         toast(e.message, "err");
         ball.set("12", { force: true });
       }
@@ -263,7 +272,8 @@ export function renderOnboarding(root) {
           <button class="ob-ck" data-row="${i}" ${x.locked ? "disabled" : ""} aria-label="要不要这一项">${icon("check")}</button>
           <span class="ob-tag" style="--c:${col}">${icon(ic)}${tag}</span>
           ${x.locked ? `<span class="ob-fixed">${esc(x.text)}<small>刚才定的</small></span>` : `<input class="ob-in" data-rowin="${i}" maxlength="40" value="${esc(x.text)}">`}</div>`; }).join("")}
-        <div class="ob-plan-acts"><button class="btn btn-quiet btn-sm" data-again>换件事聊聊</button><button class="btn btn-main" data-take>放进计划</button></div>`;
+        <div class="ob-plan-acts"><button class="btn btn-quiet btn-sm" data-again>换件事聊聊</button><span class="sp"></span>
+          <button class="btn btn-ghost btn-sm" data-revise>${icon("edit")}让小光改改</button><button class="btn btn-main" data-take>放进计划</button></div>`;
       thread.append(card); scroll();
       card.querySelector("[data-w=title]").addEventListener("input", (e) => { P.title = e.target.value; });
       card.querySelectorAll("[data-days]").forEach((b) => b.addEventListener("click", () => {
@@ -273,6 +283,27 @@ export function renderOnboarding(root) {
       card.querySelectorAll("[data-row]").forEach((b) => b.addEventListener("click", () => { const x = P.rows[+b.dataset.row]; x.on = !x.on; b.closest(".ob-prow").classList.toggle("off", !x.on); }));
       card.querySelectorAll("[data-rowin]").forEach((inp) => inp.addEventListener("input", () => { P.rows[+inp.dataset.rowin].text = inp.value; }));
       card.querySelector("[data-again]").addEventListener("click", () => goalPick());
+      const revBtn = card.querySelector("[data-revise]");
+      revBtn.addEventListener("click", () => {
+        if (revising === P) {          // 误触了：不改了，这一版照样能用
+          revising = null; revCard = null;
+          comp.hidden = true;
+          revBtn.innerHTML = `${icon("edit")}让小光改改`;
+          say("好，那就用这一版。", "19");
+          refresh();
+          return;
+        }
+        revising = P; revCard = card;
+        revBtn.innerHTML = `${icon("close")}不改了`;
+        comp.hidden = false;
+        const hints = comp.querySelector(".hints");
+        hints.innerHTML = REVISE_HINTS.map((t) => `<button class="chip" data-fill="${esc(t)}">${esc(t)}</button>`).join("");
+        hints.classList.remove("hide");
+        hints.querySelectorAll("[data-fill]").forEach((b) => b.addEventListener("click", () => ask(b.dataset.fill)));
+        ta.placeholder = "哪里不合适？比如：我想 1 点前睡就行";
+        say("哪里不合适？跟我说说，我再改。", "35");
+        refresh(); scroll(); setTimeout(() => ta.focus(), 200);
+      });
       card.querySelector("[data-take]").addEventListener("click", () => {
         if (!P.title.trim()) return card.querySelector("[data-w=title]").focus();
         W = P; done.wish = true;

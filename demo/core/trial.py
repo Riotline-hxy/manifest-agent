@@ -64,9 +64,9 @@ def _fallback(goal: str, n: int, want_step: bool) -> dict:
             "tomorrow": fb["tomorrow"], "why_goal": ""}
 
 
-def _clean_history(history) -> list[dict]:
+def _clean_history(history, keep: int = 2 * MAX_ROUNDS) -> list[dict]:
     out = []
-    for m in (history or [])[-2 * MAX_ROUNDS:]:
+    for m in (history or [])[-keep:]:
         if not isinstance(m, dict) or m.get("role") not in ("user", "assistant"):
             continue
         text = clip(str(m.get("content") or ""), 300).strip()
@@ -140,16 +140,17 @@ TA 想改变的事：「{goal}」
   "remember": ["给出 plan 时填：从 TA 原话里值得记住的 1–3 件事，每条 16 字内，以「你」开头"],
   "why_goal": "TA 想改变的原因，只写原因本身；TA 没说过就留空"}}"""
 
+# 只在模型不可用时用，所以写成对谁都成立的相对目标（「比现在早半小时」），不写死具体时间
 PLAN_FALLBACK = [
-    (("睡", "作息", "熬夜", "早起"), {"title": "早睡早起", "category": "body", "ms": "连续 7 天 12 点前睡着",
-                                     "habits": ["23:30 放下手机"], "steps": ["今晚把手机放到书桌上", "定一个 23:30 的睡前提醒"]}),
+    (("睡", "作息", "熬夜", "早起"), {"title": "早点睡", "category": "body", "ms": "一周有 5 晚比现在早睡半小时",
+                                     "habits": ["睡前 30 分钟放下手机"], "steps": ["今晚比平时早 15 分钟上床", "把手机放到伸手够不着的地方"]}),
     (("开口", "表达", "自信", "说话", "社交"), {"title": "敢在人前开口", "category": "confidence", "ms": "在课上或会上主动发言一次",
-                                           "habits": ["每天主动跟一个人说句话"], "steps": ["写下一句想说却没说出口的话", "今天跟一个人主动打招呼"]}),
+                                           "habits": ["每天主动跟一个人说句话"], "steps": ["写下一句想说却没说出口的话", "今天跟一个人主动打个招呼"]}),
     (("拖", "作业", "论文", "项目", "学习", "做完"), {"title": "把拖着的事做完", "category": "wealth", "ms": "交出第一个能看的版本",
                                                 "habits": ["每天先做 25 分钟最难的事"], "steps": ["把那件事打开，只做 10 分钟", "写下下一步具体做什么"]}),
     (("动", "运动", "跑", "健身", "身材"), {"title": "让身体动起来", "category": "body", "ms": "一周动满 3 次",
-                                         "habits": ["每天拉伸 5 分钟"], "steps": ["今天下楼走 10 分钟", "挑一个喜欢的运动视频收藏起来"]}),
-    (("累", "乱", "对自己好", "焦虑", "压力"), {"title": "对自己好一点", "category": "calm", "ms": "一周有 3 个晚上安心入睡",
+                                         "habits": ["每天拉伸 5 分钟"], "steps": ["今天下楼走 10 分钟", "收藏一个想跟着练的视频"]}),
+    (("累", "乱", "对自己好", "焦虑", "压力"), {"title": "对自己好一点", "category": "calm", "ms": "一周有 3 天睡前心里是松的",
                                             "habits": ["每天给自己 10 分钟发呆"], "steps": ["写下现在最让你累的一件事", "今晚早点洗个热水澡"]}),
 ]
 PLAN_DEFAULT = {"title": "慢慢靠近想要的自己", "category": "other", "ms": "能说清楚想要的样子",
@@ -161,25 +162,27 @@ def _plan_fallback(goal: str, n: int, want: bool) -> dict:
     if not want and n < 2:
         return {"reply": PLAN_ASK, "plan": None}
     fb = next((f for keys, f in PLAN_FALLBACK if any(k in goal for k in keys)), PLAN_DEFAULT)
-    return {"reply": "好，我大概明白了。我帮你拆成了一条小路，看看哪些想放进计划，不合适的直接改。",
+    return {"reply": "好，我先按常见的情况拆了一条小路。不合适的直接改，或者跟我说哪里要调。",
             "plan": {"title": fb["title"], "category": fb["category"], "days": 30,
                      "milestones": [{"title": fb["ms"], "due_in_days": 14}],
                      "habits": [{"title": h} for h in fb["habits"]], "steps": [{"title": s} for s in fb["steps"]]},
             "remember": [clip("你想" + goal.removeprefix("想"), 16)], "why_goal": ""}
 
 
-def plan(goal: str, history, finish: bool = False, about: str = "") -> dict:
+def plan(goal: str, history, finish: bool = False, about: str = "", revise: bool = False) -> dict:
     goal = clip(str(goal or ""), 40).strip()
     if not goal:
         raise ValueError("先说说想改变什么")
-    msgs = _clean_history(history)
+    msgs = _clean_history(history, 12)   # 改过几版之后也看得到最开始聊的情况
     n = sum(1 for m in msgs if m["role"] == "user")
     if n == 0 or msgs[-1]["role"] != "user":
         raise ValueError("说点什么吧")
-    want = finish or n >= MAX_ROUNDS
-    extra = "这一轮必须给出 plan。" if want else "如果 TA 已经说得很清楚，这一轮就可以给 plan；否则先问。"
+    want = finish or revise or n >= MAX_ROUNDS
+    extra = ("TA 看了你上一版拆的路（上面你最后一条消息），提了意见。按 TA 说的改，没提到的部分保留；这一轮必须给出新的 plan，"
+             "reply 里用一句话说清改了什么。" if revise
+             else "这一轮必须给出 plan。" if want else "如果 TA 已经说得很清楚，这一轮就可以给 plan；否则先问。")
     sys_msg = PLAN_PROMPT.format(goal=goal, max=MAX_ROUNDS, n=n, extra=extra, about=about)
-    out = llm.complete_json([{"role": "system", "content": sys_msg}, *msgs], timeout=40)
+    out = llm.complete_json([{"role": "system", "content": sys_msg}, *msgs], timeout=75)
     p = out.get("plan") if out and isinstance(out.get("plan"), dict) else None
     if not out or not str(out.get("reply") or "").strip() or (want and not p) or (p and not str(p.get("title") or "").strip()):
         metrics.bump("onboard_plan_fallback")

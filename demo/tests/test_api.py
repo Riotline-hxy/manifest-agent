@@ -423,6 +423,16 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(s, 200, d)
         self.assertEqual((d["plan"]["title"], d["plan"]["milestones"], d["plan"]["steps"], d["plan"]["due_in_days"]),
                          ("早睡早起", ["连续 7 天 12 点前睡着"], ["今晚手机放书桌上"], 21))
+        # 「让小光改改」：上一版和用户的意见一起交给模型，这一轮一定给出新的一版
+        rev = hist + [{"role": "assistant", "content": "我拆的是：愿望「早睡早起」，一个月；里程碑「连续 7 天 12 点前睡着」。"},
+                      {"role": "user", "content": "我想 1 点前睡就行"}]
+        self.fake.json_out = {"reply": "好，改成 1 点前。", "plan": {"title": "1 点前睡", "milestones": [{"title": "一周 5 晚 1 点前睡"}], "habits": [], "steps": [{"title": "今晚 0:30 放下手机"}]}}
+        s, d = c.req("POST", "/api/onboard/plan", {"goal": "想早点睡", "history": rev, "revise": True})
+        self.assertEqual((s, d["plan"]["title"]), (200, "1 点前睡"))
+        prompt = self.fake.seen_json[-1]
+        self.assertIn("提了意见", prompt[0]["content"])
+        self.assertEqual(prompt[-1]["content"], "我想 1 点前睡就行")
+        self.assertIn("连续 7 天 12 点前睡着", prompt[-2]["content"])
         self.fake.json_out = None                                                    # 模型不可用：也照样给出一条路
         s, d = c.req("POST", "/api/onboard/plan", {"goal": "想早点睡", "history": hist, "finish": True})
         self.assertTrue(d["plan"]["steps"] and d["plan"]["milestones"] and d["plan"]["habits"])

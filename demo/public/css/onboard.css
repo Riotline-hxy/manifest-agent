@@ -27,7 +27,8 @@
   text-align: left; transition: transform .3s var(--spring), border-color .2s; animation: ob-in .5s var(--out) backwards; animation-delay: calc(var(--i) * 70ms); }
 .ob-entry:hover { transform: translateY(-2px); border-color: var(--line-2); }
 .ob-e-ic { flex: none; width: 46px; height: 46px; display: grid; place-items: center; }
-.ob-e-ic svg:not(.ic-svg) { width: 54px; height: 54px; }
+.ob-tile-look { overflow: hidden; }
+.ob-tile-look svg { width: 96%; height: 96%; margin-top: 10%; filter: drop-shadow(0 2px 2px rgba(0,0,0,.12)); }
 .ob-e-main { flex: 1; min-width: 0; }
 .ob-e-main b { display: block; font-size: 16px; }
 .ob-e-main small { display: block; font-size: 12.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -79,6 +80,12 @@
 /* 第一个愿望：选项和聊天沿用首页体验的样式（gate.css 的 .trial-*） */
 .ob-goals { grid-template-columns: repeat(2, 1fr); }
 .ob-chat .trial-thread { min-height: 80px; }
+/* 建档页的输入框贴着背景：不要卡片阴影，也不要底下那块渐变 */
+.ob-chat .trial-composer { position: static; background: none; padding: 10px 0 4px; }
+.ob-chat .inbox { background: var(--surface); border-color: var(--line); box-shadow: none; }
+.ob-chat .inbox:focus-within { border-color: var(--line-2); box-shadow: none; }
+/* .btn 的 display 会盖过 hidden，这里补上（首页体验的同一个按钮也受益） */
+.trial-meta [hidden] { display: none !important; }
 .ob-plan { display: flex; flex-direction: column; gap: 9px; margin: 16px 0 8px 40px; padding: 14px; border-radius: 20px; background: var(--surface);
   border: 1.5px solid var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); animation: ob-in .5s var(--out); }
 .ob-prow { display: flex; align-items: center; gap: 8px; }
@@ -96,7 +103,10 @@
 .ob-fixed { flex: 1; font-size: 14px; font-weight: 700; }
 .ob-fixed small { margin-left: 6px; font-size: 11.5px; color: var(--text-4); }
 .ob-spans { display: flex; gap: 6px; margin: 0 0 2px 2px; }
-.ob-plan-acts { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+.ob-plan-acts { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.ob-plan-acts .sp { flex: 1; }
+.ob-plan-acts .btn-ghost .ic-svg { width: 15px; height: 15px; }
+.ob-plan.dim { opacity: .45; pointer-events: none; box-shadow: none; border-color: var(--line); }
 
 @media (max-width: 560px) {
   .ob-hub-t h1 { font-size: 22px; }
