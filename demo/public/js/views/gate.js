@@ -1,7 +1,7 @@
 // 入口页：一句话 + 小光 + 选个氛围。点氛围整页当场换，登录后会记到画像里。
 import { api } from "../api.js";
 import { esc, toast, sheet, h, tile } from "../ui.js";
-import { mountBall, setAgentColor } from "../ball.js";
+import { mountBall } from "../ball.js";
 import { renderTrial } from "./trial.js";
 import { THEMES, applyTheme, themeOf } from "../theme.js";
 
@@ -47,7 +47,7 @@ export function renderGate(root) {
       <section class="gate-feats">
         ${FEATURES.map(([ic, c, t, d], i) => `<div class="feat card" style="--i:${i}">${tile(ic, c, 48)}<h3>${esc(t)}</h3><p>${esc(d)}</p></div>`).join("")}
       </section>
-      <footer class="gate-foot">小光形象：Emotion Ball（非商业演示授权） · 每个账号一个独立数据库 · 回复来自真实模型</footer>
+      <footer class="gate-foot">每个账号一个独立数据库 · 回复来自真实模型</footer>
     </div>`;
 
   mountBall(root.querySelector(".gl-ball"), { size: 30, halo: false, interactive: false, agent: false });
@@ -65,7 +65,6 @@ export function renderGate(root) {
 
   root.querySelectorAll("[data-t]").forEach((b) => b.addEventListener("click", () => {
     const t = applyTheme(b.dataset.t);
-    setAgentColor(t.agent);
     root.querySelectorAll("[data-t]").forEach((x) => x.classList.toggle("on", x === b));
     root.querySelector(".gt-name").textContent = `${t.name} · ${t.for}`;
     ball.set("10"); ball.pulse("bounce");

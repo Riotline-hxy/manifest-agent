@@ -1,9 +1,8 @@
-"""建构流程（8 题 → user_profile）与体验账号的种子数据。
-
-题目与字段沿用 creative/onboarding-and-scenes-v0.1.md，只加了两点：
-- 第 3 题之后允许「先跳过，以后再答」，不把问卷变成门槛；
-- 新增一题「中断时希望我怎么反应」（care_style），它是「重新认识我」
-  场景里同一偏好的早期版本，两者写同一个字段。
+"""建档：三段，每段一屏、都能跳过（public/js/views/onboarding.js）。
+- 小光：外貌、说话方式（persona）、几天没动时怎么陪你（care_style）、名字；
+- 你：怎么称呼、作息节奏、像什么样的人、别对我做什么——写进画像和几条基础记忆；
+- 第一个愿望：一个方向 + 现成的路（1 个里程碑、几个小步、1 个习惯），直接放进蜕变计划。
+什么都不填也能进门：画像用默认值，不建愿望。care_style 和「重新认识我」场景写的是同一个字段。
 """
 from __future__ import annotations
 
@@ -13,85 +12,96 @@ from . import growth, journey
 from .store import Store
 from .util import clip, iso, now
 
-QUESTIONS = [
-    {"key": "agent_name", "q": "先给你的伙伴起个名字？", "type": "text", "default": "小光", "ph": "小光",
-     "hint": "它会一直用这个名字。以后也能改。"},
-    {"key": "theme", "q": "选一个你喜欢的氛围", "type": "single", "optional": True, "hint": "点一下就能看到效果，之后随时能换。",
-     "options": [{"v": "forest", "label": "森林夜", "sub": "安静、专注"}, {"v": "midnight", "label": "深空", "sub": "极简、夜里聊天"},
-                 {"v": "paper", "label": "晨光", "sub": "清爽、白天用"}, {"v": "peach", "label": "暖阳", "sub": "温柔一点"},
-                 {"v": "mist", "label": "海雾", "sub": "慢下来"}]},
-    {"key": "agent_hue", "q": "给我挑个颜色？", "type": "single", "optional": True, "skip": True,
-     "hint": "不选就用这个氛围的默认色。",
-     "options": [{"v": c, "label": n} for c, n in (("#f7cb4d", "灯黄"), ("#f2f2f4", "月白"), ("#8b7cff", "薰衣草"),
-                                                    ("#ff8a65", "珊瑚"), ("#4fd1a5", "薄荷"), ("#5b9dff", "海蓝"), ("#ff8fb1", "樱粉"))]},
-    {"key": "intent_primary", "q": "你这阵子最想靠近的是？", "type": "single_or_text",
-     "options": ["自信与表达", "健康作息", "学业或作品", "关系与边界"], "ph": "或者自己写一句"},
-    {"key": "intent_why", "q": "为什么这件事对你重要？一句话就好。", "type": "text", "ph": "比如：交换项目时想敢开口"},
-    {"key": "schedule_hint", "q": "你更像哪种节奏？", "type": "single", "options": ["早起型", "夜猫", "不固定"],
-     "optional": True, "skip": True},
-    {"key": "care_style", "q": "如果连续三天没完成计划，你希望我怎么反应？", "type": "single",
-     "options": [{"v": "nudge", "label": "轻轻提醒我一下"}, {"v": "analyze", "label": "陪我一起找原因"},
-                 {"v": "quiet", "label": "先别提，等我自己说"}],
-     "hint": "这个选择以后可以随时改，也会出现在「重新认识我」里。"},
-    {"key": "persona", "q": "你希望我是什么样的朋友？", "type": "single", "optional": True,
-     "options": [{"v": "gentle", "label": "温柔", "sub": "先接住你的情绪，慢慢说"},
-                 {"v": "clear", "label": "有条理", "sub": "帮你把乱糟糟的事理清楚"},
-                 {"v": "lively", "label": "活泼", "sub": "轻松一点，偶尔逗你笑"}],
-     "hint": "以后在设置里随时能换。"},
-    {"key": "traits", "q": "别人常觉得你是？最多选 3 个", "type": "multi", "max": 3,
-     "options": ["敏感", "理性", "行动派", "拖延但爆发", "需要被提醒", "喜欢独处"], "optional": True, "skip": True},
-    {"key": "mbti_hint", "q": "有没有想对号入座的类型标签？只是好玩", "type": "single_or_text", "optional": True,
-     "options": ["跳过", "不确定"], "ph": "比如 INFP"},
-    {"key": "boundaries", "q": "有什么是绝对别碰的？", "type": "multi_or_text",
-     "options": ["别说教", "别鸡血催促", "无"], "ph": "别提某个话题……", "optional": True, "skip": True},
-]
+# 小光的外貌：形状.颜色.质感（和 public/js/jelly.js 里的 SHAPES / THEMES / MATERIALS 保持一致）
+LOOK_SHAPES = {"hex", "mochi", "cube", "onigiri", "flower", "star", "drop", "heart", "cloud", "pudding", "cat", "gummy"}
+LOOK_COLORS = {"origin", "gold", "moon", "dawn", "sun", "mint", "sea", "sakura", "orange", "sky", "lilac", "night"}
+LOOK_MATERIALS = {"jelly", "liquid"}
+LOOK_DEFAULT = "cloud.moon.jelly"
 
-# 小光的形象是固定的（Agent 形象稳定，成长发生在用户自己的小镇上）；可以换的只有颜色和背景氛围
+
+def valid_look(v) -> bool:
+    parts = str(v or "").split(".")
+    return len(parts) == 3 and parts[0] in LOOK_SHAPES and parts[1] in LOOK_COLORS and parts[2] in LOOK_MATERIALS
+
+
+PERSONAS = ("gentle", "clear", "lively")
+CARE_STYLES = ("nudge", "analyze", "quiet")
+SCHEDULES = ("早起型", "夜猫", "不固定")
+WISH_SPANS = (30, 90, 180)
+# 建档写进画像的字段（前端按三段来问；这里只认这些）
+QUESTIONS = [{"key": k, "section": s} for s, ks in (
+    ("agent", ("agent_avatar_id", "persona", "care_style", "agent_name")),
+    ("me", ("nickname", "schedule_hint", "traits", "boundaries")),
+    ("wish", ("intent_primary", "intent_why", "wish")),
+) for k in ks]
+
+# 背景氛围在首页就能选；小光的外貌用户自己选，成长发生在用户自己的小镇上
 THEMES = {"forest", "midnight", "paper", "peach", "mist"}
 AGENT_COLORS = {"#f7cb4d", "#f2f2f4", "#8b7cff", "#ff8a65", "#4fd1a5", "#5b9dff", "#ff8fb1"}
-HUE_BY_AVATAR = {"soft": ""}
+
+
+def _texts(v, n: int, size: int = 20) -> list[str]:
+    return [clip(str(x).strip(), size) for x in (v or []) if str(x).strip()][:n] if isinstance(v, list) else []
 
 
 def apply(store: Store, answers: dict) -> dict:
-    """Only writes once every required answer is present. Optional questions may
-    be skipped with an empty value; the profile simply stays unknown there."""
-    a = {}
-    for q in QUESTIONS:
-        v = answers.get(q["key"])
-        if q["type"] in ("multi", "multi_or_text"):
-            v = [clip(str(x), 20) for x in (v or []) if str(x).strip()][: q.get("max", 5)]
-        elif q["type"] == "single" and isinstance(v, dict):
-            v = v.get("v") or v.get("label") or ""
-        else:
-            v = clip(str(v or ""), 60)
-        if q["key"] == "agent_name":
-            v = v or "小光"
-        if q["key"] == "mbti_hint" and v in ("跳过",):
-            v = ""
-        if not v and not q.get("optional") and q["key"] not in ("boundaries",):
-            raise ValueError(f"缺少：{q['q']}")
-        a[q["key"]] = v
-    if a.get("theme") not in THEMES:
-        a["theme"] = "forest"
-    if a.get("agent_hue") not in AGENT_COLORS:
-        a["agent_hue"] = ""
-    a["onboarded"] = True
-    a["last_chat_at"] = iso()
-    if not a.get("care_style"):
-        a["care_style"] = ""
-    if a.get("persona") not in ("gentle", "clear", "lively"):
-        a["persona"] = "gentle"
+    """Every answer is optional; anything missing or out of range falls back to a default."""
+    g = lambda k: answers.get(k)
+    a = {
+        "agent_name": clip(str(g("agent_name") or "").strip(), 8) or "小光",
+        "agent_avatar_id": g("agent_avatar_id") if valid_look(g("agent_avatar_id")) else LOOK_DEFAULT,
+        "persona": g("persona") if g("persona") in PERSONAS else "gentle",
+        "care_style": g("care_style") if g("care_style") in CARE_STYLES else "nudge",
+        "theme": g("theme") if g("theme") in THEMES else "forest",
+        "schedule_hint": g("schedule_hint") if g("schedule_hint") in SCHEDULES else "",
+        "traits": _texts(g("traits"), 3),
+        "boundaries": [x for x in _texts(g("boundaries"), 5) if x != "无"],
+        "intent_primary": clip(str(g("intent_primary") or "").strip(), 60),
+        "intent_why": clip(str(g("intent_why") or "").strip(), 60),
+        "mbti_hint": "" if str(g("mbti_hint") or "") in ("跳过", "不确定") else clip(str(g("mbti_hint") or "").strip(), 12),
+        "agent_hue": g("agent_hue") if g("agent_hue") in AGENT_COLORS else "",
+        "onboarded": True,
+        "last_chat_at": iso(),
+    }
+    nick = clip(str(g("nickname") or "").strip(), 12)
+    if nick:
+        a["nickname"] = nick
+    wish = g("wish") if isinstance(g("wish"), dict) else None
+    if wish and not a["intent_primary"]:
+        a["intent_primary"] = clip(str(wish.get("title") or "").strip(), 60)
     p = store.set_profile(a)
-    # profile is the always-on core block; mirror the most important parts into
-    # archival memory so retrieval can find them later by meaning.
-    store.add_memory(f"想靠近「{a['intent_primary']}」，因为{a['intent_why']}", "intent", "onboarding")
+    # 画像是常驻的核心块；最重要的几条同时写进记忆，聊天时能按意思检索到
+    if a["intent_primary"]:
+        store.add_memory(f"想靠近「{a['intent_primary']}」" + (f"，因为{a['intent_why']}" if a["intent_why"] else ""), "intent", "onboarding")
     if a["traits"]:
         store.add_memory("觉得自己" + "、".join(a["traits"]), "identity", "onboarding")
-    b = [x for x in a["boundaries"] if x != "无"]
-    if b:
-        store.add_memory("不希望被：" + "、".join(b), "boundary", "onboarding")
-    store.log("onboarding", f"完成建档：想靠近「{clip(a['intent_primary'], 16)}」")
+    if a["schedule_hint"]:
+        store.add_memory({"早起型": "习惯早起", "夜猫": "是夜猫子，晚上更有精神", "不固定": "作息不太固定，看心情"}[a["schedule_hint"]], "preference", "onboarding")
+    if a["boundaries"]:
+        store.add_memory("不希望被：" + "、".join(a["boundaries"]), "boundary", "onboarding")
+    if wish:
+        make_wish(store, wish, a["intent_why"])
+    store.log("onboarding", "完成建档" + (f"：想靠近「{clip(a['intent_primary'], 16)}」" if a["intent_primary"] else ""))
     return p
+
+
+def make_wish(store: Store, wish: dict, why: str = "") -> dict | None:
+    """第一个愿望和它的路：一个里程碑、几个小步、一个习惯；每一项都走和手动添加一样的校验。"""
+    title = clip(str(wish.get("title") or "").strip(), 30)
+    if not title:
+        return None
+    cat = wish.get("category") if wish.get("category") in journey.CATEGORIES else journey.guess_category(title)
+    try:
+        days = int(wish.get("days") or 30)
+    except (TypeError, ValueError):
+        days = 30
+    days = days if days in WISH_SPANS else 30
+    w = journey.add_wish(store, title, cat, vision_text=why, target_day=(now().date() + timedelta(days=days)).isoformat())
+    rows = lambda k, n: [{"title": t} for t in _texts(wish.get(k), n, 40)]
+    plan = {"milestones": [dict(m, due_in_days=max(7, days // 2)) for m in rows("milestones", 2)],
+            "steps": rows("steps", 4), "habits": [dict(h, freq="daily") for h in rows("habits", 2)]}
+    journey.apply_plan(store, w["id"], plan)
+    return w
 
 
 def seed_guest(store: Store) -> None:
@@ -116,7 +126,7 @@ def seed_guest(store: Store) -> None:
         return min(dt, cap).isoformat(timespec="seconds")
 
     store.set_profile({
-        "agent_name": "小光", "agent_avatar_id": "soft", "agent_hue": "", "theme": "forest", "nickname": "林夏",
+        "agent_name": "小光", "agent_avatar_id": LOOK_DEFAULT, "agent_hue": "", "theme": "forest", "nickname": "林夏",
         "intent_primary": "自信与表达", "intent_why": "交换项目时想敢开口说英语", "schedule_hint": "夜猫",
         "traits": ["敏感", "拖延但爆发", "需要被提醒"], "mbti_hint": "INFJ", "boundaries": ["别鸡血催促"],
         "care_style": "analyze", "onboarded": True, "proactive": "normal", "xp": 0, "persona": "gentle",

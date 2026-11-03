@@ -92,10 +92,10 @@ demo/
   public/
     index.html       应用；admin.html 管理后台
     manifest.webmanifest · sw.js · icons/   PWA：装到桌面、收推送
-    css/             base · components · shell · chat · pages · journey · town · lesson · gate · admin · fonts(生成)
+    css/             base · components · shell · chat · pages · journey · town · lesson · gate · look(果冻形象、外貌、开屏) · admin · fonts(生成)
     js/              app · store · api · ui(线性图标) · theme(五种氛围) · town(等距小镇 SVG) · art(星罐) · fx(动效/庆祝)
-                     · ball(Emotion Ball 适配) · lesson(「一课」) · scene · tasks(例行任务) · push(通知/安装)
-                     · journey · rest · account · admin · views/（gate 首页 · trial 引导体验 · chat · plan · space …）
+                     · ball(小光的心情与外貌) · jelly(果冻形象引擎) · look(外貌选择) · lesson(「一课」) · scene · tasks(例行任务) · push(通知/安装)
+                     · journey · rest · account · admin · views/（gate 首页 · trial 引导体验 · splash 开屏 · chat · plan · space …）
     fonts/           源流圆体 CN + Nunito 的按需切片（生成）
     vendor/emotion-ball/
 config/              llm.json（模型）· llm.env.example
@@ -114,6 +114,6 @@ deploy/              部署脚本与 systemd 服务（服务文件改了要手�
 
 ## 形象与素材
 
-- 小光的形象是 Emotion Ball（[sam70361/emotion-ball](https://github.com/sam70361/emotion-ball)）：引擎非商业免费，**球形角色外观永不商用**。本仓库用于竞赛 demo，页面有署名并保留其 LICENSE / NOTICE；商用前需换成自研形象，只改 `public/js/ball.js`。
+- 小光的形象是自研的果冻形象（`public/js/jelly.js`，设计稿在 `creative/jelly-hex/`）：12 种形状 × 12 种颜色 × 2 种质感，用户在「设置 → 外貌」里选，默认云朵 · 月白。页面只通过 `public/js/ball.js` 用它。原来的 Emotion Ball 已不再加载（`public/vendor/emotion-ball/` 只是旧文件，可以删）。
 - 小镇的建筑、树、路和星罐都是代码画的 SVG（`public/js/town.js`、`public/js/art.js`）；位图只有 PWA 图标（`tools/build_icons.py` 画的）。
 - 字体：源流圆体 CN（Resource Han Rounded，SIL OFL 1.1）与 Nunito（SIL OFL 1.1）。

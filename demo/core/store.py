@@ -35,7 +35,7 @@ KIND_WEIGHT = {"identity": 1.25, "intent": 1.3, "preference": 1.15, "boundary": 
                "insight": 1.0, "event": 0.9, "good_news": 0.85}
 
 DEFAULT_PROFILE = {
-    "agent_name": "小光", "agent_hue": "", "agent_avatar_id": "soft", "theme": "forest",
+    "agent_name": "小光", "agent_hue": "", "agent_avatar_id": "cloud.moon.jelly", "theme": "forest",
     "nickname": "", "intent_primary": "", "intent_why": "", "schedule_hint": "",
     "traits": [], "mbti_hint": "", "boundaries": [], "onboarded": False,
     "proactive": "normal",  # more | normal | less | off

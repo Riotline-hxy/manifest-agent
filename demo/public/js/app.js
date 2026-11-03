@@ -3,8 +3,8 @@ import { api } from "./api.js";
 import { state, setData, go, subscribe } from "./store.js";
 import { esc, icon, tile, toast, sheet, h, fmtDay } from "./ui.js";
 import { countUp, burstAt, flyGain } from "./fx.js";
-import { applyTheme, agentColor, THEMES, AGENT_COLORS, themeOf } from "./theme.js";
-import { mountBall, setAgentColor, agentMini, MOOD_TEXT } from "./ball.js";
+import { applyTheme, agentColor, lookOf, THEMES, AGENT_COLORS, themeOf } from "./theme.js";
+import { mountBall, setAgentColor, setAgentLook, agentMini, MOOD_TEXT, celebrate } from "./ball.js";
 import { townSVG, napSVG, townHint, affordable, COIN_SVG } from "./town.js";
 import { catOf } from "./journey.js";
 import { renderGate } from "./views/gate.js";
@@ -18,6 +18,7 @@ import { renderIdeas } from "./views/ideas.js";
 import { renderAcademy, renderArticle } from "./views/academy.js";
 import { renderReport } from "./views/report.js";
 import { renderSpace } from "./views/space.js";
+import { shouldSplash, showSplash } from "./views/splash.js";
 import { isResting, openLazy } from "./rest.js";
 import { routinesHTML, bindRoutines, startPulse } from "./tasks.js";
 import { timelineHTML, nowIso } from "./timeline.js";
@@ -73,7 +74,7 @@ function applyProfileLook() {
   const p = state.data?.profile;
   if (!p) return;
   applyTheme(p.theme);
-  setAgentColor(agentColor(p));
+  setAgentLook(lookOf(p));
 }
 
 async function boot() {
@@ -83,7 +84,7 @@ async function boot() {
   try {
     const me = await api.me();
     if (!me.user) {
-      setAgentColor(agentColor(null));
+      setAgentLook(lookOf(null));
       root.innerHTML = "";
       renderGate(root);
       return;
@@ -109,7 +110,9 @@ async function boot() {
       } catch {}
     }
     state.ready = true;
+    const splash = shouldSplash();   // 每次打开 App 先见到小光（看的是进来时的地址，要在画外壳之前判断）
     drawShell();
+    if (splash) showSplash();
     // 到点的提醒：页面开着就 30 秒问一次；在对话页时把新消息画出来
     startPulse(() => { if (state.route === "chat") drawView(); });
     syncPush();
@@ -254,7 +257,7 @@ function drawPanel(rebuild = false) {
       <div class="panel-tabs"><div class="tabs">${[["today", "今天"], ["daily", "每日任务"], ["log", "动态"]].map(([k, l]) =>
         `<button data-tab="${k}" class="${panelTab === k ? "on" : ""}">${l}</button>`).join("")}<span class="ind"></span></div></div>
       <div class="panel-body"></div>`;
-    panelBall = mountBall(panel.querySelector(".p-ball"), { size: 104, idle: true });
+    panelBall = mountBall(panel.querySelector(".p-ball"), { size: 104 });
     panel.querySelector("[data-act=close]").addEventListener("click", () => togglePanel(false));
     panel.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => {
       panelTab = b.dataset.tab;
@@ -396,6 +399,7 @@ function bindWishSteps(panel, body) {
       const out = await api.step("done", { id: b.dataset.stepDone });
       burstAt(b, 18);
       flyGain(b, out.xp);
+      celebrate();
       setTimeout(() => { advanced = wid; synced(out); }, 420);
     } catch (e) { row.classList.remove("checking"); toast(e.message, "err"); }
   }));

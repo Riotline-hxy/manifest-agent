@@ -393,9 +393,36 @@ class ApiTest(unittest.TestCase):
         self.assertTrue(p["onboarded"])
         kinds = {m["kind"] for m in d["memories"]}
         self.assertTrue({"intent", "identity", "boundary"} <= kinds)
-        bad = Client(self.port)
-        bad.req("POST", "/api/auth/register", {"username": "onb_bad", "password": "secret12"})
-        self.assertEqual(bad.req("POST", "/api/onboard", {"answers": {"agent_name": "x"}})[0], 400)
+        # 三段都能跳过：什么都不填也能进门，用默认值，不建愿望
+        skip = Client(self.port)
+        skip.req("POST", "/api/auth/register", {"username": "onb_skip", "password": "secret12"})
+        s, d = skip.req("POST", "/api/onboard", {"answers": {}})
+        self.assertEqual(s, 200, d)
+        p = d["profile"]
+        self.assertEqual((p["agent_name"], p["agent_avatar_id"], p["persona"], p["care_style"]), ("小光", "cloud.moon.jelly", "gentle", "nudge"))
+        self.assertTrue(p["onboarded"])
+        self.assertEqual(d["journey"]["wishes"], [])
+        self.assertIn("不急着定目标", d["messages"][-1]["content"])
+        s, d = skip.req("POST", "/api/onboard", {"answers": {"persona": "evil", "care_style": "x", "schedule_hint": "半夜", "agent_avatar_id": "x.y.z"}})
+        self.assertEqual((d["profile"]["persona"], d["profile"]["care_style"], d["profile"]["schedule_hint"]), ("gentle", "nudge", ""))
+
+    def test_onboard_sets_up_the_first_wish(self):
+        c, _ = self.member("onb_wish")
+        wish = {"title": "早睡早起", "category": "body", "days": 90, "milestones": ["连续 7 天 12 点前睡"],
+                "steps": ["今晚手机放到床外面", "定一个 23:30 的提醒", "   "], "habits": ["23:30 放下手机"]}
+        s, d = c.req("POST", "/api/onboard", {"answers": {"nickname": "阿夏", "schedule_hint": "夜猫", "traits": ["想得多", "行动派"],
+                                                          "boundaries": ["别说教"], "persona": "lively", "wish": wish}})
+        self.assertEqual(s, 200, d)
+        p = d["profile"]
+        self.assertEqual((p["nickname"], p["intent_primary"], p["persona"]), ("阿夏", "早睡早起", "lively"))
+        [w] = d["journey"]["wishes"]
+        self.assertEqual((w["title"], w["category"]), ("早睡早起", "body"))
+        self.assertEqual([m["title"] for m in w["milestones"]], ["连续 7 天 12 点前睡"])
+        self.assertEqual([h["title"] for h in w["habits"]], ["23:30 放下手机"])
+        self.assertEqual(sorted(x["title"] for x in d["steps"] if x["wish_id"] == w["id"]), ["今晚手机放到床外面", "定一个 23:30 的提醒"])
+        self.assertIn("今晚手机放到床外面", d["messages"][-1]["content"])
+        kinds = {m["kind"] for m in d["memories"]}
+        self.assertTrue({"intent", "identity", "preference", "boundary"} <= kinds)
 
     def test_scene_waits_for_each_answer_then_writes(self):
         c, _ = self.onboarded("scene")
@@ -914,6 +941,21 @@ class ApiTest(unittest.TestCase):
         self.assertEqual((d["profile"]["theme"], d["profile"]["agent_hue"]), ("peach", "#4fd1a5"))
         self.assertEqual(c.req("POST", "/api/profile", {"theme": "neon"})[0], 400)
         self.assertEqual(c.req("POST", "/api/profile", {"agent_hue": "#123456"})[0], 400)
+
+    def test_agent_look(self):
+        c, _ = self.onboarded("look")
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["profile"]["agent_avatar_id"], "cloud.moon.jelly")   # 建档没选时是云朵 · 月白
+        s, d = c.req("POST", "/api/profile", {"agent_avatar_id": "cat.lilac.liquid"})
+        self.assertEqual((s, d["profile"]["agent_avatar_id"]), (200, "cat.lilac.liquid"))
+        for bad in ("soft", "cat.lilac", "cat.neon.jelly", "dragon.moon.jelly", "cat.moon.metal", ""):
+            self.assertEqual(c.req("POST", "/api/profile", {"agent_avatar_id": bad})[0], 400, bad)
+        c2, _ = self.member("look2")
+        s, d = c2.req("POST", "/api/onboard", {"answers": {**ONBOARD, "agent_avatar_id": "star.night.jelly"}})
+        self.assertEqual((s, d["profile"]["agent_avatar_id"]), (200, "star.night.jelly"))
+        keys = [q["key"] for q in c2.req("GET", "/api/bootstrap")[1]["onboarding"]]
+        self.assertNotIn("agent_hue", keys)
+        self.assertIn("agent_avatar_id", keys)
 
     def test_correct_memory_tool(self):
         c, uid = self.onboarded("correct")

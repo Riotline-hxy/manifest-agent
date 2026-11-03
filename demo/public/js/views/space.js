@@ -4,10 +4,12 @@ import { api } from "../api.js";
 import { state, setData, go } from "../store.js";
 import { esc, toast, sheet, h, confirmSheet, fmtDay, icon, tile } from "../ui.js";
 import { burstAt } from "../fx.js";
-import { mountBall, setAgentColor } from "../ball.js";
+import { mountBall, lookPicture, currentLook } from "../ball.js";
+import { lookName } from "../jelly.js";
+import { openLookSheet } from "../look.js";
 import { townSVG, builtCount } from "../town.js";
 import { timelineHTML, nowIso } from "../timeline.js";
-import { THEMES, AGENT_COLORS, applyTheme, agentColor, themeOf } from "../theme.js";
+import { THEMES, applyTheme, themeOf } from "../theme.js";
 import { themeCard, placeInd } from "../app.js";
 import { openAccount, logout } from "../account.js";
 import { pushSupport, pushOn, enablePush, disablePush, installState, install, PUSH_WHY } from "../push.js";
@@ -180,7 +182,7 @@ function settingsTab(body, root) {
   const p = state.data.profile || {};
   const seg = (key, opts, cur) => `<div class="tabs seg" data-key="${key}">${opts.map(([v, l]) => `<button data-v="${v}" class="${cur === v ? "on" : ""}">${l}</button>`).join("")}<span class="ind"></span></div>`;
   const cur = themeOf(p.theme).id;
-  const col = agentColor(p);
+  const look = currentLook();
   const guest = state.user?.kind === "guest";
   body.innerHTML = `
     <div class="sec-title set-sec">${icon("sparkles")}小光<span class="more">它怎么说话、什么时候来找你</span></div>
@@ -191,8 +193,8 @@ function settingsTab(body, root) {
         ${seg("care_style", [["nudge", "轻轻提醒"], ["analyze", "一起找原因"], ["quiet", "先别提"]], p.care_style)}</div>
       <div class="set-row">${tile("letter", "var(--c-sky)", 40)}<div class="sl"><b>主动消息</b><small>23:00–08:00 不打扰 · <button class="set-link" data-proactive>让它现在说一句</button></small></div>
         ${seg("proactive", [["more", "多"], ["normal", "刚好"], ["less", "少"], ["off", "不要"]], p.proactive || "normal")}</div>
-      <div class="set-row">${tile("palette", "var(--c-lemon)", 40)}<div class="sl"><b>颜色</b><small>小光身体的颜色</small></div>
-        <div class="swatches">${AGENT_COLORS.map((c) => `<button class="swatch ${c === col ? "on" : ""}" data-color="${c}" style="background:${c}" aria-label="换成这个颜色"></button>`).join("")}</div></div>
+      <div class="set-row">${tile("palette", "var(--c-lemon)", 40)}<div class="sl"><b>外貌</b><small>${esc(lookName(look))}</small></div>
+        <button class="set-look" data-look aria-label="换小光的外貌"><span class="set-look-pic">${lookPicture(look)}</span><span>换一换</span></button></div>
     </div>
 
     <div class="sec-title set-sec">${icon("user")}我<span class="more">账号和这台手机</span></div>
@@ -218,13 +220,9 @@ function settingsTab(body, root) {
   };
   body.querySelectorAll("[data-theme-id]").forEach((b) => b.addEventListener("click", () => {
     const t = applyTheme(b.dataset.themeId);
-    setAgentColor(t.agent);
-    save({ theme: t.id, agent_hue: "" }, `换成「${t.name}」了`);
+    save({ theme: t.id }, `换成「${t.name}」了`);
   }));
-  body.querySelectorAll("[data-color]").forEach((b) => b.addEventListener("click", () => {
-    setAgentColor(b.dataset.color);
-    save({ agent_hue: b.dataset.color }, "小光换好颜色了");
-  }));
+  body.querySelector("[data-look]").addEventListener("click", () => openLookSheet({ onSaved: () => renderSpace(root) }));
   body.querySelectorAll(".seg").forEach((sg) => sg.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => save({ [sg.dataset.key]: b.dataset.v }, "改好了"))));
   body.querySelector("[data-name-edit2]").addEventListener("click", () => nameSheet(root));
   body.querySelector("[data-account]").addEventListener("click", () => (guest ? openAccount() : confirmLogout()));

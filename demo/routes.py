@@ -251,8 +251,14 @@ def onboard(h, u, b, q):
             st.add_msg("assistant", f"我是{p['agent_name']}，刚才我们聊过的我都记着。你想靠近「{p['intent_primary']}」，"
                                     f"今天就先做「{first}」。做完了跟我说一声，没做成也来说说，我们再调。", {"onboarding": True})
         else:
-            st.add_msg("assistant", f"我是{p['agent_name']}。你想靠近「{p['intent_primary']}」，因为{p['intent_why']}。"
-                                    "我们不急，先从今天能做的最小一步开始。今天有什么想跟我说的吗？", {"onboarding": True})
+            todo = [x["title"] for x in reversed(st.steps(10)) if x["status"] == "todo"]
+            if todo:     # 建档时定了愿望和小步
+                text = f"我是{p['agent_name']}。「{p['intent_primary']}」这条路，我陪你一起走。第一小步是「{todo[0]}」，做完了跟我说一声。今天想先聊点什么？"
+            elif p.get("intent_primary"):
+                text = f"我是{p['agent_name']}。你想靠近「{p['intent_primary']}」，我们不急，先从今天能做的最小一步开始。今天有什么想跟我说的吗？"
+            else:
+                text = f"我是{p['agent_name']}。不急着定目标，想到了随时跟我说。今天过得怎么样？"
+            st.add_msg("assistant", text, {"onboarding": True})
         return 200, bootstrap(st)
 
 
@@ -279,6 +285,8 @@ def profile(h, u, b, q):
         raise ApiError(400, "没有这个氛围")
     if "agent_hue" in patch and patch["agent_hue"] not in onboarding.AGENT_COLORS | {""}:
         raise ApiError(400, "没有这个颜色")
+    if "agent_avatar_id" in patch and not onboarding.valid_look(patch["agent_avatar_id"]):
+        raise ApiError(400, "没有这个外貌")
     for k in ("traits", "boundaries"):
         if k in patch:
             patch[k] = [clip(str(x), 20) for x in (patch[k] or [])][:6]

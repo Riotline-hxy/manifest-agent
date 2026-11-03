@@ -5,7 +5,7 @@ import { api } from "../api.js";
 import { state, setData, go, xpNote } from "../store.js";
 import { esc, toast, confirmSheet, icon, tile, sheet, h } from "../ui.js";
 import { flyGain, burstAt, confetti } from "../fx.js";
-import { agentMini } from "../ball.js";
+import { agentMini, celebrate } from "../ball.js";
 import { CATS, catOf, MOODS, curvePath, backdropSVG, figureSVG, visionSVG, playFx } from "../journey.js";
 import { restBannerHTML, bindRestBanner } from "../rest.js";
 
@@ -210,6 +210,7 @@ export function renderPlan(root, { fresh = "" } = {}) {
       if (!undo) {
         burstAt(b, 26);
         flyGain(b, out.xp);
+        celebrate();
       }
       setTimeout(() => { setData(out); renderPlan(root, { fresh: undo ? "" : today }); }, undo ? 0 : 420);
     } catch (e) { toast(e.message, "err"); renderPlan(root); }
@@ -228,6 +229,7 @@ export function renderPlan(root, { fresh = "" } = {}) {
       const r = b.getBoundingClientRect();
       confetti(r.left + r.width / 2, r.top + r.height / 2, 70, 0.8);
       flyGain(b, out.xp);
+      celebrate(true);
       toast(`到达「${m.title}」`, "", "flag");
       setTimeout(() => { setData(out); renderPlan(root, { fresh: today }); }, 380);
     } catch (e) { toast(e.message, "err"); }
@@ -248,6 +250,7 @@ export function renderPlan(root, { fresh = "" } = {}) {
     try {
       const out = await api.step("done", { id: b.dataset.done });
       burstAt(b, 30);
+      celebrate();
       if (out.xp?.amount || out.xp?.coins > 0) flyGain(b, out.xp); else toast(xpNote(out.xp) || "完成了");
       setTimeout(() => { setData(out); renderPlan(root, { fresh: today }); }, 480);
     } catch (e) { card.classList.remove("checking"); toast(e.message, "err"); }

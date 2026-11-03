@@ -1,6 +1,8 @@
 // 背景预设：五种氛围，适配不同的人。主题只改颜色变量和背景场景，
 // 版式、交互完全一致。登录前存在 localStorage，登录后写进画像（跨设备）。
 
+import { parseLook, LOOK_DEFAULT } from "./jelly.js";
+
 export const THEMES = [
   { id: "forest", name: "森林夜", for: "想安静下来、专注的人", dark: true, agent: "#f7cb4d",
     swatch: ["#0d3528", "#2e8463", "#f7cb4d"] },
@@ -30,6 +32,15 @@ export function applyTheme(id) {
   if (current !== t.id) buildScene(t);
   current = t.id;
   return t;
+}
+
+const HEX_COLOR = { "#f7cb4d": "gold", "#f2f2f4": "moon", "#8b7cff": "dawn", "#ff8a65": "sun", "#4fd1a5": "mint", "#5b9dff": "sea", "#ff8fb1": "sakura" };
+// 小光的外貌（形状.颜色.质感）。没选过的用默认的云朵 · 月白；以前只选过颜色的，保留那个颜色
+export function lookOf(profile) {
+  if (parseLook(profile?.agent_avatar_id)) return profile.agent_avatar_id;
+  if (!profile) return localStorage.getItem("xg-look") || LOOK_DEFAULT;
+  const c = HEX_COLOR[profile.agent_hue];
+  return c ? `cloud.${c}.jelly` : LOOK_DEFAULT;
 }
 
 export function agentColor(profile) {

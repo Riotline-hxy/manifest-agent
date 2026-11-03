@@ -3,7 +3,7 @@
 // 每答一题，小光有一个小反应；最后是完成页，经验数字滚动上来。
 
 import { esc, icon, tile } from "./ui.js";
-import { mountBall } from "./ball.js";
+import { mountBall, lookPicture } from "./ball.js";
 import { confetti, countUp } from "./fx.js";
 
 const NICE = ["记下了", "嗯，我懂了", "这个很重要", "谢谢你告诉我", "收到", "好，就按你说的"];
@@ -91,6 +91,7 @@ export function runLesson({ kicker = "", start, answer, onClose, onDone, finishL
         <button class="opt ${o.theme ? "opt-theme" : ""}" data-v="${esc(o.v)}" style="--i:${i}">
           <span class="key">${KEYS[i] || ""}</span>
           ${o.theme ? `<span class="opt-prev" style="background:linear-gradient(160deg, ${o.theme.swatch[0]}, ${o.theme.swatch[1]})"><i style="background:${o.theme.agent}"></i></span>`
+            : o.look ? `<span class="opt-look">${lookPicture(o.look)}</span>`
             : o.color ? `<span class="opt-swatch" style="background:${o.color}"></span>`
             : o.icon ? tile(o.icon, o.tint || "var(--accent)", 38) : ""}
           <span class="lbl">${esc(o.label)}${typeof o.sub === "string" && o.sub ? `<small>${esc(o.sub)}</small>` : ""}</span>

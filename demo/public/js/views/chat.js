@@ -3,7 +3,7 @@
 import { api, streamChat } from "../api.js";
 import { state, setData, refresh, go, xpNote } from "../store.js";
 import { esc, richText, fmtDay, fmtTime, toast, icon, tile, sheet, h } from "../ui.js";
-import { mountBall, setAgentMood, pulseAgent, agentMini, MOOD_TEXT } from "../ball.js";
+import { mountBall, setAgentMood, agentMini, MOOD_TEXT, celebrate, clearAgentHold, settleAgent, feelOf } from "../ball.js";
 import { flyGain, burstAt } from "../fx.js";
 import { startScene } from "../scene.js";
 import { openLazy, adjustSheet, isResting } from "../rest.js";
@@ -320,6 +320,7 @@ export function renderChat(root) {
     if (lastDay !== "今天") { list.insertAdjacentHTML("beforeend", `<div class="day"><span>今天</span></div>`); lastDay = "今天"; }
     list.querySelector(".opener")?.remove();
     live = { text, acc: "", memories: null, tools: [], done: false, sceneToStart: null };
+    clearAgentHold();   // 用户开口了：之前停留的表情让位
     mountLive(list, scroll);
     const turn = live;
     const sc = () => turn.scroll?.();
@@ -343,7 +344,7 @@ export function renderChat(root) {
           const e = liveEls();
           if (e) e.col.insertBefore(toolCard(name, args, result), e.when);
           if (name === "start_scene" && result?.ok) turn.sceneToStart = result.scene;
-          if (name === "complete_step" || name === "log_good_news") pulseAgent("bounce");
+          if ((name === "complete_step" || name === "log_good_news") && result?.ok !== false) celebrate();
           sc();
         },
         error: () => { setAgentMood("error"); toast("模型服务暂时连不上", "err"); },
@@ -365,7 +366,7 @@ export function renderChat(root) {
       } catch {}
       if (live === turn) live = null;    // 之后重画对话页就直接用服务器上的记录了
       if (turn.sceneToStart && state.route === "chat") setTimeout(() => startScene(turn.sceneToStart), 900);
-      setTimeout(() => setAgentMood("idle"), 2600);
+      setTimeout(() => settleAgent(feelOf(text, turn.tools)), 1600);   // 按这句话的意思停留一个表情，约 1 分钟后回到待机
       sc();
       if (liveEls() || document.contains(ta)) ta.focus();
     }
@@ -382,7 +383,7 @@ export function renderChat(root) {
   }
 
   root.querySelector("[data-act=good]").addEventListener("click", (e) => quickGood(e.currentTarget));
-  root.querySelector("[data-act=lazy]").addEventListener("click", () => openLazy({ onDone: () => { setAgentMood("tired"); renderChat(root); } }));
+  root.querySelector("[data-act=lazy]").addEventListener("click", () => openLazy({ onDone: () => { setAgentMood("tired", { hold: 60000 }); renderChat(root); } }));
   function quickGood(btn) {
     let kind = "good";
     const body = h("div", { class: "qg", html: `<div class="tabs qg-tabs"><button class="on" data-k="good">${icon("star")}小确幸</button><button data-k="meme">${icon("chat")}内心戏</button><span class="ind"></span></div>
@@ -403,7 +404,7 @@ export function renderChat(root) {
           const out = await api.record(kind, t);
           s.close();
           setData(out);
-          setAgentMood("happy"); pulseAgent("bounce");
+          celebrate();
           flyGain(btn, out.xp);
           burstAt(btn, 30);
           toast(kind === "meme" ? "收下这段内心戏了" : "收下了，星空里又亮了一颗");

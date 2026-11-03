@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小光果冻 · 表情 / 形状 / 颜色</title>
+<style>
+  :root{--bg:#f3f6f6;--ink:#1b2a2d;--mute:#83959a;--accent:#4cb9c3}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1200px;margin:0 auto;padding:36px 28px 64px}
+  header h1{margin:0;font-size:22px;font-weight:600;letter-spacing:.5px}
+  header p{margin:6px 0 0;color:var(--mute);font-size:14px}
+  .hero{display:grid;grid-template-columns:1fr 300px;gap:24px;margin-top:24px}
+  .stage{position:relative;background:#fff;border-radius:28px;min-height:560px;overflow:hidden;
+    box-shadow:0 1px 0 rgba(0,0,0,.03),0 24px 60px -36px rgba(30,90,100,.35)}
+  .stage svg{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  .stage svg.over{cursor:grab}
+  .stage svg.squeezing{cursor:grabbing}
+  .stage .tip{position:absolute;left:0;right:0;bottom:16px;text-align:center;color:var(--mute);font-size:13px;pointer-events:none}
+  .stage .now{position:absolute;left:24px;top:20px;font-size:15px;font-weight:600}
+  .stage .now small{display:block;font-weight:400;color:var(--mute);font-size:13px;margin-top:2px}
+  .panel{background:#fff;border-radius:28px;padding:20px 18px;display:flex;flex-direction:column;gap:16px;
+    box-shadow:0 24px 60px -40px rgba(30,90,100,.3)}
+  .panel h3{margin:0 0 9px;font-size:12px;font-weight:600;color:var(--mute);letter-spacing:1px}
+  .chips{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .chips.three{grid-template-columns:repeat(3,1fr)}
+  .chips.two{grid-template-columns:repeat(2,1fr)}
+  .mats{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .mat{background:#fff;border-radius:26px;padding:10px 10px 18px;text-align:center;cursor:pointer;border:2px solid transparent;transition:border-color .3s}
+  .mat.on{border-color:var(--ink)}
+  .mat svg{width:100%;height:300px;display:block}
+  .mat .n{font-size:15px;font-weight:600}
+  .mat .h{font-size:13px;color:var(--mute);margin:4px auto 0;max-width:340px;line-height:1.6}
+  button{font:inherit;border:0;cursor:pointer}
+  .chip{padding:8px 0;border-radius:11px;background:#f2f7f7;color:var(--ink);font-size:13px;transition:background .25s,color .25s}
+  .chip:hover{background:#e6f4f5}
+  .chip.on{background:var(--ink);color:#fff}
+  .swatches{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;padding-bottom:24px;justify-items:center}
+  .sw{width:30px;height:30px;border-radius:50%;position:relative;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
+  .sw.on::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--ink)}
+  .sw span{position:absolute;top:35px;left:50%;transform:translateX(-50%);font-size:10.5px;color:var(--mute);white-space:nowrap}
+  .acts{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .act{padding:9px 0;border-radius:11px;background:#e9f7f8;color:#1f6f77;font-size:13px}
+  .row{display:flex;align-items:center;justify-content:space-between;font-size:13px}
+  .row.slider{gap:6px;margin-top:10px}
+  .reset-row{display:flex;justify-content:flex-end;margin-top:6px}
+  .reset{font-size:12px;color:#1f6f77;background:#e9f7f8;padding:4px 10px;border-radius:8px}
+  .reset:disabled{opacity:.4;cursor:default}
+  .row.slider span{flex:0 0 auto;width:56px}
+  .row.slider small{color:var(--mute);font-size:11px}
+  .row.slider input{flex:1;min-width:0;accent-color:var(--accent)}
+  .toggle{position:relative;width:38px;height:22px;border-radius:11px;background:#dfe7e8;transition:background .25s}
+  .toggle::after{content:"";position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;
+    box-shadow:0 1px 3px rgba(0,0,0,.15);transition:transform .3s cubic-bezier(.3,1.3,.5,1)}
+  .toggle.on{background:var(--accent)}
+  .toggle.on::after{transform:translateX(16px)}
+  h2{font-size:16px;font-weight:600;margin:40px 0 4px}
+  .sub{color:var(--mute);font-size:13px;margin:0 0 16px}
+  .grid{display:grid;grid-template-columns:repeat(6,1fr);gap:14px}
+  .card{background:#fff;border-radius:22px;padding:6px 6px 14px;text-align:center;cursor:pointer}
+  .card svg{width:100%;aspect-ratio:1;display:block}
+  .card .n{font-size:14px;font-weight:600}
+  .card .h{font-size:12px;color:var(--mute);margin-top:2px}
+  .notes{margin-top:36px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .note{background:#fff;border-radius:20px;padding:16px 18px;font-size:13px;line-height:1.7;color:#4c5e62}
+  .note b{display:block;color:var(--ink);font-size:14px;margin-bottom:4px}
+  @media (max-width:1000px){.hero{grid-template-columns:1fr}.grid{grid-template-columns:repeat(3,1fr)}.notes{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>小光果冻 · 表情 / 形状 / 颜色</h1>
+    <p>一个有厚度的果冻小身体 + 一双椭圆眼睛。表情、形状、颜色之间全部顺滑过渡，转身时脸绕着身体走一圈，永远看不到“背面”。</p>
+  </header>
+
+  <section class="hero">
+    <div class="stage">
+      <svg id="main"></svg>
+      <div class="now"><span id="nowName">平常</span><small id="nowHint">安静陪着你</small></div>
+      <div class="tip">按住它就能捏一捏</div>
+    </div>
+    <aside class="panel">
+      <div><h3>质感</h3><div class="chips two" id="matChips"></div>
+        <div class="row slider"><span>边缘颜色</span><small>灰</small><input type="range" id="rimHue" min="0" max="100" value="100"><small>通透</small></div>
+        <div class="row slider"><span>边缘深浅</span><small>浅</small><input type="range" id="rimAmt" min="0" max="60" value="24"><small>深</small></div>
+        <div class="row slider"><span>边缘高光</span><small>无</small><input type="range" id="rimLight" min="0" max="150" value="100"><small>亮</small></div>
+        <div class="reset-row"><button class="reset" id="rimReset">恢复默认</button></div></div>
+      <div><h3>形状</h3><div class="chips" id="shapeChips"></div></div>
+      <div><h3>颜色 · 小光同款</h3><div class="swatches" id="swXG"></div><h3>颜色 · 更多</h3><div class="swatches" id="swMore"></div></div>
+      <div><h3>表情</h3><div class="chips" id="chips"></div></div>
+      <div><h3>动作</h3><div class="acts"><button class="act" data-a="spin">转一圈</button><button class="act" data-a="hop">跳一下</button><button class="act" data-a="pinch">捏一捏</button></div></div>
+      <div class="row"><span>自动轮播</span><button class="toggle" id="tAuto"></button></div>
+    </aside>
+  </section>
+
+  <h2>质感 · 二选一</h2>
+  <p class="sub">两只同时做一样的动作，方便对比。点一下，整页都换成这种质感。</p>
+  <div class="mats" id="mats"></div>
+
+  <h2>形象 · 形状 × 颜色</h2>
+  <p class="sub">悬停会转一圈，点一下换到大舞台。</p>
+  <div class="grid" id="looks"></div>
+
+  <h2>表情一览</h2>
+  <p class="sub">悬停重播进入动作，点一下放到大舞台。</p>
+  <div class="grid" id="grid"></div>
+
+  <div class="notes">
+    <div class="note"><b>转身：脸绕着身体走</b>脸贴在一个看不见的球面上：转身时五官滑向一侧、越靠边越窄，同时另一侧滑进来。整个过程连续，没有空白的背面。</div>
+    <div class="note"><b>流畅：所有东西都是弹簧</b>表情、视线、形状、颜色都由弹簧驱动，切换不跳帧、不打断；转身是带蓄力和轻微过冲的平滑曲线，落地留一点果冻回弹。</div>
+    <div class="note"><b>性能：几乎只改变换</b>没有模糊滤镜，质感全靠渐变；形状只在变形时重算轮廓，平时每帧只改几个 transform。下面的小卡片停下来就休眠，悬停才醒。</div>
+  </div>
+</div>
+
+<script type="module">
+// 引擎和网页 App 共用同一份：demo/public/js/jelly.js
+import { Jelly, EXPR, ORDER, SHAPES, THEMES, XG_COLORS } from '../../demo/public/js/jelly.js';
+
+/* ---------- page ---------- */
+const $ = id => document.getElementById(id);
+const main = new Jelly($('main'), { alive: true, expr: 'idle' });
+main.bindSqueeze();
+const all = [main], exprCards = [];
+const chips = $('chips');
+function setMain(name) {
+  main.set(name);
+  $('nowName').textContent = EXPR[name].n; $('nowHint').textContent = EXPR[name].h;
+  chips.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.e === name));
+}
+const MATERIALS = {
+  jelly:  { n: '整块果冻', h: '一整块软弹的果冻，干净通透，五官最清楚。' },
+  liquid: { n: '双层晃晃水', h: '上面是果冻，下面是会晃的水。转身、跳起来时水面跟着晃；水位压在嘴巴下面，不会划过脸。' },
+};
+let matCards = [];
+function setMaterial(name) {
+  all.forEach(j => { if (!matCards.includes(j)) j.setMaterial(name); });
+  document.querySelectorAll('#matChips .chip').forEach(c => c.classList.toggle('on', c.dataset.m === name));
+  document.querySelectorAll('.mat').forEach(c => c.classList.toggle('on', c.dataset.m === name));
+}
+function setLook(shape, theme) {
+  const apply = j => { if (shape) j.setShape(shape); if (theme) j.setTheme(theme); };
+  apply(main);
+  exprCards.forEach((j, i) => setTimeout(() => apply(j), 120 + i * 45));   // cards follow in a gentle wave
+  if (shape) document.querySelectorAll('#shapeChips .chip').forEach(c => c.classList.toggle('on', c.dataset.s === shape));
+  if (theme) document.querySelectorAll('.sw').forEach(c => c.classList.toggle('on', c.dataset.t === theme));
+}
+ORDER.forEach(name => {
+  const b = document.createElement('button'); b.className = 'chip' + (name === 'idle' ? ' on' : ''); b.dataset.e = name;
+  b.textContent = EXPR[name].n; b.onclick = () => { stopAuto(); setMain(name); }; chips.appendChild(b);
+});
+const rimInput = () => {
+  Jelly.rim.hue = $('rimHue').value / 100; Jelly.rim.amt = $('rimAmt').value / 100; Jelly.rim.light = $('rimLight').value / 100;
+  all.forEach(j => { j.thDirty = true; j.wake(); });
+};
+const RIM_DEFAULT = { rimHue: 100, rimAmt: 24, rimLight: 100 };
+const syncReset = () => { $('rimReset').disabled = Object.entries(RIM_DEFAULT).every(([id, v]) => +$(id).value === v); };
+['rimHue', 'rimAmt', 'rimLight'].forEach(id => $(id).oninput = () => { rimInput(); syncReset(); });
+$('rimReset').onclick = () => { for (const id in RIM_DEFAULT) $(id).value = RIM_DEFAULT[id]; rimInput(); syncReset(); };
+syncReset();
+Object.keys(MATERIALS).forEach(m => {
+  const b = document.createElement('button'); b.className = 'chip' + (m === 'jelly' ? ' on' : ''); b.dataset.m = m;
+  b.textContent = MATERIALS[m].n; b.onclick = () => setMaterial(m); $('matChips').appendChild(b);
+});
+Object.keys(SHAPES).forEach(s => {
+  const b = document.createElement('button'); b.className = 'chip' + (s === 'hex' ? ' on' : ''); b.dataset.s = s;
+  b.textContent = SHAPES[s].n; b.onclick = () => setLook(s, null); $('shapeChips').appendChild(b);
+});
+Object.keys(THEMES).forEach(k => {
+  const T = THEMES[k], b = document.createElement('button');
+  b.className = 'sw' + (k === 'origin' ? ' on' : ''); b.dataset.t = k;
+  b.style.background = `radial-gradient(circle at 35% 30%, ${T.f0}, ${T.f1} 55%, ${T.f2})`;
+  b.innerHTML = `<span>${T.n}</span>`; b.onclick = () => setLook(null, k);
+  $(XG_COLORS.includes(k) ? 'swXG' : 'swMore').appendChild(b);
+});
+document.querySelectorAll('.act').forEach(b => b.onclick = () => ({ spin: () => main.spin(), hop: () => main.hop(34), pinch: () => main.pinchOnce() })[b.dataset.a]());
+let autoTimer = null, autoI = 0;
+function stopAuto() { clearInterval(autoTimer); autoTimer = null; $('tAuto').classList.remove('on'); }
+$('tAuto').onclick = () => {
+  if (autoTimer) return stopAuto();
+  $('tAuto').classList.add('on'); autoI = ORDER.indexOf(main.name);
+  const step = () => { autoI = (autoI + 1) % ORDER.length; setMain(ORDER[autoI]); if (autoI % 4 === 0) setTimeout(() => main.spin(), 1000); };
+  step(); autoTimer = setInterval(step, 3400);
+};
+
+// side-by-side comparison of the two materials, moving in sync
+Object.keys(MATERIALS).forEach(m => {
+  const c = document.createElement('div'); c.className = 'mat' + (m === 'jelly' ? ' on' : ''); c.dataset.m = m;
+  c.innerHTML = `<svg></svg><div class="n">${MATERIALS[m].n}</div><div class="h">${MATERIALS[m].h}</div>`;
+  $('mats').appendChild(c);
+  const j = new Jelly(c.querySelector('svg'), { alive: true, expr: 'idle', material: m });
+  j.t = 0; all.push(j); matCards.push(j);
+  c.onclick = () => setMaterial(m);
+});
+let demoI = 0;
+setInterval(() => {
+  const a = ['hop', 'spin', 'tilt', 'turn'][demoI++ % 4];
+  matCards.forEach(j => {
+    if (!j.visible) return;
+    if (a === 'hop') j.hop(30); else if (a === 'spin') j.spin();
+    else if (a === 'tilt') { j.S.roll.vel += 120; j.impulse(.2); }
+    else { j.S.yaw.vel += 160; }
+  });
+}, 2600);
+
+const LOOKS = [
+  { shape: 'hex', theme: 'origin', expr: 'happy', n: '六边形 · 初见青', h: '最初的样子' },
+  { shape: 'mochi', theme: 'sun', expr: 'idle', n: '糯米团 · 暖阳橙', h: '软乎乎' },
+  { shape: 'cube', theme: 'gold', expr: 'wink', n: '方糖 · 森林金', h: '甜一点' },
+  { shape: 'onigiri', theme: 'mint', expr: 'surprised', n: '饭团 · 薄荷绿', h: '有点机灵' },
+  { shape: 'flower', theme: 'dawn', expr: 'love', n: '花朵 · 晨光紫', h: '温柔一点' },
+  { shape: 'star', theme: 'night', expr: 'listen', n: '星星 · 夜光', h: '晚上也陪你' },
+  { shape: 'drop', theme: 'sea', expr: 'think', n: '水滴 · 海雾蓝', h: '慢慢来' },
+  { shape: 'heart', theme: 'sakura', expr: 'shy', n: '爱心 · 樱花粉', h: '被你暖到' },
+  { shape: 'cloud', theme: 'moon', expr: 'sleepy', n: '云朵 · 月白', h: '软软地睡' },
+  { shape: 'pudding', theme: 'orange', expr: 'happy', n: '布丁 · 柑橘', h: '弹一下' },
+  { shape: 'cat', theme: 'lilac', expr: 'confused', n: '猫耳 · 丁香', h: '歪头看你' },
+  { shape: 'gummy', theme: 'sky', expr: 'idle', n: '软糖 · 天空蓝', h: '圆滚滚' },
+];
+LOOKS.forEach(L => {
+  const c = document.createElement('div'); c.className = 'card';
+  c.innerHTML = `<svg></svg><div class="n">${L.n}</div><div class="h">${L.h}</div>`;
+  $('looks').appendChild(c);
+  const j = new Jelly(c.querySelector('svg'), { expr: L.expr, shape: L.shape, theme: L.theme });
+  all.push(j);
+  c.onmouseenter = () => j.spin();
+  c.onclick = () => { stopAuto(); setLook(L.shape, L.theme); setMain(L.expr); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+});
+ORDER.forEach(name => {
+  const c = document.createElement('div'); c.className = 'card';
+  c.innerHTML = `<svg></svg><div class="n">${EXPR[name].n}</div><div class="h">${EXPR[name].h}</div>`;
+  $('grid').appendChild(c);
+  const j = new Jelly(c.querySelector('svg'), { expr: name });
+  all.push(j); exprCards.push(j);
+  c.onmouseenter = () => j.react();
+  c.onclick = () => { stopAuto(); setMain(name); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+});
+
+const io = new IntersectionObserver(es => es.forEach(e => { const j = all.find(j => j.svg === e.target); if (j) j.visible = e.isIntersecting; }));
+all.forEach(j => { j.visible = true; io.observe(j.svg); });
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(.034, (now - last) / 1000); last = now;
+  for (const j of all) if (j.visible && (j.alive || j.awake)) j.frame(dt);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
