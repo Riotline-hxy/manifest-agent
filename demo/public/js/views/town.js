@@ -7,7 +7,7 @@ import { esc, icon, tile, toast, sheet, h, fmtDay } from "../ui.js";
 import { confetti } from "../fx.js";
 import { openRules } from "../rules.js";
 import { agentMini } from "../ball.js";
-import { townSVG, itemArt, townBox as boxOf, headroom, cellAt, cellPoint, COIN_SVG, guideLines, itemName } from "../town.js";
+import { townSVG, itemArt, townBox as boxOf, headroom, cellAt, cellPoint, COIN_SVG, guideLines, itemName, kindOf, cellsOf } from "../town.js";
 
 // 小镇的取景框：上方的天空按最高的那栋留，不多留
 const townBox = () => { const t = state.data.town; return boxOf(t.size, { top: headroom(t) }); };
@@ -33,6 +33,7 @@ function onData() {
 export function renderTown(root) {
   mounted = root;
   if (!subbed) { subbed = true; subscribe(onData); }
+  bindKeys();
   const d = state.data;
   ui.data = d;
   const t = d.town, g = d.growth;
@@ -94,12 +95,16 @@ function statsHTML(t, g) {
 
 // ---------------------------------------------------------------- 小镇舞台 ----
 const inLand = (t, c) => c && c.x >= 0 && c.y >= 0 && c.x < t.size && c.y < t.size;
-const occupant = (t, c, skip = "") => (t.items || []).find((i) => i.x === c.x && i.y === c.y && i.id !== skip);
+// 哪一样东西盖着这一格（大建筑占好几格）
+const occupant = (t, c, skip = "") => (t.items || []).find((i) => i.id !== skip && cellsOf(i).some(([x, y]) => x === c.x && y === c.y));
 const modeKind = (t) => ui.mode?.type === "buy" ? ui.mode.kind : (t.items.concat(t.warehouse).find((i) => i.id === ui.mode?.id) || {}).kind;
+const square = (kind) => { const [w, d] = kindOf(kind).size; return w === d; };
 
 function ghostFor(t) {
   if (!ui.mode || !ui.ghost || !inLand(t, ui.ghost)) return null;
-  return { kind: modeKind(t), x: ui.ghost.x, y: ui.ghost.y, ok: !occupant(t, ui.ghost, ui.mode.id || "") };
+  const g = { kind: modeKind(t), x: ui.ghost.x, y: ui.ghost.y, rot: ui.mode.rot || 0 };
+  g.ok = cellsOf(g).every(([x, y]) => inLand(t, { x, y }) && !occupant(t, { x, y }, ui.mode.id || ""));
+  return g;
 }
 
 function drawStage(root) {
@@ -217,11 +222,18 @@ function tap(root, e) {
     return placeAt(root, c);
   }
   const el = e.target.closest?.("[data-id]");
-  if (el && el.dataset.id !== "ghost") openItem(root, el.dataset.id);
+  if (el && el.dataset.id !== "ghost") return openItem(root, el.dataset.id);
+  const c = cellAt(root.querySelector(".tn-stage svg"), e.clientX, e.clientY);   // 路贴在地上，没有自己的图，按格子找
+  const hit = c && occupant(t, c);
+  if (hit) openItem(root, hit.id);
 }
 
 // ---------------------------------------------------------------- 放置 ----
 function startMode(root, mode) {
+  if (mode.type === "move" && mode.rot == null) {
+    const t = state.data.town;
+    mode.rot = (t.items.concat(t.warehouse).find((i) => i.id === mode.id) || {}).rot || 0;
+  }
   ui.mode = mode;
   ui.ghost = null;
   drawStage(root);
@@ -247,39 +259,62 @@ function drawMode(root) {
   const t = state.data.town, m = ui.mode, kind = modeKind(t);
   const it = t.catalog.find((c) => c.id === kind);
   const g = ghostFor(t);
+  const rot = m.rot || 0;
   const hint = g ? (g.ok ? (coarse() ? "再点一下就放下" : "点一下放下") : "这里有东西了") : "点一块空地";
-  box.innerHTML = `<span class="tm-art">${itemArt(kind, { name: t.name })}</span>
+  box.innerHTML = `<span class="tm-art">${itemArt(kind, { name: t.name, rot })}</span>
     <span class="tm-t"><b>${m.type === "buy" ? `${esc(it?.name || "")}<span class="tm-price">${COIN_SVG}${it?.price ?? ""}</span>` : `把「${esc(itemName(t, kind))}」放到哪儿？`}</b><small>${hint}</small></span>
+    ${square(kind) ? "" : `<button class="icon-btn sm" data-turn title="转个方向（R）" aria-label="转个方向">${icon("turn")}</button>`}
     ${g?.ok && coarse() ? `<button class="btn btn-main btn-sm" data-place>放在这里</button>` : ""}
     <button class="btn btn-ghost btn-sm" data-cancel>${m.keep ? "完成" : "取消"}</button>`;
   box.querySelector("[data-cancel]").addEventListener("click", () => endMode(root));
+  box.querySelector("[data-turn]")?.addEventListener("click", () => turn(root));
   box.querySelector("[data-place]")?.addEventListener("click", () => placeAt(root, ui.ghost));
 }
 
 const nonce = () => "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
+// 长条的建筑可以转 90°
+function turn(root) {
+  if (!ui.mode || square(modeKind(state.data.town))) return;
+  ui.mode = { ...ui.mode, rot: ui.mode.rot ? 0 : 1 };
+  drawStage(root);
+  drawMode(root);
+}
+let keysBound = false;
+function bindKeys() {
+  if (keysBound) return;
+  keysBound = true;
+  document.addEventListener("keydown", (e) => {
+    if (state.route !== "town" || !ui.mode || !mounted || e.target.closest?.("input, textarea")) return;
+    if (e.key === "r" || e.key === "R") turn(mounted);
+    if (e.key === "Escape") endMode(mounted);
+  });
+}
+
 async function placeAt(root, c) {
   const t = state.data.town, m = ui.mode;
   if (!m || ui.busy || !inLand(t, c)) return;
-  if (occupant(t, c, m.id || "")) { toast("这里已经有东西了，换一块空地"); return; }
-  ui.busy = true;
   const kind = modeKind(t);
+  const g = { kind, x: c.x, y: c.y, rot: m.rot || 0 };
+  if (!cellsOf(g).every(([x, y]) => inLand(t, { x, y }))) { toast("这块地放不下"); return; }
+  if (cellsOf(g).some(([x, y]) => occupant(t, { x, y }, m.id || ""))) { toast("这里有东西了"); return; }
+  ui.busy = true;
   try {
     let out;
     if (m.type === "buy") {
-      const key = `${kind}@${c.x},${c.y}`;   // 网络断了再点同一块地：沿用同一个请求号，后端只扣一次
+      const key = `${kind}@${c.x},${c.y}:${g.rot}`;   // 网络断了再点同一块地：沿用同一个请求号，后端只扣一次
       if (ui.nonce?.key !== key) ui.nonce = { key, v: nonce() };
-      out = await api.town("buy", { kind, x: c.x, y: c.y, nonce: ui.nonce.v });
+      out = await api.town("buy", { kind, x: c.x, y: c.y, rot: g.rot, nonce: ui.nonce.v });
       ui.nonce = null;
       const item = t.catalog.find((x) => x.id === kind);
-      const keep = KEEP_GOING.has(item.cat) && out.growth.coins >= item.price;
+      const keep = KEEP_GOING.has(item.cat) && item.size[0] * item.size[1] === 1 && out.growth.coins >= item.price;   // 便宜的 1×1 小东西才连着放
       ui.mode = keep ? { ...m, keep: true } : null;
       ui.fresh = out.built.id;
       ui.sayNow = out.built.again ? "" : item.cat === "build"
         ? `「${item.name}」盖好了${out.built.story?.text ? `。这是你${out.built.story.text}之后盖的` : ""}。`
         : (!m.keep ? `「${item.name}」放好了。${keep ? "还想再放，就接着点空地。" : ""}` : "");
     } else {
-      out = await api.town("move", { id: m.id, x: c.x, y: c.y });
+      out = await api.town("move", { id: m.id, x: c.x, y: c.y, rot: g.rot });
       ui.mode = null;
       ui.fresh = out.moved.id;
       ui.sayNow = `「${itemName(t, kind)}」挪好了。`;
@@ -326,7 +361,7 @@ function shopTab(body, root) {
       const poor = c.unlocked && c.price > coins;
       return `<button class="shop-it ${c.unlocked ? "" : "locked"} ${poor ? "poor" : ""} ${ui.mode?.kind === c.id ? "on" : ""}" data-kind="${c.id}" style="--i:${i}" title="${esc(c.desc)}">
         <span class="si-art">${itemArt(c.id, { name: t.name })}</span>
-        <b>${esc(c.name)}</b>
+        <b>${esc(c.name)}</b>${c.size[0] * c.size[1] > 1 ? `<span class="si-size">${c.size[0]}×${c.size[1]}</span>` : ""}
         ${c.unlocked ? `<span class="si-price">${COIN_SVG}${c.price}</span>` : `<span class="si-lock">${icon("lock")}Lv ${c.lv}</span>`}
       </button>`;
     }).join("")}</div>
@@ -369,7 +404,7 @@ function openItem(root, id) {
   const t = state.data.town;
   const it = t.items.find((x) => x.id === id);
   if (!it) return;
-  const c = t.catalog.find((x) => x.id === it.kind);
+  const c = t.catalog.find((x) => x.id === it.kind) || kindOf(it.kind);
   const built = it.created_at.slice(0, 10);
   const st = it.story || {};
   let story = "";
@@ -377,7 +412,7 @@ function openItem(root, id) {
   else if (it.kind === "sign") story = "小镇开张那天就立在这儿了。";
   else if (st.text) story = st.day === built ? `那天你${esc(st.text)}。` : `盖它之前，你最近做成的一件事是 ${md(st.day)} ${esc(st.text)}。`;
   const body = h("div", { class: "ti-sheet", html: `
-    <div class="ti-art">${itemArt(it.kind, { name: t.name })}</div>
+    <div class="ti-art">${itemArt(it.kind, { name: t.name, rot: it.rot })}</div>
     <p class="ti-when">${it.source === "gift" && it.kind !== "monument" ? "小镇送的" : `${md(built)} 建的`}${c ? ` · ${esc(c.desc)}` : ""}</p>
     ${story ? `<p class="ti-story">${story}</p>` : ""}` });
   const s = sheet({ title: it.name, body, sticker: "home", footer: [

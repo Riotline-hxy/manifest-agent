@@ -3,9 +3,12 @@
 登录：服务器 .env 里的 MANIFEST_ADMIN_KEY。登录后发一个 12 小时有效的签名 cookie
 （xg_admin），不进用户账号体系；换掉 key 就让所有后台登录失效。没配 key 时后台整个关闭。
 
-看得到：账号、建档时选的方向、各类数量、按天的活跃与消息数、操作记录（activity）。
-看不到：对话原文、记忆原文、密码。读用户库一律只读打开。
-能改的只有一件事：删除用户（账号、会话、数据文件夹、例行任务、用量计数，全部删掉，不能恢复）。
+看得到：账号、建档时选的方向、各类数量、按天的活跃与消息数、操作记录（activity）、经验和金币的每一笔。
+看不到：对话原文、记忆原文、密码。统计时读用户库一律只读打开。
+能改的：
+  - 删除用户（账号、会话、数据文件夹、例行任务、用量计数，全部删掉，不能恢复）；
+  - 给某个用户加 / 减经验和金币（必须写原因；用户的成长账本里会出现一行「后台调整」，data/admin_log.jsonl 另记一份）；
+  - 小镇里每样东西的价格、解锁等级、上下架（存在 data/town_config.json，所有人立刻生效，见 core/town.py）。
 """
 from __future__ import annotations
 
@@ -20,9 +23,11 @@ import threading
 import time
 from datetime import timedelta
 
-from . import auth, growth, metrics, tasks, webpush
+import json
+
+from . import auth, growth, metrics, tasks, town, webpush
 from .api import VERSION
-from .util import DATA, day_key, loads, now, parse_iso
+from .util import DATA, clip, day_key, iso, loads, new_id, now, parse_iso
 
 COOKIE = "xg_admin"
 TOKEN_HOURS = 12
@@ -105,7 +110,8 @@ def _scan(user: dict) -> dict:
         row["memories"] = q("SELECT COUNT(*) FROM memory WHERE status = 'active'")
         row["habits"] = q("SELECT COUNT(*) FROM habit WHERE archived = 0")
         row["xp"] = q("SELECT COALESCE(SUM(amount), 0) FROM xp")
-        row["level"] = growth.level_of(row["xp"])["lv"]
+        row["level"] = growth.level_of(row["xp"], int(prof.get("level_floor") or 1))["lv"]
+        row["coins"] = q("SELECT COALESCE(SUM(amount), 0) FROM coin")
     except sqlite3.Error:
         pass
     finally:
@@ -300,3 +306,91 @@ def delete_user(uid: str) -> bool:
 
 def guest_ids() -> list[str]:
     return [r["id"] for r in auth.db().execute("SELECT id FROM users WHERE kind = 'guest'")]
+
+
+# ---- 经验和金币：每一笔记录、后台调整 ----
+
+LOG = DATA / "admin_log.jsonl"
+_log_lock = threading.Lock()
+
+
+def _log(entry: dict) -> None:
+    with _log_lock:
+        LOG.parent.mkdir(parents=True, exist_ok=True)
+        with LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"at": iso(), **entry}, ensure_ascii=False) + "\n")
+
+
+def log_entries(uid: str = "", limit: int = 100) -> list[dict]:
+    try:
+        lines = LOG.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    out = []
+    for ln in reversed(lines):
+        try:
+            e = json.loads(ln)
+        except ValueError:
+            continue
+        if not uid or e.get("uid") == uid:
+            out.append(e)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def growth_detail(uid: str) -> dict | None:
+    """一个用户的经验、等级（含保底）、金币、最近 200 笔账、小镇大小、后台给 TA 做过的调整。"""
+    from .store import Store
+    if not auth.get_user(uid):
+        return None
+    with Store(uid) as st:
+        town.ensure(st)   # 还没打开过新版的老账号：先按迁移规则算好，和 TA 自己打开时看到的一样
+        lv = growth.level(st)
+        placed = town.items(st)
+        return {"xp": growth.total_xp(st), "level": lv, "floor": int(st.profile().get("level_floor") or 1),
+                "coins": growth.coins(st), "ledger": growth.ledger(st, 200),
+                "town": {"size": town.size_for(lv["lv"]), "placed": len(placed), "warehouse": len(town.items(st, placed=False))},
+                "adjustments": log_entries(uid, 30)}
+
+
+def adjust(uid: str, xp, coins, reason: str, ip: str = "") -> dict:
+    """给一个用户加 / 减经验和金币。都在一个事务里；金币、经验都不能扣到负数。"""
+    from .store import Store
+    u = auth.get_user(uid)
+    if not u:
+        raise ValueError("没有这个用户")
+    try:
+        xp, coins = int(xp or 0), int(coins or 0)
+    except (TypeError, ValueError):
+        raise ValueError("经验和金币要是整数")
+    reason = clip(str(reason or "").strip(), 60)
+    if not reason:
+        raise ValueError("写一下原因")
+    if not xp and not coins:
+        raise ValueError("经验和金币至少改一样")
+    if abs(xp) > 100000 or abs(coins) > 100000:
+        raise ValueError("一次最多改 100000")
+    with Store(uid) as st:
+        town.ensure(st)
+        with st.tx():
+            if xp < 0 and growth.total_xp(st) + xp < 0:
+                raise ValueError(f"经验不能扣到负数（现在 {growth.total_xp(st)}）")
+            if coins < 0 and growth.coins(st) + coins < 0:
+                raise ValueError(f"金币不能扣到负数（现在 {growth.coins(st)}）")
+            ref, note = new_id("adm"), "后台调整：" + reason
+            if xp:
+                st.c.execute("INSERT INTO xp(id, day, source, amount, ref, note, created_at) VALUES(lower(hex(randomblob(6))),?,?,?,?,?,?)",
+                             (day_key(), "admin", xp, ref, note, iso()))
+                st.set_profile({"xp": growth.total_xp(st)})
+            if coins:
+                growth._coin(st, "admin", coins, ref, note)
+    _log({"type": "adjust", "uid": uid, "user": u["username"] or uid, "xp": xp, "coins": coins, "reason": reason, "ip": ip})
+    print(f"[admin] adjust {uid} xp={xp} coins={coins} ({reason})", file=sys.stderr)
+    return growth_detail(uid)
+
+
+def town_save(patch: dict, ip: str = "") -> dict:
+    out = town.admin_save(patch)
+    _log({"type": "town", "changes": patch, "ip": ip})
+    return out

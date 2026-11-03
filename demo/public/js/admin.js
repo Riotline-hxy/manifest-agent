@@ -1,6 +1,8 @@
-// 管理后台：登录 → 概览（数字、按天的图、漏斗、服务器）→ 用户列表 → 单个用户。只读。
+// 管理后台：登录 → 概览（数字、按天的图、漏斗、服务器）→ 用户列表 → 单个用户（含经验和金币的账、后台调整）；
+// 「小镇」页：素材库里每样东西的价格、解锁等级、上下架，保存后所有人立刻生效。
 import { get, post } from "./api.js";
 import { esc, icon, tile, toast, sheet, h } from "./ui.js";
+import { itemArt, setKinds, COIN_SVG } from "./town.js";
 
 const C = { violet: "#7f70e0", mint: "#2a9c76" };  // 已在深色底上验证过（亮度带、色盲区分、对比度）
 const KIND = { member: "注册", guest: "体验账号" };
@@ -14,6 +16,7 @@ let days = 30;
 let users = [];
 let filter = "all";
 let query = "";
+let page = "home";
 
 const num = (n) => (n == null ? "—" : n >= 10000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1) + "K" : String(n));
 const ago = (iso) => {
@@ -65,9 +68,23 @@ function login(note) {
 
 // ---------------------------------------------------------------- 主页 ----
 async function load() {
+  if (page === "town") return loadTown();
   const [ov, us] = await Promise.all([get(`/api/admin/overview?days=${days}`), get("/api/admin/users")]);
+  if (page !== "home") return;            // 等的时候切到别的页了
   users = us.users;
   draw(ov);
+}
+
+const pages = () => `<nav class="adm-pages">${[["home", "概览"], ["town", "小镇"]].map(([k, l]) =>
+  `<button class="chip ${page === k ? "on" : ""}" data-page="${k}">${l}</button>`).join("")}</nav>`;
+function bindPages() {
+  root.querySelectorAll("[data-page]").forEach((b) => b.addEventListener("click", () => {
+    if (page === b.dataset.page) return;
+    if (page === "town" && Object.keys(edits).length && !confirm("有没保存的改动，确定离开？")) return;
+    page = b.dataset.page;
+    edits = {};
+    load().catch(fail);
+  }));
 }
 
 function draw(ov) {
@@ -75,6 +92,7 @@ function draw(ov) {
   root.innerHTML = `
     <header class="adm-top">
       <b class="adm-logo">${icon("shield")}显伴后台</b>
+      ${pages()}
       <div class="adm-range" role="group" aria-label="时间范围">
         ${[7, 30, 90].map((n) => `<button class="chip ${n === days ? "on" : ""}" data-days="${n}">近 ${n} 天</button>`).join("")}
       </div>
@@ -137,7 +155,7 @@ function draw(ov) {
         <p class="adm-sub">按最近活跃排序。点一行看详情。这里只有数量和操作记录，看不到对话和记忆原文。</p>
         <div class="adm-table-wrap"><table class="adm-table"><thead><tr>
           <th>用户</th><th>类型</th><th>注册于</th><th>最近活跃</th><th class="r">活跃天数</th><th class="r">消息</th>
-          <th class="r">一小步</th><th class="r">好消息</th><th class="r">记忆</th><th class="r">等级</th><th class="r">30 天 tokens</th><th>想靠近</th>
+          <th class="r">一小步</th><th class="r">好消息</th><th class="r">记忆</th><th class="r">等级</th><th class="r">金币</th><th class="r">30 天 tokens</th><th>想靠近</th>
         </tr></thead><tbody></tbody></table></div>
       </section>
     </main>`;
@@ -154,6 +172,7 @@ function draw(ov) {
   hbars(root.querySelector('[data-h="tokens"]'), ov.top_tokens, "还没有按人记录的用量", (r) => openUser(r.id));
   drawUsers();
 
+  bindPages();
   root.querySelectorAll("[data-days]").forEach((b) => b.addEventListener("click", () => { days = +b.dataset.days; load().catch(fail); }));
   root.querySelectorAll("[data-filter]").forEach((b) => b.addEventListener("click", () => {
     filter = b.dataset.filter;
@@ -187,9 +206,10 @@ function drawUsers() {
       <td class="r num">${u.good}</td>
       <td class="r num">${u.memories}</td>
       <td class="r num">${u.level}</td>
+      <td class="r num">${num(u.coins)}</td>
       <td class="r num">${num(u.tokens_30d)}</td>
       <td class="clip">${esc(u.profile?.intent_primary || "—")}</td>
-    </tr>`).join("") : `<tr><td colspan="12" class="adm-none">没有符合的用户</td></tr>`;
+    </tr>`).join("") : `<tr><td colspan="13" class="adm-none">没有符合的用户</td></tr>`;
   tb.querySelectorAll("tr[data-id]").forEach((tr) => {
     const open = () => openUser(tr.dataset.id);
     tr.addEventListener("click", open);
@@ -226,6 +246,8 @@ async function openUser(id) {
       ${[["消息", u.msgs], ["一小步完成", `${u.steps_done}/${u.steps}`], ["好消息", u.good], ["记忆", u.memories], ["习惯", u.habits], ["经验", u.xp]]
         .map(([k, v]) => `<div><b class="num">${v}</b><span>${k}</span></div>`).join("")}
     </div>
+    <h4>经验和金币</h4>
+    <div class="adm-growth" data-growth><p class="adm-sub">正在读…</p></div>
     <h4>近 30 天每天的消息</h4>
     <div class="chart chart-sm" data-u="msgs"></div>
     <h4>模型用量</h4>
@@ -248,6 +270,156 @@ async function openUser(id) {
   columns(body.querySelector('[data-u="tokens"]'), u.series, [
     { key: "t_tokens_chat", label: "对话", color: C.violet }, { key: "t_tokens_bg", label: "后台", color: C.mint }], 120);
   body.querySelector("[data-act=del]").addEventListener("click", () => deleteUser(u, s));
+  drawGrowth(body.querySelector("[data-growth]"), u);
+}
+
+// ---------------------------------------------------------------- 单个用户：经验和金币 ----
+const KINDNOTE = { action: "行动", good: "记录", practice: "练习", checkin: "陪伴", daily: "每日任务", admin: "后台调整", first: "礼物",
+  migrate: "开镇", buy: "建造", milestone: "里程碑", record: "记录", test: "测试" };
+
+async function drawGrowth(box, u, g = null) {
+  try { g = g || await get(`/api/admin/user/growth?id=${encodeURIComponent(u.id)}`); } catch (e) { box.innerHTML = `<p class="adm-err">${esc(e.message)}</p>`; return; }
+  box.innerHTML = `
+    <div class="adm-mini-stats">
+      ${[["经验", g.xp], [g.floor > 1 ? `等级 · 保底 ${g.floor}` : "等级", `Lv ${g.level.lv}`], ["离下一级", g.level.to_next], ["金币", g.coins],
+         ["小镇", `${g.town.size}×${g.town.size} · ${g.town.placed} 样`], ["仓库", g.town.warehouse]].map(([k, v]) => `<div><b class="num">${v}</b><span>${k}</span></div>`).join("")}
+    </div>
+    <div class="adm-growth-acts"><button class="btn btn-main btn-sm" data-adjust>调整经验和金币</button></div>
+    ${g.adjustments.length ? `<p class="adm-sub">后台给 TA 做过的调整</p><ul class="adm-acts">${g.adjustments.map((a) => `<li><span class="pill">${a.xp ? `${a.xp > 0 ? "+" : ""}${a.xp} 经验` : ""}${a.xp && a.coins ? " · " : ""}${a.coins ? `${a.coins > 0 ? "+" : ""}${a.coins} 金币` : ""}</span>
+      <span class="t">${esc(a.reason)}</span><time>${esc((a.at || "").slice(5, 16).replace("T", " "))}</time></li>`).join("")}</ul>` : ""}
+    <details class="adm-ledger"><summary>账本 · 最近 ${g.ledger.length} 笔</summary>
+      <table class="adm-table"><thead><tr><th>时间</th><th>类别</th><th>内容</th><th class="r">经验</th><th class="r">金币</th></tr></thead><tbody>
+      ${g.ledger.map((r) => `<tr><td>${esc((r.at || "").slice(5, 16).replace("T", " "))}</td><td><span class="pill">${esc(KINDNOTE[r.kind] || r.kind)}</span></td>
+        <td class="clip">${esc(r.note || "")}</td><td class="r num">${r.xp || ""}</td><td class="r num ${r.coins < 0 ? "neg" : ""}">${r.coins || ""}</td></tr>`).join("")
+        || `<tr><td colspan="5" class="adm-none">还没有</td></tr>`}</tbody></table></details>`;
+  box.querySelector("[data-adjust]").addEventListener("click", () => adjustSheet(box, u, g));
+}
+
+function adjustSheet(box, u, g) {
+  const xp = h("input", { class: "field", type: "number", step: "1", placeholder: "0" });
+  const coins = h("input", { class: "field", type: "number", step: "1", placeholder: "0" });
+  const why = h("input", { class: "field", maxlength: "60", placeholder: "比如：活动奖励 / 补偿上次的 bug" });
+  const after = h("p", { class: "adm-sub" });
+  const err = h("p", { class: "adm-err" });
+  const show = () => {
+    const dx = +xp.value || 0, dc = +coins.value || 0;
+    after.textContent = `调整后：经验 ${g.xp} → ${g.xp + dx}，金币 ${g.coins} → ${g.coins + dc}`;
+  };
+  [xp, coins].forEach((i) => i.addEventListener("input", show));
+  show();
+  const body = h("div", { class: "adm-adjust" },
+    h("label", {}, "经验（减就写负数）"), xp, h("label", {}, "金币（减就写负数）"), coins, h("label", {}, "原因（会写进 TA 的成长账本）"), why, after, err);
+  const ok = h("button", { class: "btn btn-main" }, "确认调整");
+  const s = sheet({ title: `调整 ${userName(u)}`, sticker: "bolt", body, footer: [h("button", { class: "btn btn-quiet", onclick: () => s.close() }, "算了"), ok] });
+  ok.addEventListener("click", async () => {
+    ok.disabled = true;
+    try {
+      const out = await post("/api/admin/user/adjust", { id: u.id, xp: +xp.value || 0, coins: +coins.value || 0, reason: why.value });
+      s.close();
+      toast("调整好了");
+      drawGrowth(box, u, out);
+    } catch (e) { err.textContent = e.message; ok.disabled = false; }
+  });
+  setTimeout(() => xp.focus(), 60);
+}
+
+// ---------------------------------------------------------------- 小镇：全局调价格和解锁等级 ----
+let townData = null;
+let edits = {};          // id → {price, lv, enabled, name} | null（恢复默认）
+let townCat = "all";
+
+async function loadTown() {
+  const data = await get("/api/admin/town");
+  if (page !== "town") return;
+  townData = data;
+  setKinds(Object.fromEntries(townData.items.map((i) => [i.id, i])));
+  drawTown();
+}
+
+const cur = (it) => (edits[it.id] === null ? { ...it, ...it.default } : { ...it, ...(edits[it.id] || {}) });
+
+function drawTown() {
+  const D = townData;
+  const list = D.items.filter((i) => townCat === "all" || (townCat === "off" ? !cur(i).enabled && !i.gift : i.cat === townCat));
+  const n = Object.keys(edits).length;
+  root.innerHTML = `
+    <header class="adm-top">
+      <b class="adm-logo">${icon("shield")}显伴后台</b>
+      ${pages()}
+      <span class="spacer"></span>
+      <button class="btn btn-quiet btn-sm" data-act="logout">退出</button>
+    </header>
+    <main class="adm">
+      <section class="card adm-card">
+        <div class="adm-users-head"><h3>小镇里的东西</h3>
+          <div class="adm-range">${[["all", "全部"], ...Object.entries(D.cats), ["off", "未上架"]].map(([k, l]) =>
+            `<button class="chip ${townCat === k ? "on" : ""}" data-cat="${k}">${esc(l)}</button>`).join("")}</div></div>
+        <p class="adm-sub">素材库：<code>demo/public/js/buildings/</code>。新放进来的默认不上架；改完点「保存」，所有人立刻生效。${D.updated_at ? ` 上次保存 ${esc(D.updated_at.slice(0, 16).replace("T", " "))}` : ""}</p>
+        <div class="adm-table-wrap"><table class="adm-table adm-town"><thead><tr>
+          <th></th><th>名字</th><th>占地</th><th>类别</th><th class="r">价格</th><th class="r">解锁等级</th><th>上架</th><th>状态</th>
+        </tr></thead><tbody>${list.map(row).join("")}</tbody></table></div>
+      </section>
+      <section class="card adm-card"><h3>解锁节奏</h3><p class="adm-sub">按现在填的值算；土地和每级经验是代码里定的</p>
+        <div class="adm-rhythm">${rhythm()}</div></section>
+    </main>
+    <div class="adm-savebar ${n ? "on" : ""}"><span>${n} 样有改动</span><span class="spacer"></span>
+      <button class="btn btn-quiet btn-sm" data-act="discard">放弃</button><button class="btn btn-main btn-sm" data-act="save">保存</button></div>`;
+  bindPages();
+  root.querySelector("[data-act=logout]").addEventListener("click", async () => { await post("/api/admin/logout"); login(""); });
+  root.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => { townCat = b.dataset.cat; drawTown(); }));
+  root.querySelectorAll("tr[data-id]").forEach((tr) => {
+    const it = D.items.find((i) => i.id === tr.dataset.id);
+    const set = (f, v) => {
+      const e = edits[it.id] === null ? {} : { ...(edits[it.id] || {}) };
+      e[f] = v;
+      const same = ["price", "lv", "enabled", "name"].every((k) => (k in e ? e[k] : it[k]) === it[k]);
+      if (same) delete edits[it.id]; else edits[it.id] = e;
+      drawTown();
+    };
+    tr.querySelectorAll("input[data-f]").forEach((inp) => inp.addEventListener("change", () =>
+      set(inp.dataset.f, inp.type === "number" ? Math.max(0, Math.round(+inp.value || 0)) : inp.value.trim())));
+    tr.querySelector("[data-f=enabled]")?.addEventListener("click", () => set("enabled", !cur(it).enabled));
+    tr.querySelector("[data-reset]")?.addEventListener("click", () => { edits[it.id] = null; drawTown(); });
+  });
+  root.querySelector("[data-act=discard]").addEventListener("click", () => { edits = {}; drawTown(); });
+  root.querySelector("[data-act=save]").addEventListener("click", saveTown);
+}
+
+function row(it) {
+  const e = cur(it);
+  const changed = it.id in edits;
+  const status = it.gift ? "礼物，不卖" : changed ? (edits[it.id] === null ? "将恢复默认" : "改了，没保存") : it.fresh ? "新放进来" : Object.keys(it.override).length ? "后台改过" : "默认";
+  const lock = it.gift ? "disabled" : "";
+  return `<tr data-id="${esc(it.id)}" class="${changed ? "dirty" : ""} ${e.enabled || it.gift ? "" : "off"}">
+    <td class="adm-prev">${itemArt(it.id)}</td>
+    <td><input class="field adm-in" data-f="name" maxlength="10" value="${esc(e.name)}"><small class="muted">${esc(it.id)}</small></td>
+    <td>${it.size.join("×")}</td><td>${esc(townData.cats[it.cat] || it.cat)}</td>
+    <td class="r"><input class="field adm-in num" type="number" min="0" data-f="price" value="${e.price}" ${lock}></td>
+    <td class="r"><input class="field adm-in num" type="number" min="1" data-f="lv" value="${e.lv}" ${lock}></td>
+    <td>${it.gift ? "—" : `<button class="switch ${e.enabled ? "on" : ""}" data-f="enabled" aria-label="上架"><i></i></button>`}</td>
+    <td><span class="pill ${changed ? "acc" : it.fresh ? "good" : ""}">${status}</span>${Object.keys(it.override).length && !changed ? `<button class="adm-link" data-reset>恢复默认</button>` : ""}</td>
+  </tr>`;
+}
+
+function rhythm() {
+  const D = townData;
+  const sale = D.items.filter((i) => !i.gift && cur(i).enabled);
+  const lvs = [...new Set([...sale.map((i) => cur(i).lv), ...D.land.map((l) => l.lv)])].sort((a, b) => a - b);
+  return lvs.map((lv) => {
+    const names = sale.filter((i) => cur(i).lv === lv).map((i) => `${cur(i).name}${COIN_SVG}${cur(i).price}`);
+    const land = D.land.find((l) => l.lv === lv);
+    return `<div class="adm-rh"><b>Lv ${lv}</b><span>${names.join("、") || ""}${land ? `${names.length ? "；" : ""}土地 ${land.size}×${land.size}` : ""}</span></div>`;
+  }).join("") + `<p class="adm-sub">累计经验：${D.levels.map((l) => `Lv${l.lv} ${l.xp}`).join(" · ")}</p>`;
+}
+
+async function saveTown() {
+  try {
+    townData = await post("/api/admin/town", { items: edits });
+    edits = {};
+    setKinds(Object.fromEntries(townData.items.map((i) => [i.id, i])));
+    drawTown();
+    toast("保存好了，所有人立刻生效");
+  } catch (e) { toast(e.message, "err"); }
 }
 
 // ---------------------------------------------------------------- 删除 ----

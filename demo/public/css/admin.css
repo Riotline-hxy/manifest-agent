@@ -120,3 +120,33 @@ body.admin-body { overflow: auto; }
   .adm-mini-stats { grid-template-columns: repeat(3, 1fr); }
   .adm-search { width: 100%; }
 }
+
+/* ---- 页面切换、小镇、经验和金币 ---- */
+.adm-pages { display: flex; gap: 6px; margin-left: 12px; }
+.adm-town td { vertical-align: middle; }
+.adm-town tr.off td { opacity: .55; }
+.adm-town tr.dirty { background: var(--accent-soft); }
+.adm-prev { width: 64px; }
+.adm-prev .town-svg { width: 56px; height: 56px; }
+.adm-in { height: 32px; padding: 0 8px; font-size: 13px; border-radius: 9px; width: 110px; }
+.adm-in.num { width: 76px; text-align: right; }
+.adm-town small { display: block; font-size: 11px; margin-top: 2px; }
+.adm-link { margin-left: 6px; font-size: 12px; font-weight: 800; color: var(--accent); }
+.adm-savebar { position: fixed; left: 50%; bottom: 18px; z-index: 50; display: flex; align-items: center; gap: 10px; min-width: 320px; padding: 10px 14px;
+  border-radius: 16px; background: var(--solid); border: 1px solid var(--line-2); box-shadow: var(--shadow); transform: translate(-50%, 140%); transition: transform .3s var(--spring); }
+.adm-savebar.on { transform: translate(-50%, 0); }
+.adm-savebar .spacer { flex: 1; }
+.adm-rhythm { display: grid; gap: 4px; }
+.adm-rh { display: flex; gap: 12px; font-size: 13px; }
+.adm-rh b { width: 52px; flex: none; }
+.adm-rh .coin-ic { width: 12px; height: 12px; margin: 0 1px 0 3px; vertical-align: -1px; }
+.adm-growth-acts { margin: 10px 0; }
+.adm-ledger summary { cursor: pointer; font-weight: 800; margin: 8px 0; }
+.adm-ledger .adm-table { font-size: 12.5px; }
+.adm-ledger td.neg { color: var(--danger); }
+.adm-adjust { display: grid; gap: 6px; }
+.adm-adjust label { font-size: 12.5px; font-weight: 800; color: var(--text-2); margin-top: 4px; }
+.switch { position: relative; width: 38px; height: 22px; flex: none; border-radius: 99px; background: var(--line-2); transition: background .2s; }
+.switch i { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .25s var(--spring); }
+.switch.on { background: var(--good); }
+.switch.on i { transform: translateX(16px); }

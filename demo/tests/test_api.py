@@ -751,6 +751,90 @@ class ApiTest(unittest.TestCase):
         lv = growth.level_of(322, floor=9)                             # 老账号保底 Lv9
         self.assertEqual((lv["lv"], lv["into"], lv["to_next"]), (9, 0, growth.xp_for_level(10) - 322))
         self.assertEqual(growth.level_of(2000, floor=9)["lv"], 15)      # 曲线追上来以后照常升
+        # 每级最多 500（满额大约三天一级），不会无限涨
+        self.assertEqual(growth.level_cost(31), 490)
+        self.assertEqual([growth.level_cost(n) for n in (32, 50, 200)], [500, 500, 500])
+        self.assertEqual(growth.xp_for_level(60) - growth.xp_for_level(59), 500)
+        self.assertEqual(growth.level_of(growth.xp_for_level(45))["lv"], 45)
+
+    # ---- 小镇：素材库、后台全局改价格和等级、大建筑 ----
+    def admin(self):
+        a = Client(self.port)
+        self.assertEqual(a.req("POST", "/api/admin/login", {"key": "test-admin"})[0], 200)
+        return a
+
+    def test_building_library_and_admin_overrides(self):
+        from core import town
+        lib = town.library()
+        self.assertGreaterEqual(len(lib), 30)
+        self.assertEqual(lib["market"]["size"], [1, 2])
+        s, js, _ = Client(self.port).req("GET", "/js/buildings/all.js", raw=True)
+        self.assertEqual(s, 200)
+        self.assertIn('B["ferris"]', js)
+        self.assertNotIn("export default function", js)                # 每个文件都换成了 B[id] = …
+        c, uid = self.onboarded("lib_town")
+        a = self.admin()
+        self.assertEqual(c.req("GET", "/api/admin/town")[0], 401)       # 用户会话不是后台会话
+        s, cat = a.req("GET", "/api/admin/town")
+        self.assertEqual(s, 200)
+        self.assertTrue(any(i["id"] == "cottage" and i["price"] == 40 for i in cat["items"]))
+        s, _ = a.req("POST", "/api/admin/town", {"items": {"cottage": {"price": 25, "lv": 1}, "bush": {"enabled": False}}})
+        self.assertEqual(s, 200)
+        _, d = c.req("GET", "/api/bootstrap")
+        ids = {x["id"]: x for x in d["town"]["catalog"]}
+        self.assertEqual(ids["cottage"]["price"], 25)
+        self.assertNotIn("bush", ids)                                  # 下架了就不卖
+        c.req("POST", "/api/step", {"action": "add", "title": "第一步"})
+        sid = next(x for x in c.req("GET", "/api/bootstrap")[1]["steps"] if x["status"] == "todo")["id"]
+        _, d = c.req("POST", "/api/step", {"action": "done", "id": sid})
+        coins = d["growth"]["coins"]
+        _, d = c.req("POST", "/api/town", {"action": "buy", "kind": "cottage", "x": 3, "y": 3, "nonce": "cheap-0001"})
+        self.assertEqual(d["growth"]["coins"], coins - 25)            # 按后台改过的价格扣
+        self.assertEqual(c.req("POST", "/api/town", {"action": "buy", "kind": "bush", "x": 1, "y": 3, "nonce": "bush-0001"})[0], 400)
+        for bad in ({"nope": {"price": 1}}, {"cottage": {"price": -1}}, {"cottage": {"lv": "x"}}):
+            self.assertEqual(a.req("POST", "/api/admin/town", {"items": bad})[0], 400, bad)
+        _, cat = a.req("POST", "/api/admin/town", {"items": {"cottage": None, "bush": None}})   # 恢复默认
+        self.assertEqual(next(i for i in cat["items"] if i["id"] == "cottage")["price"], 40)
+        self.assertEqual(c.req("GET", "/api/bootstrap")[1]["town"]["catalog"][0]["price"], 40)
+
+    def test_admin_adjusts_xp_and_coins_with_a_record(self):
+        c, uid = self.onboarded("adj_user")
+        a = self.admin()
+        self.assertEqual(a.req("POST", "/api/admin/user/adjust", {"id": uid, "coins": 50})[0], 400)            # 要写原因
+        self.assertEqual(a.req("POST", "/api/admin/user/adjust", {"id": uid, "coins": -1, "reason": "x"})[0], 400)  # 不能扣到负数
+        s, g = a.req("POST", "/api/admin/user/adjust", {"id": uid, "xp": 120, "coins": 300, "reason": "活动奖励"})
+        self.assertEqual(s, 200, g)
+        self.assertEqual((g["xp"], g["coins"]), (120, 300))
+        self.assertEqual(g["adjustments"][0]["reason"], "活动奖励")
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual((d["growth"]["total"], d["growth"]["coins"]), (120, 300))
+        self.assertIn(("后台调整：活动奖励", 120, 300), [(e["note"], e["xp"], e["coins"]) for e in d["growth"]["ledger"]])
+        self.assertEqual(d["growth"]["coins_today"], 0)                # 后台给的不算「今天挣的」
+        s, g = a.req("POST", "/api/admin/user/adjust", {"id": uid, "coins": -100, "reason": "多给了"})
+        self.assertEqual(g["coins"], 200)
+        row = next(u for u in a.req("GET", "/api/admin/users")[1]["users"] if u["id"] == uid)
+        self.assertEqual(row["coins"], 200)
+        self.assertGreaterEqual(len(a.req("GET", "/api/admin/log")[1]["entries"]), 2)
+
+    def test_big_buildings_take_several_cells_and_turn(self):
+        c, uid = self.onboarded("big_town")
+        a = self.admin()
+        from core import growth
+        a.req("POST", "/api/admin/user/adjust", {"id": uid, "xp": growth.xp_for_level(16), "coins": 2000, "reason": "测试"})
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["town"]["size"], 9)
+        buy = lambda kind, x, y, n, rot=0: c.req("POST", "/api/town", {"action": "buy", "kind": kind, "x": x, "y": y, "rot": rot, "nonce": n})
+        s, d = buy("market", 4, 4, "mk-000001")                        # 1×2：占 (4,4)、(4,5)
+        self.assertEqual(s, 200, d)
+        mid = d["built"]["id"]
+        self.assertEqual(buy("tree", 4, 5, "tr-000001")[0], 400)        # 第二格也被占了
+        self.assertEqual(buy("market", 8, 8, "mk-000002")[0], 400)      # 伸出地外
+        self.assertEqual(buy("market", 4, 3, "mk-000003")[0], 400)      # 和上一座重叠
+        s, d = c.req("POST", "/api/town", {"action": "move", "id": mid, "x": 5, "y": 1, "rot": 1})   # 转过来：占 (5,1)、(6,1)
+        self.assertEqual((s, d["moved"]["rot"]), (200, 1))
+        self.assertEqual(buy("tree", 6, 1, "tr-000002")[0], 400)
+        self.assertEqual(buy("tree", 4, 5, "tr-000003")[0], 200)        # 原来的地方空出来了
+        self.assertEqual(buy("park", 0, 6, "pk-000001")[0], 400)        # 中心花园要 Lv22
 
     def test_last_step_of_a_wish_says_so(self):
         c, uid = self.onboarded("cleared")

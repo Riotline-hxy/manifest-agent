@@ -16,7 +16,7 @@ Tables
   scene_run(id, scene, step, answers, status)             灵感 scene progress
   xp(id, day, source, amount, ref, note)                  经验账本（growth.py）
   coin(id, day, kind, amount, ref, note)                  金币账本：收入为正、花费为负（growth.py）
-  town_item(id, kind, x, y, placed, note, story, ...)     小镇里的建筑和仓库（town.py）
+  town_item(id, kind, x, y, rot, placed, note, story, …)  小镇里的建筑和仓库（town.py）
 """
 from __future__ import annotations
 
@@ -176,6 +176,9 @@ class Store:
             self.c.execute("ALTER TABLE wish ADD COLUMN target_day TEXT DEFAULT ''")
         if "prompts" not in wcols:
             self.c.execute("ALTER TABLE wish ADD COLUMN prompts TEXT DEFAULT '[]'")
+        tcols = {r["name"] for r in self.c.execute("PRAGMA table_info(town_item)")}
+        if "rot" not in tcols:   # 大建筑可以转 90°
+            self.c.execute("ALTER TABLE town_item ADD COLUMN rot INTEGER DEFAULT 0")
 
     # ---- profile (core memory) ---------------------------------------------
     def profile(self) -> dict:

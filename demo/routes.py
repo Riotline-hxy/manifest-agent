@@ -161,6 +161,42 @@ def admin_delete(h, u, b, q):
     return 200, {"ok": True}
 
 
+def admin_user_growth(h, u, b, q):
+    _admin(h)
+    r = admin.growth_detail(str((q.get("id") or [""])[0]))
+    if not r:
+        raise ApiError(404, "没有这个用户")
+    return 200, r
+
+
+def admin_adjust(h, u, b, q):
+    """给一个用户加减经验、金币。必须写原因，留记录。"""
+    _admin(h)
+    try:
+        return 200, admin.adjust(str(b.get("id") or ""), b.get("xp"), b.get("coins"), str(b.get("reason") or ""), h._ip())
+    except ValueError as e:
+        raise ApiError(400, str(e))
+
+
+def admin_town(h, u, b, q):
+    _admin(h)
+    return 200, town.admin_catalog()
+
+
+def admin_town_save(h, u, b, q):
+    """改小镇里各样东西的价格、解锁等级、上下架；所有人立刻生效。"""
+    _admin(h)
+    try:
+        return 200, admin.town_save(b.get("items") or {}, h._ip())
+    except ValueError as e:
+        raise ApiError(400, str(e))
+
+
+def admin_log(h, u, b, q):
+    _admin(h)
+    return 200, {"entries": admin.log_entries("", 100)}
+
+
 def admin_purge_guests(h, u, b, q):
     """一次删掉所有体验账号（旧版首页建的，带示例数据）。"""
     _admin(h)
@@ -520,9 +556,9 @@ def town_api(h, u, b, q):
     with Store(u["id"]) as st:
         try:
             if act == "buy":
-                out["built"] = town.buy(st, str(b.get("kind") or ""), b.get("x"), b.get("y"), str(b.get("nonce") or ""))
+                out["built"] = town.buy(st, str(b.get("kind") or ""), b.get("x"), b.get("y"), str(b.get("nonce") or ""), b.get("rot") or 0)
             elif act in ("move", "place"):
-                out["moved"] = town.move(st, str(b.get("id") or ""), b.get("x"), b.get("y"))
+                out["moved"] = town.move(st, str(b.get("id") or ""), b.get("x"), b.get("y"), b.get("rot"))
             elif act == "store":
                 out["stored"] = town.store_item(st, str(b.get("id") or ""))
             elif act == "rename":
@@ -688,6 +724,11 @@ ROUTES = {
     ("GET", "/api/admin/user"): (admin_user, False),
     ("POST", "/api/admin/user/delete"): (admin_delete, False),
     ("POST", "/api/admin/guests/delete"): (admin_purge_guests, False),
+    ("GET", "/api/admin/user/growth"): (admin_user_growth, False),
+    ("POST", "/api/admin/user/adjust"): (admin_adjust, False),
+    ("GET", "/api/admin/town"): (admin_town, False),
+    ("POST", "/api/admin/town"): (admin_town_save, False),
+    ("GET", "/api/admin/log"): (admin_log, False),
     ("POST", "/api/auth/logout"): (logout, False),
     ("POST", "/api/auth/rename"): (rename, True),
     ("GET", "/api/bootstrap"): (boot, True),

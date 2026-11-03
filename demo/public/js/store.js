@@ -4,6 +4,7 @@
 import { api } from "./api.js";
 import { celebrate } from "./fx.js";
 import { toast } from "./ui.js";
+import { setKinds } from "./town.js";
 
 const listeners = new Set();
 
@@ -37,6 +38,7 @@ export function setData(data, { silent = false } = {}) {
   if (user) state.user = user;
   if (onboarding) state.onboarding = onboarding;
   state.data = { ...(state.data || {}), ...rest };
+  if (rest.town?.kinds) setKinds(rest.town.kinds);   // 画地上的东西要用（占地、高度）
   // 一次性标记：服务端只会在真的升级时给一次
   const lv = rest.growth?.level_up;
   if (lv) celebrate("level", lv, "lv:" + lv.to);

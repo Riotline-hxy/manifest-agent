@@ -385,3 +385,10 @@
 .town-svg .tw-float { animation: tw-float 5s ease-in-out infinite; }
 @keyframes tw-float { 50% { transform: translateY(-5px); } }
 .star:hover, .star.open { z-index: 6; }
+.si-size { position: absolute; top: 6px; right: 6px; padding: 0 6px; border-radius: 7px; background: var(--surface-3); font-size: 10.5px; font-weight: 900; color: var(--text-2); }
+.tn-mode .icon-btn .ic-svg { width: 17px; height: 17px; }
+/* 摩天轮、旗子 */
+.town-svg .tw-wheel { transform-box: fill-box; transform-origin: center; animation: spin 40s linear infinite; }
+.town-svg .tw-car { transform-box: fill-box; transform-origin: 50% 0; animation: spin 40s linear infinite reverse; }
+.town-svg .tw-flag { transform-box: fill-box; transform-origin: 0 50%; animation: tw-flag 2.6s ease-in-out infinite; }
+@keyframes tw-flag { 50% { transform: scaleX(.8) skewY(5deg); } }

@@ -3,7 +3,8 @@
 规则全部由后端计算，前端和小光只能读：
   - 经验按「来源 + 引用」记账，同一件事不重复计分。真实的事每天最多 120；行动 / 记录 / 练习 / 陪伴 每类 30。
     每日任务另给一点经验（最多 38），不占上面的 120。
-  - 等级只升不降：前几级很快，往后每级多 15 经验。老账号按旧算法到过的等级记成「保底」，换算法也不会掉级。
+  - 等级只升不降：前几级很快，往后每级多 15 经验，到 500 为止（满额大约三天一级）。
+    老账号按旧算法到过的等级记成「保底」，换算法也不会掉级。
     等级决定小镇的土地有多大、能建哪些东西（town.py）。
   - 金币跟着真实做成的事走：完成小步、习惯打卡、到达里程碑、记好消息或瞬间、做完练习，每类每天有上限。
     和小光聊天只给经验、不给金币，免得为了金币刷聊天。
@@ -22,7 +23,8 @@ from .util import day_key, iso
 
 DAILY_CAP = 120
 SOURCE_CAP = 30
-LEVEL_BASE, LEVEL_STEP = 40, 15      # 从 Lv n 升到 n+1 要 40 + 15×(n-1) 经验
+LEVEL_BASE, LEVEL_STEP, LEVEL_CAP = 40, 15, 500   # 从 Lv n 升到 n+1 要 40 + 15×(n-1) 经验，最多 500（满额大约三天）
+_UNCAPPED = -(-(LEVEL_CAP - LEVEL_BASE) // LEVEL_STEP)  # 前 31 级还没到 500
 
 SOURCES = {
     "action": {"label": "行动", "cap": SOURCE_CAP, "amount": 10, "hint": "完成小步、习惯打卡或到达里程碑"},
@@ -76,13 +78,14 @@ def total_xp(st) -> int:
 
 
 def level_cost(lv: int) -> int:
-    return LEVEL_BASE + LEVEL_STEP * (lv - 1)
+    return min(LEVEL_CAP, LEVEL_BASE + LEVEL_STEP * (lv - 1))
 
 
 def xp_for_level(lv: int) -> int:
     """到 Lv lv 一共要多少经验。"""
     n = max(0, lv - 1)
-    return LEVEL_BASE * n + LEVEL_STEP * n * (n - 1) // 2
+    m = min(n, _UNCAPPED)
+    return LEVEL_BASE * m + LEVEL_STEP * m * (m - 1) // 2 + (n - m) * LEVEL_CAP
 
 
 def level_of(total: int, floor: int = 1) -> dict:
@@ -336,7 +339,7 @@ def award(st, source: str, ref: str = "", note: str = "", amount: int | None = N
 
 # ---------------------------------------------------------------- 账本 ----
 
-LEDGER_LABEL = {**{k: v["label"] for k, v in SOURCES.items()}, "daily": "每日任务"}
+LEDGER_LABEL = {**{k: v["label"] for k, v in SOURCES.items()}, "daily": "每日任务", "admin": "后台调整"}
 
 
 def ledger(st, limit: int = 40) -> list[dict]:
@@ -362,7 +365,7 @@ def day_totals(st, days: int = 14) -> dict:
     out: dict = {}
     for r in st.c.execute("SELECT day, SUM(amount) FROM xp GROUP BY day ORDER BY day DESC LIMIT ?", (days,)):
         out.setdefault(r[0], {"xp": 0, "coins": 0})["xp"] = int(r[1] or 0)
-    for r in st.c.execute("SELECT day, SUM(amount) FROM coin WHERE amount>0 AND kind NOT IN ('migrate','test') GROUP BY day ORDER BY day DESC LIMIT ?", (days,)):
+    for r in st.c.execute("SELECT day, SUM(amount) FROM coin WHERE amount>0 AND kind NOT IN ('migrate','test','admin') GROUP BY day ORDER BY day DESC LIMIT ?", (days,)):
         out.setdefault(r[0], {"xp": 0, "coins": 0})["coins"] = int(r[1] or 0)
     return out
 
@@ -380,8 +383,8 @@ def rules() -> dict:
                    ("好消息", COIN_EVENTS["rec"]), ("瞬间", COIN_EVENTS["moment"]), ("做完练习", COIN_EVENTS["scene"]))],
         "first_gift": FIRST_GIFT,
         "daily_max": rules_max(),
-        "levels": [{"lv": lv, "xp": xp_for_level(lv)} for lv in (2, 3, 5, 10, 15, 20, 30)],
-        "level_base": LEVEL_BASE, "level_step": LEVEL_STEP,
+        "levels": [{"lv": lv, "xp": xp_for_level(lv)} for lv in (2, 5, 10, 20, 30, 40)],
+        "level_base": LEVEL_BASE, "level_step": LEVEL_STEP, "level_cap": LEVEL_CAP,
         "unlocks": town.unlock_table(),
     }
 
@@ -414,7 +417,7 @@ def state(st, consume: bool = True) -> dict:
                   "events": sum(v for k, v in by_src.items() if k in SOURCES)},
         "sources": [{"id": k, **v, "used": by_src.get(k, 0)} for k, v in SOURCES.items()],
         "coins": coins(st),
-        "coins_today": int(st.c.execute("SELECT COALESCE(SUM(amount),0) FROM coin WHERE day=? AND amount>0 AND kind NOT IN ('migrate','test')",
+        "coins_today": int(st.c.execute("SELECT COALESCE(SUM(amount),0) FROM coin WHERE day=? AND amount>0 AND kind NOT IN ('migrate','test','admin')",
                                         (day_key(),)).fetchone()[0]),
         "daily": {"day": day_key(), "tasks": tasks, "bonus": bonus,
                   "done": sum(1 for t in tasks if t["done"] or t["rest"]), "of": len(tasks),
@@ -434,7 +437,7 @@ def rules_text() -> str:
     pool = "、".join(v["label"] for k, v in DAILY.items() if v["slot"] != "core")
     return ("经验：完成一小步、习惯打卡或到达里程碑 +10（行动），记一件小确幸、一段内心戏或在蜕变计划里留下一个瞬间 +6，"
             "完成一次显化练习 +12，每天第一次来聊 +8（陪伴）。四类每类每天最多 30，真实的事每天最多 120；同一件事不重复计分。"
-            f"等级只升不降：从 Lv n 升到 n+1 要 {LEVEL_BASE} + {LEVEL_STEP}×(n-1) 经验，前几级很快，后面慢慢来；老用户以前到过的等级保底。"
+            f"等级只升不降：从 Lv n 升到 n+1 要 {LEVEL_BASE} + {LEVEL_STEP}×(n-1) 经验，最多 {LEVEL_CAP}（每天拿满大约三天一级）；老用户以前到过的等级保底。"
             "金币：完成小步 +10、习惯打卡 +8、到达里程碑 +30、好消息 +4、瞬间 +5、做完练习 +10，每类每天有上限；"
             f"和你聊天只加经验、不加金币。第一次做成一件真实的事送 {FIRST_GIFT} 金币，正好够盖第一栋小木屋。"
             "每日任务每天 0 点换一批，一共四件：固定一件「完成 1 个小步或打一次卡」（+5 经验 +10 金币），另外三件按天轮换"

@@ -175,6 +175,13 @@ class Handler(BaseHTTPRequestHandler):
             path = "/index.html"
         elif path in ("/admin", "/admin/"):
             path = "/admin.html"
+        if path == "/js/buildings/all.js":   # 建筑素材库：服务器把目录拼成一个模块（core/town.py）
+            from core import town
+            data = town.bundle_js()
+            self._headers(200, "text/javascript; charset=utf-8", len(data), {"Cache-Control": "no-cache"})
+            self.end_headers()
+            self.wfile.write(data)
+            return
         f = (PUBLIC / path.lstrip("/")).resolve()
         if PUBLIC.resolve() not in f.parents or not f.is_file():
             raise ApiError(404, "not found")

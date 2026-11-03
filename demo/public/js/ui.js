@@ -177,6 +177,7 @@ export const ICONS = {
   minus: '<path d="M6 12h12"/>',
   box: '<path d="M4.5 8 12 4l7.5 4v8L12 20l-7.5-4z"/><path d="M4.5 8 12 12l7.5-4M12 12v8"/>',
   chevron: '<path d="m7 10 5 5 5-5"/>',
+  turn: '<path d="M19 12a7 7 0 1 1-2.05-4.95"/><path d="M19 4.5V8h-3.5"/>',
 };
 
 export function icon(name, size = "") {
