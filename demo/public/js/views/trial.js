@@ -7,7 +7,7 @@ import { mountBall, agentMini } from "../ball.js";
 import { confetti } from "../fx.js";
 import { renderGate, authSheet } from "./gate.js";
 
-const GOALS = [
+export const GOALS = [
   { id: "sleep", ic: "moon", c: "var(--c-violet)", t: "想早点睡", sub: "总是熬到很晚",
     open: "想早点睡，嗯，这个我陪你。现在一般几点睡？晚上那会儿通常在干嘛？",
     hints: ["总是刷手机到一两点", "躺下脑子停不下来", "白天困，晚上又不困"] },

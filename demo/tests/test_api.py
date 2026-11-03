@@ -41,6 +41,7 @@ class FakeLLM:
         self.turns = []        # list of lists of events per stream_chat call
         self.json_out = None   # returned by complete_json
         self.seen = []         # captured messages
+        self.seen_json = []    # captured complete_json messages
 
     def stream(self, messages, tools=None, model=None, reasoning=None, timeout=None):
         self.seen.append(messages)
@@ -50,6 +51,7 @@ class FakeLLM:
         yield ("done", {"finish_reason": "stop", "usage": None})
 
     def complete(self, messages, model=None, timeout=40):
+        self.seen_json.append(messages)
         return self.json_out
 
 
@@ -405,6 +407,32 @@ class ApiTest(unittest.TestCase):
         self.assertIn("不急着定目标", d["messages"][-1]["content"])
         s, d = skip.req("POST", "/api/onboard", {"answers": {"persona": "evil", "care_style": "x", "schedule_hint": "半夜", "agent_avatar_id": "x.y.z"}})
         self.assertEqual((d["profile"]["persona"], d["profile"]["care_style"], d["profile"]["schedule_hint"]), ("gentle", "nudge", ""))
+
+    def test_onboard_first_wish_is_planned_with_xiaoguang(self):
+        c, _ = self.member("onb_plan")
+        hist = [{"role": "assistant", "content": "想早点睡，现在一般几点睡？"}, {"role": "user", "content": "总是刷手机到两点"}]
+        self.fake.json_out = {"reply": "刷到两点，第二天肯定很难受吧。是停不下来，还是睡不着？", "plan": None}
+        s, d = c.req("POST", "/api/onboard/plan", {"goal": "想早点睡", "history": hist, "about": {"persona": "lively", "nickname": "阿夏"}})
+        self.assertEqual((s, d["plan"], d["round"]), (200, None, 1))
+        self.assertIn("阿夏", self.fake.seen_json[-1][0]["content"])           # 刚在「你」里填的称呼带进了提示
+        self.fake.json_out = {"reply": "我帮你拆了一下，看看哪些想放进计划。", "remember": ["你常刷手机到两点"], "why_goal": "白天上课犯困",
+                              "plan": {"title": "早睡早起", "category": "body", "days": 30,
+                                       "milestones": [{"title": "连续 7 天 12 点前睡着", "due_in_days": 21}],
+                                       "habits": [{"title": "23:30 放下手机"}], "steps": [{"title": "今晚手机放书桌上"}, {"title": ""}]}}
+        s, d = c.req("POST", "/api/onboard/plan", {"goal": "想早点睡", "history": hist, "finish": True})
+        self.assertEqual(s, 200, d)
+        self.assertEqual((d["plan"]["title"], d["plan"]["milestones"], d["plan"]["steps"], d["plan"]["due_in_days"]),
+                         ("早睡早起", ["连续 7 天 12 点前睡着"], ["今晚手机放书桌上"], 21))
+        self.fake.json_out = None                                                    # 模型不可用：也照样给出一条路
+        s, d = c.req("POST", "/api/onboard/plan", {"goal": "想早点睡", "history": hist, "finish": True})
+        self.assertTrue(d["plan"]["steps"] and d["plan"]["milestones"] and d["plan"]["habits"])
+        self.assertEqual(c.req("POST", "/api/onboard/plan", {"goal": "", "history": hist})[0], 400)
+        self.assertEqual(Client(self.port).req("POST", "/api/onboard/plan", {"goal": "想早点睡", "history": hist})[0], 401)
+        wish = {**d["plan"], "milestones": d["plan"]["milestones"], "due_in_days": 21}
+        s, d = c.req("POST", "/api/onboard", {"answers": {"wish": wish, "remember": ["你常刷手机到两点"], "intent_why": "白天上课犯困"}})
+        self.assertEqual(s, 200, d)
+        self.assertEqual(len(d["journey"]["wishes"]), 1)
+        self.assertIn("你常刷手机到两点", [m["text"] for m in d["memories"]])
 
     def test_onboard_sets_up_the_first_wish(self):
         c, _ = self.member("onb_wish")

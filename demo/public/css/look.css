@@ -1,6 +1,8 @@
 /* 小光的果冻形象：容器、设置里的外貌、外貌选择、建档选项、开屏页。颜色都来自主题变量。 */
 
 .ball .host svg.jelly-svg { width: 100%; height: 100%; display: block; overflow: visible; }
+/* 点、按住、双击小光时不选中文字，浏览器也不会弹「复制」 */
+.ball, .ball *, .splash .sp-inner > :not(.sp-card), .ob-hero { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 .ball .host svg.jelly-svg.over { cursor: grab; }
 .ball .host svg.jelly-svg.squeezing { cursor: grabbing; }
 .agent-mini svg { overflow: visible; }

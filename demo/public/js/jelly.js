@@ -714,7 +714,9 @@ Jelly.prototype.bindTouch = function ({ onDouble, onTap } = {}) {
   const local = e => { const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse()); return [pt.x, pt.y - (this.prevAy || 0)]; };
   const inside = (x, y) => this.E.bodyP.isPointInFill(new DOMPoint(x, y));
   let holdTimer = 0, lastTap = 0, lastXY = [0, 0], down = null;
+  svg.addEventListener('dblclick', e => e.preventDefault());
   svg.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse') e.preventDefault();   // no text selection / copy popup on desktop
     const [x, y] = local(e);
     if (!inside(x, y)) return;
     svg.setPointerCapture(e.pointerId);

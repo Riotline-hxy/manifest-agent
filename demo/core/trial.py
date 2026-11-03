@@ -108,3 +108,96 @@ def chat(goal: str, history, finish: bool = False, smaller: bool = False) -> dic
         res["tomorrow"] = clip(tomorrow or f"「{res['step']['title']}」做了吗？", 40)
         res["why_goal"] = clip(str(out.get("why_goal") or "").strip(), 40)
     return res
+
+
+# ---------------------------------------------------------------- 建档：第一个愿望 ----
+# 和首页体验同一个套路（选一件事 → 聊几轮 → 小光给出东西），只是这次给的是一整条路：
+# 愿望 + 里程碑 + 习惯 + 小步，用户在界面上勾选后才写进计划（onboarding.make_wish）。
+PLAN_PROMPT = """你是「小光」，一个会记住人、陪人一点点改变的朋友。一个新朋友刚注册，想和你一起定第一个愿望，只聊三句左右。
+{about}
+TA 想改变的事：「{goal}」
+
+像微信聊天那样：
+- 先接住 TA 说的：听出情绪，用自己的话说出来，再好奇地问一个问题，弄清楚现在是什么样子、想变成什么样子、卡在哪。
+- 一次 1–3 句，口语，不说教、不鸡血、不用列表和加粗，别像客服。只用 TA 真说过的内容，别替 TA 编经历。
+- 大致弄明白之后（最晚第 {max} 轮），帮 TA 把这件事拆成一条路，在 reply 里用一两句自然地说「我帮你拆了一下，看看哪些想放进计划」。
+  拆的时候：
+  - 愿望（title）：说成一个想靠近的样子，12 字内，比如「早睡早起」「敢在人前开口」
+  - 里程碑 1 个：走到一半时看得见的样子，具体可判断，带大概几天后（due_in_days，7–90）
+  - 习惯 1–2 个：每天能做的一件小事，量力而行，越小越好
+  - 小步 2–3 个：做一次就完成的事；第一个今天就能开始，5–10 分钟，具体到时间或场景
+  - 不要「坚持」「努力」「每天都要」这种大词，别超出 TA 说过的情况
+
+现在是第 {n} 轮。{extra}
+
+只输出一个 JSON 对象：
+{{"reply": "你这一轮说的话",
+  "plan": null 或 {{"title": "愿望", "category": "calm|wealth|body|confidence|relation|freedom|other 选一个",
+            "days": 30 或 90 或 180,
+            "milestones": [{{"title": "20 字内", "due_in_days": 14}}],
+            "habits": [{{"title": "16 字内"}}],
+            "steps": [{{"title": "20 字内"}}]}},
+  "remember": ["给出 plan 时填：从 TA 原话里值得记住的 1–3 件事，每条 16 字内，以「你」开头"],
+  "why_goal": "TA 想改变的原因，只写原因本身；TA 没说过就留空"}}"""
+
+PLAN_FALLBACK = [
+    (("睡", "作息", "熬夜", "早起"), {"title": "早睡早起", "category": "body", "ms": "连续 7 天 12 点前睡着",
+                                     "habits": ["23:30 放下手机"], "steps": ["今晚把手机放到书桌上", "定一个 23:30 的睡前提醒"]}),
+    (("开口", "表达", "自信", "说话", "社交"), {"title": "敢在人前开口", "category": "confidence", "ms": "在课上或会上主动发言一次",
+                                           "habits": ["每天主动跟一个人说句话"], "steps": ["写下一句想说却没说出口的话", "今天跟一个人主动打招呼"]}),
+    (("拖", "作业", "论文", "项目", "学习", "做完"), {"title": "把拖着的事做完", "category": "wealth", "ms": "交出第一个能看的版本",
+                                                "habits": ["每天先做 25 分钟最难的事"], "steps": ["把那件事打开，只做 10 分钟", "写下下一步具体做什么"]}),
+    (("动", "运动", "跑", "健身", "身材"), {"title": "让身体动起来", "category": "body", "ms": "一周动满 3 次",
+                                         "habits": ["每天拉伸 5 分钟"], "steps": ["今天下楼走 10 分钟", "挑一个喜欢的运动视频收藏起来"]}),
+    (("累", "乱", "对自己好", "焦虑", "压力"), {"title": "对自己好一点", "category": "calm", "ms": "一周有 3 个晚上安心入睡",
+                                            "habits": ["每天给自己 10 分钟发呆"], "steps": ["写下现在最让你累的一件事", "今晚早点洗个热水澡"]}),
+]
+PLAN_DEFAULT = {"title": "慢慢靠近想要的自己", "category": "other", "ms": "能说清楚想要的样子",
+                "habits": ["每天写一句今天的小进步"], "steps": ["今晚花 5 分钟写下想要的样子", "挑一件今天就能动的小事"]}
+PLAN_ASK = "嗯，我听着。现在大概是什么样子？卡在哪儿都行。"
+
+
+def _plan_fallback(goal: str, n: int, want: bool) -> dict:
+    if not want and n < 2:
+        return {"reply": PLAN_ASK, "plan": None}
+    fb = next((f for keys, f in PLAN_FALLBACK if any(k in goal for k in keys)), PLAN_DEFAULT)
+    return {"reply": "好，我大概明白了。我帮你拆成了一条小路，看看哪些想放进计划，不合适的直接改。",
+            "plan": {"title": fb["title"], "category": fb["category"], "days": 30,
+                     "milestones": [{"title": fb["ms"], "due_in_days": 14}],
+                     "habits": [{"title": h} for h in fb["habits"]], "steps": [{"title": s} for s in fb["steps"]]},
+            "remember": [clip("你想" + goal.removeprefix("想"), 16)], "why_goal": ""}
+
+
+def plan(goal: str, history, finish: bool = False, about: str = "") -> dict:
+    goal = clip(str(goal or ""), 40).strip()
+    if not goal:
+        raise ValueError("先说说想改变什么")
+    msgs = _clean_history(history)
+    n = sum(1 for m in msgs if m["role"] == "user")
+    if n == 0 or msgs[-1]["role"] != "user":
+        raise ValueError("说点什么吧")
+    want = finish or n >= MAX_ROUNDS
+    extra = "这一轮必须给出 plan。" if want else "如果 TA 已经说得很清楚，这一轮就可以给 plan；否则先问。"
+    sys_msg = PLAN_PROMPT.format(goal=goal, max=MAX_ROUNDS, n=n, extra=extra, about=about)
+    out = llm.complete_json([{"role": "system", "content": sys_msg}, *msgs], timeout=40)
+    p = out.get("plan") if out and isinstance(out.get("plan"), dict) else None
+    if not out or not str(out.get("reply") or "").strip() or (want and not p) or (p and not str(p.get("title") or "").strip()):
+        metrics.bump("onboard_plan_fallback")
+        out = _plan_fallback(goal, n, want)
+        p = out.get("plan")
+    res = {"reply": clip(str(out["reply"]).strip(), 300), "plan": None, "round": n, "max": MAX_ROUNDS}
+    if p:
+        items = lambda k, size, cap: [clip(str((x.get("title") if isinstance(x, dict) else x) or "").strip(), size)
+                                      for x in (p.get(k) or [])[:cap] if str((x.get("title") if isinstance(x, dict) else x) or "").strip()]
+        try:
+            due = int(((p.get("milestones") or [{}])[0] or {}).get("due_in_days") or 14)
+        except (TypeError, ValueError, AttributeError):
+            due = 14
+        days = p.get("days") if p.get("days") in (30, 90, 180) else 30
+        res["plan"] = {"title": clip(str(p["title"]).strip(), 30), "category": str(p.get("category") or "other"), "days": days,
+                       "milestones": items("milestones", 30, 1), "due_in_days": max(7, min(90, due)),
+                       "habits": items("habits", 24, 2), "steps": items("steps", 30, 3)}
+        res["remember"] = [clip(str(x).strip(), 20) for x in (out.get("remember") or []) if str(x).strip()][:3]
+        res["why_goal"] = clip(str(out.get("why_goal") or "").strip(), 40)
+        metrics.bump("onboard_plan")
+    return res

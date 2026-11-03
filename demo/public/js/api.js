@@ -38,6 +38,7 @@ export const api = {
   bootstrap: () => get("/api/bootstrap"),
   onboard: (answers, carry = null) => post("/api/onboard", { answers, carry }),
   trial: (payload) => post("/api/trial/chat", payload),
+  onboardPlan: (payload) => post("/api/onboard/plan", payload),
   profile: (patch) => post("/api/profile", patch),
   memory: (action, payload = {}) => post("/api/memory", { action, ...payload }),
   step: (action, payload = {}) => post("/api/step", { action, ...payload }),

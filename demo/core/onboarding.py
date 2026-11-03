@@ -79,6 +79,8 @@ def apply(store: Store, answers: dict) -> dict:
         store.add_memory({"早起型": "习惯早起", "夜猫": "是夜猫子，晚上更有精神", "不固定": "作息不太固定，看心情"}[a["schedule_hint"]], "preference", "onboarding")
     if a["boundaries"]:
         store.add_memory("不希望被：" + "、".join(a["boundaries"]), "boundary", "onboarding")
+    for text in _texts(g("remember"), 3):     # 聊第一个愿望时，小光从 TA 原话里记下的
+        store.add_memory(text, "identity", "onboarding")
     if wish:
         make_wish(store, wish, a["intent_why"])
     store.log("onboarding", "完成建档" + (f"：想靠近「{clip(a['intent_primary'], 16)}」" if a["intent_primary"] else ""))
@@ -98,7 +100,11 @@ def make_wish(store: Store, wish: dict, why: str = "") -> dict | None:
     days = days if days in WISH_SPANS else 30
     w = journey.add_wish(store, title, cat, vision_text=why, target_day=(now().date() + timedelta(days=days)).isoformat())
     rows = lambda k, n: [{"title": t} for t in _texts(wish.get(k), n, 40)]
-    plan = {"milestones": [dict(m, due_in_days=max(7, days // 2)) for m in rows("milestones", 2)],
+    try:
+        due = max(7, min(days, int(wish.get("due_in_days") or days // 2)))
+    except (TypeError, ValueError):
+        due = days // 2
+    plan = {"milestones": [dict(m, due_in_days=due) for m in rows("milestones", 2)],
             "steps": rows("steps", 4), "habits": [dict(h, freq="daily") for h in rows("habits", 2)]}
     journey.apply_plan(store, w["id"], plan)
     return w

@@ -1,41 +1,62 @@
-/* 建档：三段，每段一屏。颜色都来自主题变量。 */
-.ob { position: relative; z-index: 1; width: min(580px, 100%); min-height: 100dvh; margin: 0 auto; display: flex; flex-direction: column;
-  padding: max(14px, env(safe-area-inset-top)) 20px 0; }
-.ob-head { display: flex; align-items: center; gap: 14px; padding: 4px 0 18px; }
-.ob-prog { flex: 1; display: flex; gap: 6px; }
-.ob-dot { flex: 1; display: flex; flex-direction: column; gap: 7px; text-align: left; font-size: 12px; font-weight: 800; color: var(--text-4); transition: color .3s; }
-.ob-dot i { height: 5px; border-radius: 9px; background: var(--surface-3); overflow: hidden; position: relative; }
-.ob-dot i::after { content: ""; position: absolute; inset: 0; background: var(--accent); transform: scaleX(0); transform-origin: left; transition: transform .5s var(--out); }
-.ob-dot.on i::after { transform: scaleX(.5); }
-.ob-dot.done i::after { transform: scaleX(1); }
-.ob-dot.on { color: var(--text); }
-.ob-dot.done { color: var(--text-3); }
-.ob-dot:disabled { cursor: default; }
-.ob-out { flex: none; font-size: 13px; font-weight: 800; color: var(--text-3); padding: 7px 10px; border-radius: 10px; transition: background .2s, color .2s; }
+/* 建档：入口页 + 三个入口（认识小光 · 介绍一下你 · 第一个愿望）。颜色都来自主题变量。 */
+.ob { position: relative; z-index: 1; width: min(600px, 100%); min-height: 100dvh; margin: 0 auto; display: flex; flex-direction: column;
+  padding: max(14px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); }
+.ob-head { display: flex; align-items: center; gap: 10px; padding: 2px 0 10px; }
+.ob-brand { display: inline-flex; align-items: center; gap: 8px; font-size: 16px; }
+.ob-brand .agent-mini { width: 30px; height: 30px; }
+.ob-head .sp { flex: 1; }
+.ob-out { font-size: 13px; font-weight: 800; color: var(--text-3); padding: 7px 10px; border-radius: 10px; transition: background .2s, color .2s; }
 .ob-out:hover { background: var(--surface-2); color: var(--text); }
 
-.ob-title h1 { font-size: 25px; line-height: 1.3; }
-.ob-title p { margin: 4px 0 0; font-size: 13.5px; color: var(--text-3); }
-.ob-hero { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; }
+.ob-hero { display: flex; align-items: center; gap: 8px; margin: 6px 0 8px; }
 .ob-ball { margin: -6px -4px -10px -10px; }
 .ob-bubble { position: relative; flex: 1; margin: 0; padding: 12px 15px; border-radius: 18px 18px 18px 6px; background: var(--surface); border: 1px solid var(--line);
   font-size: 15px; font-weight: 800; line-height: 1.55; min-height: 48px; box-shadow: var(--shadow); }
 .ob-bubble.pop { animation: ob-pop .45s var(--spring); }
 @keyframes ob-pop { from { opacity: .3; transform: translateY(4px) scale(.97); } }
 
-.ob-body { flex: 1; display: flex; flex-direction: column; gap: 18px; padding: 14px 0 22px; }
-.ob-body.in-r { animation: ob-in-r .5s var(--out); }
-.ob-body.in-l { animation: ob-in-l .5s var(--out); }
-@keyframes ob-in-r { from { opacity: 0; transform: translateX(26px); } }
-@keyframes ob-in-l { from { opacity: 0; transform: translateX(-26px); } }
+.ob-main { flex: 1; display: flex; flex-direction: column; padding-top: 10px; }
+.ob-main.in { animation: ob-in .45s var(--out); }
+@keyframes ob-in { from { opacity: 0; transform: translateY(10px); } }
+
+/* 入口页 */
+.ob-hub-t h1 { font-size: 25px; }
+.ob-hub-t p { margin: 4px 0 0; font-size: 13.5px; color: var(--text-3); }
+.ob-entries { display: flex; flex-direction: column; gap: 10px; margin: 18px 0 20px; }
+.ob-entry { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 22px; background: var(--surface); border: 1.5px solid var(--line);
+  text-align: left; transition: transform .3s var(--spring), border-color .2s; animation: ob-in .5s var(--out) backwards; animation-delay: calc(var(--i) * 70ms); }
+.ob-entry:hover { transform: translateY(-2px); border-color: var(--line-2); }
+.ob-e-ic { flex: none; width: 46px; height: 46px; display: grid; place-items: center; }
+.ob-e-ic svg:not(.ic-svg) { width: 54px; height: 54px; }
+.ob-e-main { flex: 1; min-width: 0; }
+.ob-e-main b { display: block; font-size: 16px; }
+.ob-e-main small { display: block; font-size: 12.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ob-e-st { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; color: var(--text-4); }
+.ob-e-st .ic-svg { width: 18px; height: 18px; }
+.ob-entry.done { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.ob-entry.done .ob-e-st { background: var(--accent); color: var(--accent-ink); }
+.ob-entry.done .ob-e-main small { color: var(--text-2); }
+.ob-enter { width: 100%; }
+.ob-note { margin: 10px 0 0; text-align: center; font-size: 12px; color: var(--text-4); }
+
+/* 入口里面 */
+.ob-page-h { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.ob-page-h h2 { font-size: 20px; }
+.ob-back { display: inline-flex; align-items: center; gap: 2px; height: 32px; padding: 0 10px 0 6px; border-radius: 10px; font-size: 13px; font-weight: 800;
+  color: var(--text-3); background: var(--surface-2); }
+.ob-back .ic-svg { width: 16px; height: 16px; }
+.ob-back:hover { color: var(--text); }
+.ob-fields { display: flex; flex-direction: column; gap: 18px; }
 .ob-field > label { display: block; font-size: 12.5px; font-weight: 800; color: var(--text-3); margin-bottom: 9px; }
 .ob-field > label small { font-weight: 700; color: var(--text-4); margin-left: 6px; }
+.ob-foot { display: flex; justify-content: flex-end; margin-top: 22px; }
+.ob-foot .btn { min-width: 140px; }
 
 .ob-looks { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
 .ob-look { aspect-ratio: 1; display: grid; place-items: center; border-radius: 16px; background: var(--surface); border: 2px solid transparent;
   transition: border-color .2s, background .2s, transform .3s var(--spring); }
 .ob-look:hover { transform: translateY(-2px); }
-.ob-look svg { width: 86%; height: 86%; }
+.ob-look svg { width: 88%; height: 88%; }
 .ob-look.on { border-color: var(--accent); background: var(--accent-soft); }
 
 .ob-chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -55,19 +76,11 @@
 .ob-in:focus { outline: none; border-color: var(--accent); }
 .ob-name { max-width: 220px; }
 
-.ob-wishes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.ob-wish { display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 13px 4px 11px; border-radius: 18px; background: var(--surface);
-  border: 2px solid transparent; font-size: 13px; font-weight: 800; color: var(--text-2); transition: border-color .2s, transform .3s var(--spring); }
-.ob-wish:hover { transform: translateY(-2px); }
-.ob-wish.on { border-color: var(--accent); color: var(--text); }
-/* 选好方向后，六张卡片收成一排小标签，把位置让给下面的路 */
-.ob-wishes.picked { display: flex; flex-wrap: wrap; gap: 6px; }
-.ob-wishes.picked .ob-wish { flex-direction: row; gap: 6px; padding: 5px 12px 5px 5px; border-radius: 99px; font-size: 12.5px; border-width: 1.5px; }
-.ob-wishes.picked .ob-wish .tile { width: 24px !important; height: 24px !important; border-radius: 8px; }
-.ob-wishes.picked .ob-wish .tile .ic-svg { width: 14px; height: 14px; }
-.ob-plan { display: flex; flex-direction: column; gap: 9px; padding: 14px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);
-  box-shadow: var(--shadow); animation: ob-up .5s var(--out); }
-@keyframes ob-up { from { opacity: 0; transform: translateY(12px); } }
+/* 第一个愿望：选项和聊天沿用首页体验的样式（gate.css 的 .trial-*） */
+.ob-goals { grid-template-columns: repeat(2, 1fr); }
+.ob-chat .trial-thread { min-height: 80px; }
+.ob-plan { display: flex; flex-direction: column; gap: 9px; margin: 16px 0 8px 40px; padding: 14px; border-radius: 20px; background: var(--surface);
+  border: 1.5px solid var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); animation: ob-in .5s var(--out); }
 .ob-prow { display: flex; align-items: center; gap: 8px; }
 .ob-prow .ob-in { flex: 1; min-width: 0; height: 40px; font-size: 14px; }
 .ob-prow.head .ob-in { height: 44px; font-size: 16px; font-weight: 800; }
@@ -83,23 +96,13 @@
 .ob-fixed { flex: 1; font-size: 14px; font-weight: 700; }
 .ob-fixed small { margin-left: 6px; font-size: 11.5px; color: var(--text-4); }
 .ob-spans { display: flex; gap: 6px; margin: 0 0 2px 2px; }
-.ob-why-add { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; padding: 4px 4px; font-size: 13px; font-weight: 800; color: var(--text-3); }
-.ob-why-add .ic-svg { width: 14px; height: 14px; }
-.ob-why { height: 40px; font-size: 14px; }
-
-.ob-foot { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 16px 0 max(18px, env(safe-area-inset-bottom)); }
-.ob-skip { padding: 10px 6px; font-size: 14px; font-weight: 800; color: var(--text-3); }
-.ob-skip:hover { color: var(--text); }
-.ob-next { min-width: 150px; }
+.ob-plan-acts { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
 
 @media (max-width: 560px) {
-  .ob-foot { background: linear-gradient(transparent, var(--bg) 45%); }
-  .ob-title h1 { font-size: 22px; }
+  .ob-hub-t h1 { font-size: 22px; }
   .ob-looks { gap: 6px; }
   .ob-look { border-radius: 13px; }
-  .ob-wishes { grid-template-columns: repeat(4, 1fr); gap: 6px; }
-  .ob-wish { font-size: 12px; padding: 11px 2px 9px; }
+  .ob-plan { margin-left: 0; }
   .ob-tag { width: 58px; }
 }
-@media (prefers-reduced-motion: reduce) { .ob-body, .ob-plan, .ob-bubble { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .ob-main, .ob-plan, .ob-bubble, .ob-entry { animation: none !important; } }

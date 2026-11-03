@@ -262,6 +262,31 @@ def onboard(h, u, b, q):
         return 200, bootstrap(st)
 
 
+def onboard_plan(h, u, b, q):
+    """建档时的「第一个愿望」：和首页体验一样聊几轮，最后小光把它拆成一条路给用户勾。
+    这时画像还没保存，前端把刚在其他入口选的说话方式、称呼等一起带过来。"""
+    key = "plan:" + u["id"]
+    if auth.too_many(key, 40):
+        raise ApiError(429, "聊得有点快，歇一会儿再试")
+    auth.note_fail(key)
+    a = b.get("about") if isinstance(b.get("about"), dict) else {}
+    lst = lambda k: [clip(str(x), 12) for x in (a.get(k) or [])[:3] if str(x).strip()] if isinstance(a.get(k), list) else []
+    bits = []
+    if str(a.get("nickname") or "").strip():
+        bits.append(f"TA 希望你叫 TA「{clip(str(a['nickname']).strip(), 12)}」。")
+    tone = {"gentle": "温柔，先接住情绪再说事", "clear": "有条理，帮 TA 把事情理清楚", "lively": "轻松活泼，偶尔逗 TA 笑"}.get(a.get("persona"))
+    if tone:
+        bits.append(f"你的说话方式：{tone}。")
+    if lst("traits"):
+        bits.append("TA 觉得自己：" + "、".join(lst("traits")) + "。")
+    if lst("boundaries"):
+        bits.append("TA 不希望被：" + "、".join(lst("boundaries")) + "。")
+    try:
+        return 200, trial.plan(b.get("goal"), b.get("history"), bool(b.get("finish")), " ".join(bits))
+    except ValueError as e:
+        raise ApiError(400, str(e))
+
+
 def chat(h, u, b, q):
     h.sse_chat(u, b)
 
@@ -720,6 +745,7 @@ ROUTES = {
     ("POST", "/api/auth/login"): (login, False),
     ("POST", "/api/auth/guest"): (guest, False),
     ("POST", "/api/trial/chat"): (trial_chat, False),
+    ("POST", "/api/onboard/plan"): (onboard_plan, True),
     ("GET", "/api/push/key"): (push_key, True),
     ("POST", "/api/push/subscribe"): (push_subscribe, True),
     ("POST", "/api/push/unsubscribe"): (push_unsubscribe, True),

@@ -77,6 +77,7 @@ export function mountBall(el, { size = 96, emotion = null, interactive = true, a
     j.bindTouch({ onDouble: () => { h.lockUntil = 0; playRandom(h, 2600); touch.onDouble?.(); }, onTap: touch.onTap });
   } else if (interactive) {
     // 侧边栏：单击随机换一个表情或转一圈（保留原来的玩法）
+    host.addEventListener("mousedown", (e) => e.preventDefault());   // 点它时不选中旁边的文字
     host.addEventListener("click", () => playRandom(h, 2400));
   }
   live.add(h);

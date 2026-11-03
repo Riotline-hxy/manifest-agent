@@ -1,20 +1,19 @@
-// 建档：三段，每段一屏，都能跳过。
-//   小光 —— 它的样子、说话方式、几天没动时怎么陪你、名字
-//   你   —— 怎么叫你、作息节奏、像什么样的人、别对你做什么（小光会记住）
-//   第一个愿望 —— 选个方向，给一条现成的路（里程碑 · 小步 · 习惯），能改能删，直接放进蜕变计划
+// 建档：一个入口页，三件事想先做哪件都行，做完回到入口页，随时可以进门。
+//   认识小光   —— 它的样子、说话方式、几天没动时怎么陪你、名字
+//   介绍一下你 —— 怎么叫你、作息节奏、像什么样的人、别对你做什么（小光会记住）
+//   第一个愿望 —— 和首页体验一样：选一件想改变的事 → 和小光聊几句（真的模型）→ 小光把它拆成
+//                 里程碑 · 习惯 · 小步，你勾想要的，进门时一起放进蜕变计划
 // 每一个选择小光都会当场回应，不用读说明也知道它决定了什么。
 import { api } from "../api.js";
-import { state } from "../store.js";
 import { esc, icon, tile, toast } from "../ui.js";
-import { mountBall, setAgentLook, lookPicture } from "../ball.js";
-import { LOOKS, LOOK_DEFAULT } from "../jelly.js";
-import { CATS } from "../journey.js";
-import { takeCarry, dropCarry } from "./trial.js";
+import { mountBall, setAgentLook, lookPicture, agentMini } from "../ball.js";
+import { LOOKS, LOOK_DEFAULT, lookName } from "../jelly.js";
+import { takeCarry, dropCarry, GOALS } from "./trial.js";
 
-const SECS = [
-  { n: "小光", t: "先认识一下小光", h: "决定它的样子和说话方式", hi: "嗨，我是小光。先帮我挑个样子？" },
-  { n: "你", t: "说说你自己", h: "小光会记住，聊天更懂你", hi: "你呢？随便说说就好。" },
-  { n: "第一个愿望", t: "定一个想靠近的样子", h: "拆成小步，放进蜕变计划", hi: "最后一件事：想往哪儿走？" },
+const ENTRIES = [
+  { k: "agent", t: "认识小光", h: "它的样子、怎么跟你说话" },
+  { k: "me", t: "介绍一下你", h: "让小光更懂你", ic: "user", c: "var(--c-sky)" },
+  { k: "wish", t: "第一个愿望", h: "和小光聊聊，拆成小步", ic: "flag", c: "var(--c-orange)" },
 ];
 // [值, 文字, 图标, 颜色, 小光当场说的话]
 const PERSONAS = [["gentle", "温柔", "heart", "var(--c-pink)", "不急，我在这儿，慢慢说。"],
@@ -29,40 +28,31 @@ const RHYTHMS = [["早起型", "早起型", "sun", "var(--c-lemon)", "早起的�
 const TRAITS = ["想得多", "理性派", "行动派", "拖延但爆发", "需要被提醒", "喜欢独处"];
 const NOPES = [["别说教", "说教"], ["别鸡血催促", "鸡血催促"], ["别追问太多", "追问太多"]];
 const SPANS = [[30, "一个月"], [90, "三个月"], [180, "半年"]];
-// 六个方向，各带一条现成的路
-const WISHES = {
-  confidence: { n: "更敢表达", title: "敢在人前开口", ms: "在课上或会上主动发言一次", steps: ["今天主动跟一个人打招呼", "写下一句想说却没说出口的话"], habit: "每天说一句真心话" },
-  body: { n: "身体和作息", title: "早睡早起", ms: "连续 7 天 12 点前睡着", steps: ["今晚把手机放到床外面", "定一个 23:30 的睡前提醒"], habit: "23:30 放下手机" },
-  calm: { n: "心里平静点", title: "心里平静一点", ms: "一周有 3 个晚上安心入睡", steps: ["写下现在最担心的一件事", "找一首能让自己静下来的歌"], habit: "每天发呆 5 分钟" },
-  wealth: { n: "学业和事业", title: "把想做的事做出来", ms: "完成第一个小版本", steps: ["列出这周最想推进的一件事", "只做它，专注 25 分钟"], habit: "每天专注 25 分钟" },
-  relation: { n: "关系更舒服", title: "关系里更自在", ms: "和一个重要的人好好聊一次", steps: ["给想念的人发一句问候", "写下一个自己的需要"], habit: "每天说一次谢谢" },
-  freedom: { n: "活得更自在", title: "多做喜欢的事", ms: "去一个想去很久的地方", steps: ["列 3 件最近想做的小事", "这周留出半天给自己"], habit: "每天给自己留 20 分钟" },
-};
-const GUESS = [["confidence", /自信|表达|开口|勇敢|发言|社交/], ["body", /睡|早起|作息|健康|运动|身材|跑|减/], ["calm", /平静|焦虑|放松|压力|情绪/],
-  ["wealth", /学|考|工作|事业|作品|项目|钱/], ["relation", /关系|朋友|家人|恋|沟通/], ["freedom", /自由|生活|旅行|喜欢/]];
-const guess = (t) => (GUESS.find(([, re]) => re.test(t)) || ["other"])[0];
+const ROW = { ms: ["flag", "var(--c-violet)", "里程碑"], habit: ["clock", "var(--c-mint)", "习惯"], step: ["steps", "var(--c-orange)", "小步"] };
+const label = (list, v) => (list.find((x) => x[0] === v) || [])[1] || "";
 
 export function renderOnboarding(root) {
   const carry = takeCarry();
   const A = { agent_avatar_id: LOOK_DEFAULT, persona: "gentle", care_style: "nudge", agent_name: "小光",
     nickname: "", schedule_hint: "", traits: [], boundaries: [] };
-  // 第一个愿望：从首页体验过来的，方向和那一小步已经有了
-  const W = { on: false, cat: "", title: "", days: 30, why: carry?.why_goal || "", rows: [] };
-  if (carry?.goal) pickWish(guess(carry.goal), carry.goal.replace(/^想/, ""));
-  let sec = 0, seen = 0, busy = false;
+  const done = { agent: false, me: false, wish: false };
+  let W = null;                                  // 勾好的第一个愿望
+  let remember = carry?.remember || [], whyGoal = carry?.why_goal || "";
+  if (carry?.step) {                             // 从首页体验过来：那一小步已经定好了
+    W = { title: carry.goal.replace(/^想/, ""), category: "", days: 30, due: 15, rows: [{ kind: "step", text: carry.step, on: true, locked: true }] };
+    done.wish = true;
+  }
+  let busy = false;
 
   root.innerHTML = `
     <div class="ob">
-      <header class="ob-head">
-        <div class="ob-prog">${SECS.map((s, i) => `<button class="ob-dot" data-sec="${i}"><i></i><span>${s.n}</span></button>`).join("")}</div>
-        <button class="ob-out" data-out>先进去看看</button>
-      </header>
-      <div class="ob-title"><h1></h1><p></p></div>
+      <header class="ob-head"><span class="ob-brand">${agentMini()}<b>显伴</b></span><span class="sp"></span>
+        <button class="ob-out" data-out>先进去看看</button></header>
       <div class="ob-hero"><div class="ob-ball"></div><p class="ob-bubble"></p></div>
-      <main class="ob-body"></main>
-      <footer class="ob-foot"><button class="ob-skip" data-skip>跳过这段</button><button class="btn btn-main ob-next" data-next>下一步</button></footer>
+      <main class="ob-main"></main>
     </div>`;
   const $ = (s) => root.querySelector(s);
+  const main = $(".ob-main");
   const ball = mountBall($(".ob-ball"), { size: innerWidth < 560 ? 92 : 108, agent: false, emotion: "01", look: A.agent_avatar_id, touch: {} });
   const bubble = $(".ob-bubble");
   const say = (text, face, move) => {
@@ -71,139 +61,238 @@ export function renderOnboarding(root) {
     if (face) ball.set(face, { force: true });
     if (move) ball.pulse(move);
   };
-  const chip = (k, [v, label, ic, color], on) => `<button class="ob-chip ${on ? "on" : ""}" data-k="${k}" data-v="${esc(v)}" style="--c:${color}">${icon(ic)}<span>${esc(label)}</span></button>`;
+  const swap = (html) => { main.innerHTML = html; main.classList.remove("in"); void main.offsetWidth; main.classList.add("in"); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const chip = (k, [v, text, ic, color], on) => `<button class="ob-chip ${on ? "on" : ""}" data-k="${k}" data-v="${esc(v)}" style="--c:${color}">${icon(ic)}<span>${esc(text)}</span></button>`;
+  const pageHead = (t) => `<div class="ob-page-h"><button class="ob-back" data-back>${icon("back")}返回</button><h2>${t}</h2></div>`;
 
-  function pickWish(cat, title) {
-    const T = WISHES[cat];
-    W.on = true; W.cat = cat in WISHES ? cat : ""; W.title = title ?? T?.title ?? "";
-    W.rows = [
-      ...(carry?.step ? [{ kind: "step", text: carry.step, on: true, locked: true }] : []),
-      { kind: "ms", text: T?.ms || "", on: true },
-      ...(T?.steps || ["", ""]).slice(0, carry?.step ? 1 : 2).map((text) => ({ kind: "step", text, on: true })),
-      { kind: "habit", text: T?.habit || "", on: true },
-    ];
+  // ---------------------------------------------------------------- 入口页 ----
+  const summary = {
+    agent: () => `${lookName(A.agent_avatar_id)} · ${label(PERSONAS, A.persona)}`,
+    me: () => [A.nickname, label(RHYTHMS, A.schedule_hint), ...A.traits].filter(Boolean).slice(0, 3).join(" · ") || "说了一些",
+    wish: () => `${W.title} · ${W.rows.filter((r) => r.on).length} 件事`,
+  };
+  function hub(line) {
+    const n = Object.values(done).filter(Boolean).length;
+    swap(`
+      <div class="ob-hub-t"><h1>欢迎来到显伴</h1><p>三件小事，从哪个开始都行</p></div>
+      <div class="ob-entries">${ENTRIES.map((e, i) => `
+        <button class="ob-entry ${done[e.k] ? "done" : ""}" data-open="${e.k}" style="--i:${i}">
+          <span class="ob-e-ic">${e.k === "agent" ? lookPicture(A.agent_avatar_id) : tile(e.ic, e.c, 46)}</span>
+          <span class="ob-e-main"><b>${e.t}</b><small>${esc(done[e.k] ? summary[e.k]() : e.h)}</small></span>
+          <span class="ob-e-st">${done[e.k] ? icon("check") : icon("arrow")}</span></button>`).join("")}</div>
+      <button class="btn btn-main btn-lg ob-enter" data-enter>${n === 3 ? "都好了，进入显伴" : "进入显伴"}</button>
+      ${n < 3 ? `<p class="ob-note">没做的以后在设置和蜕变计划里也能补</p>` : ""}`);
+    say(line || (n === 3 ? "都好啦！进去看看吧。" : n ? "好啦～还想看看哪个？" : "嗨，我是小光。这三件事，从哪个开始都行～"), n === 3 ? "10" : "02", n === 3 ? "bounce" : null);
+    main.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => open[b.dataset.open]()));
+    main.querySelector("[data-enter]").addEventListener("click", () => finish());
   }
 
-  // ---------------------------------------------------------------- 三段 ----
-  const draw = {
-    0() {
-      return `
-        <div class="ob-field"><label>样子</label>
-          <div class="ob-looks">${LOOKS.slice(0, 6).map((x) => `<button class="ob-look ${x.id === A.agent_avatar_id ? "on" : ""}" data-look="${x.id}" aria-label="${esc(x.n)}">${lookPicture(x.id)}</button>`).join("")}</div></div>
-        <div class="ob-field"><label>说话</label><div class="ob-chips">${PERSONAS.map((o) => chip("persona", o, A.persona === o[0])).join("")}</div></div>
-        <div class="ob-field"><label>几天没动时</label><div class="ob-chips">${CARES.map((o) => chip("care_style", o, A.care_style === o[0])).join("")}</div></div>
-        <div class="ob-field"><label>名字</label><input class="ob-in ob-name" data-in="agent_name" maxlength="8" value="${esc(A.agent_name)}" aria-label="小光的名字"></div>`;
+  // ---------------------------------------------------------------- 认识小光 · 介绍一下你 ----
+  const open = {
+    agent() {
+      swap(`${pageHead("认识小光")}
+        <div class="ob-fields">
+          <div class="ob-field"><label>样子</label>
+            <div class="ob-looks">${LOOKS.slice(0, 6).map((x) => `<button class="ob-look ${x.id === A.agent_avatar_id ? "on" : ""}" data-look="${x.id}" aria-label="${esc(x.n)}">${lookPicture(x.id)}</button>`).join("")}</div></div>
+          <div class="ob-field"><label>说话</label><div class="ob-chips">${PERSONAS.map((o) => chip("persona", o, A.persona === o[0])).join("")}</div></div>
+          <div class="ob-field"><label>几天没动时</label><div class="ob-chips">${CARES.map((o) => chip("care_style", o, A.care_style === o[0])).join("")}</div></div>
+          <div class="ob-field"><label>名字</label><input class="ob-in ob-name" data-in="agent_name" maxlength="8" value="${esc(A.agent_name)}" aria-label="小光的名字"></div>
+        </div>
+        <div class="ob-foot"><button class="btn btn-main" data-ok>好了</button></div>`);
+      say("先帮我挑个样子？", "35");
+      bindFields("agent");
     },
-    1() {
-      return `
-        <div class="ob-field"><label>怎么叫你</label><input class="ob-in" data-in="nickname" maxlength="12" placeholder="名字或昵称" value="${esc(A.nickname)}"></div>
-        <div class="ob-field"><label>你的节奏</label><div class="ob-chips">${RHYTHMS.map((o) => chip("schedule_hint", o, A.schedule_hint === o[0])).join("")}</div></div>
-        <div class="ob-field"><label>你更像<small>最多 3 个</small></label><div class="ob-chips">${TRAITS.map((t) => `<button class="ob-chip plain ${A.traits.includes(t) ? "on" : ""}" data-multi="traits" data-v="${t}">${t}</button>`).join("")}</div></div>
-        <div class="ob-field"><label>别对我</label><div class="ob-chips">${NOPES.map(([v, l]) => `<button class="ob-chip plain ${A.boundaries.includes(v) ? "on" : ""}" data-multi="boundaries" data-v="${v}">${l}</button>`).join("")}</div></div>`;
+    me() {
+      swap(`${pageHead("介绍一下你")}
+        <div class="ob-fields">
+          <div class="ob-field"><label>怎么叫你</label><input class="ob-in" data-in="nickname" maxlength="12" placeholder="名字或昵称" value="${esc(A.nickname)}"></div>
+          <div class="ob-field"><label>你的节奏</label><div class="ob-chips">${RHYTHMS.map((o) => chip("schedule_hint", o, A.schedule_hint === o[0])).join("")}</div></div>
+          <div class="ob-field"><label>你更像<small>最多 3 个</small></label><div class="ob-chips">${TRAITS.map((t) => `<button class="ob-chip plain ${A.traits.includes(t) ? "on" : ""}" data-multi="traits" data-v="${t}">${t}</button>`).join("")}</div></div>
+          <div class="ob-field"><label>别对我</label><div class="ob-chips">${NOPES.map(([v, l]) => `<button class="ob-chip plain ${A.boundaries.includes(v) ? "on" : ""}" data-multi="boundaries" data-v="${v}">${l}</button>`).join("")}</div></div>
+        </div>
+        <div class="ob-foot"><button class="btn btn-main" data-ok>好了</button></div>`);
+      say("你呢？随便说说就好，我会记住的。", "35");
+      bindFields("me");
     },
-    2() {
-      const rowLabel = { ms: ["flag", "var(--c-violet)", "里程碑", "走到一半是什么样子"], step: ["steps", "var(--c-orange)", "小步", "第一步可以是……"], habit: ["clock", "var(--c-mint)", "习惯", "每天能做的一件小事"] };
-      return `
-        <div class="ob-wishes ${W.on ? "picked" : ""}">${Object.entries(WISHES).map(([k, x]) => `<button class="ob-wish ${W.on && W.cat === k ? "on" : ""}" data-wish="${k}">${tile(CATS[k].icon, CATS[k].color, 36)}<span>${x.n}</span></button>`).join("")}
-          <button class="ob-wish ${W.on && !W.cat ? "on" : ""}" data-wish="">${tile("edit", "var(--c-coral)", 36)}<span>自己写</span></button></div>
-        ${W.on ? `<div class="ob-plan">
-          <div class="ob-prow head"><span class="ob-tag" style="--c:var(--accent)">${icon("star")}愿望</span>
-            <input class="ob-in" data-w="title" maxlength="30" placeholder="想靠近什么样子" value="${esc(W.title)}"></div>
-          <div class="ob-spans">${SPANS.map(([d, l]) => `<button class="ob-chip plain sm ${W.days === d ? "on" : ""}" data-days="${d}">${l}</button>`).join("")}</div>
-          ${W.rows.map((r, i) => { const [ic, col, tag, ph] = rowLabel[r.kind]; return `<div class="ob-prow ${r.on ? "" : "off"}">
-            <button class="ob-ck" data-row="${i}" ${r.locked ? "disabled" : ""} aria-label="${r.on ? "不要这一项" : "要这一项"}">${icon("check")}</button>
-            <span class="ob-tag" style="--c:${col}">${icon(ic)}${tag}</span>
-            ${r.locked ? `<span class="ob-fixed">${esc(r.text)}<small>刚才定的</small></span>` : `<input class="ob-in" data-rowin="${i}" maxlength="40" placeholder="${ph}" value="${esc(r.text)}">`}</div>`; }).join("")}
-          ${W.whyOpen || W.why ? `<input class="ob-in ob-why" data-w="why" maxlength="40" placeholder="为什么想要它？一句话就好" value="${esc(W.why)}">`
-            : `<button class="ob-why-add" data-why>${icon("plus")}说说为什么</button>`}
-        </div>` : ""}`;
-    },
+    wish() { goalPick(); },
   };
 
-  function render(dir = 0) {
-    const S = SECS[sec];
-    root.querySelector(".ob").dataset.sec = sec;
-    $(".ob-title h1").textContent = S.t;
-    $(".ob-title p").textContent = S.h;
-    root.querySelectorAll(".ob-dot").forEach((d, i) => { d.classList.toggle("on", i === sec); d.classList.toggle("done", i < sec); d.disabled = i > seen; });
-    const body = $(".ob-body");
-    body.innerHTML = draw[sec]();
-    if (dir) { body.classList.remove("in-l", "in-r"); void body.offsetWidth; body.classList.add(dir > 0 ? "in-r" : "in-l"); }
-    $("[data-next]").textContent = sec < 2 ? "下一步" : W.on ? "就从这里开始" : "先进去";
-    $("[data-skip]").textContent = sec < 2 ? "跳过这段" : "先不定";
-    bind(body);
-  }
-
-  function bind(body) {
-    body.querySelectorAll("[data-look]").forEach((b) => b.addEventListener("click", () => {
+  function bindFields(k) {
+    main.querySelector("[data-back]").addEventListener("click", () => hub());
+    main.querySelector("[data-ok]").addEventListener("click", () => { done[k] = true; hub(); });
+    main.querySelectorAll("[data-look]").forEach((b) => b.addEventListener("click", () => {
       A.agent_avatar_id = b.dataset.look;
-      body.querySelectorAll("[data-look]").forEach((x) => x.classList.toggle("on", x === b));
+      main.querySelectorAll("[data-look]").forEach((x) => x.classList.toggle("on", x === b));
       ball.setLook(A.agent_avatar_id);
       say(LOOKS.find((x) => x.id === A.agent_avatar_id).h + "。", "10", "bounce");
     }));
-    body.querySelectorAll("[data-k]").forEach((b) => b.addEventListener("click", () => {
-      const k = b.dataset.k, v = b.dataset.v;
-      A[k] = A[k] === v && k === "schedule_hint" ? "" : v;
-      body.querySelectorAll(`[data-k="${k}"]`).forEach((x) => x.classList.toggle("on", x.dataset.v === A[k]));
+    main.querySelectorAll("[data-k]").forEach((b) => b.addEventListener("click", () => {
+      const key = b.dataset.k, v = b.dataset.v;
+      A[key] = A[key] === v && key === "schedule_hint" ? "" : v;
+      main.querySelectorAll(`[data-k="${key}"]`).forEach((x) => x.classList.toggle("on", x.dataset.v === A[key]));
       const o = [...PERSONAS, ...CARES, ...RHYTHMS].find((x) => x[0] === v);
       const face = { lively: "10", clear: "16", gentle: "14", nudge: "35", analyze: "30", quiet: "15", "早起型": "13", "夜猫": "22", "不固定": "02" }[v];
-      if (A[k]) say(o[4], face, v === "lively" ? "bounce" : null);
+      if (A[key]) say(o[4], face, v === "lively" ? "bounce" : null);
     }));
-    body.querySelectorAll("[data-multi]").forEach((b) => b.addEventListener("click", () => {
-      const k = b.dataset.multi, v = b.dataset.v, list = A[k];
+    main.querySelectorAll("[data-multi]").forEach((b) => b.addEventListener("click", () => {
+      const key = b.dataset.multi, v = b.dataset.v, list = A[key];
       if (list.includes(v)) list.splice(list.indexOf(v), 1);
-      else if (k === "traits" && list.length >= 3) return say("最多挑 3 个就好～", "11");
+      else if (key === "traits" && list.length >= 3) return say("最多挑 3 个就好～", "11");
       else list.push(v);
       b.classList.toggle("on", list.includes(v));
-      if (list.includes(v)) say(k === "traits" ? ["嗯，我懂一点了。", "记住啦。", "原来是这样的你。"][list.length - 1] : "收到，我不会这样的。", k === "traits" ? "35" : "19");
+      if (list.includes(v)) say(key === "traits" ? ["嗯，我懂一点了。", "记住啦。", "原来是这样的你。"][list.length - 1] : "收到，我不会这样的。", key === "traits" ? "35" : "19");
     }));
-    body.querySelectorAll("[data-in]").forEach((inp) => {
+    main.querySelectorAll("[data-in]").forEach((inp) => {
       inp.addEventListener("input", () => { A[inp.dataset.in] = inp.value.trim(); });
       inp.addEventListener("change", () => {
         if (inp.dataset.in === "nickname" && A.nickname) say(`${A.nickname}，记住啦。`, "14");
         if (inp.dataset.in === "agent_name") say(`以后就叫我「${A.agent_name || "小光"}」吧。`, "10", "bounce");
       });
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); inp.blur(); } });
     });
-    body.querySelectorAll("[data-wish]").forEach((b) => b.addEventListener("click", () => {
-      const k = b.dataset.wish;
-      pickWish(k, k ? undefined : "");
-      render();
-      if (k) say(`好，就从「${WISHES[k].title}」开始。`, "10", "bounce");
-      else { say("你想靠近什么样子？", "35"); $("[data-w=title]")?.focus(); }
-    }));
-    body.querySelectorAll("[data-days]").forEach((b) => b.addEventListener("click", () => {
-      W.days = +b.dataset.days;
-      body.querySelectorAll("[data-days]").forEach((x) => x.classList.toggle("on", x === b));
-      say({ 30: "一个月，刚刚好。", 90: "三个月，慢慢来。", 180: "半年，够我们走很远了。" }[W.days], "19");
-    }));
-    body.querySelectorAll("[data-row]").forEach((b) => b.addEventListener("click", () => { const r = W.rows[+b.dataset.row]; r.on = !r.on; b.closest(".ob-prow").classList.toggle("off", !r.on); }));
-    body.querySelectorAll("[data-rowin]").forEach((inp) => inp.addEventListener("input", () => { W.rows[+inp.dataset.rowin].text = inp.value; }));
-    body.querySelectorAll("[data-w]").forEach((inp) => inp.addEventListener("input", () => { W[inp.dataset.w] = inp.value; }));
-    body.querySelector("[data-why]")?.addEventListener("click", () => { W.whyOpen = true; render(); $("[data-w=why]")?.focus(); });
-    body.querySelectorAll("input").forEach((inp) => inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); inp.blur(); } }));
   }
 
-  const go = (to) => {
-    if (busy) return;
-    const dir = to > sec ? 1 : -1;
-    sec = to; seen = Math.max(seen, sec);
-    render(dir);
-    say(SECS[sec].hi, sec === 2 ? "30" : "35");
-  };
+  // ---------------------------------------------------------------- 第一个愿望 ----
+  // 1. 选一件想改变的事（和首页体验同一套选项）
+  function goalPick() {
+    swap(`${pageHead("第一个愿望")}
+      <div class="trial-goals ob-goals">${GOALS.map((g, i) => `
+        <button class="trial-goal" data-g="${g.id}" style="--i:${i}">${tile(g.ic, g.c, 42)}
+          <span><b>${esc(g.t)}</b><small>${esc(g.sub)}</small></span></button>`).join("")}</div>
+      <div class="trial-own"><input class="field" maxlength="30" placeholder="或者自己写一句"><button class="btn btn-main" disabled>就这个</button></div>`);
+    say(carry?.goal ? `刚才说的「${carry.goal}」，要再聊细一点吗？也可以换一件。` : "最近有没有一件事，你想让自己慢慢变好一点？", "10");
+    main.querySelector("[data-back]").addEventListener("click", () => hub());
+    const own = main.querySelector(".trial-own input"), ok = main.querySelector(".trial-own button");
+    own.addEventListener("input", () => { ok.disabled = !own.value.trim(); });
+    own.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing && own.value.trim()) ok.click(); });
+    ok.addEventListener("click", () => talk({ id: "own", t: own.value.trim(), hints: [], open: `「${own.value.trim()}」，好，我听着。现在大概是什么样子？随便说说就行。` }));
+    main.querySelectorAll("[data-g]").forEach((b) => b.addEventListener("click", () => talk(GOALS.find((g) => g.id === b.dataset.g))));
+  }
 
-  async function finish(skipWish = false) {
+  // 2. 和小光聊几句（真的模型；最多三轮，随时可以让它直接拆）
+  function talk(goal) {
+    swap(`${pageHead(esc(goal.t))}
+      <div class="trial-chat ob-chat">
+        <div class="trial-thread"></div>
+        <div class="trial-composer">
+          <div class="hints">${(goal.hints || []).map((t) => `<button class="chip" data-fill="${esc(t)}">${esc(t)}</button>`).join("")}</div>
+          <div class="inbox"><textarea rows="1" maxlength="300" placeholder="说说看……"></textarea><button class="send" aria-label="发送">${icon("send")}</button></div>
+          <div class="trial-meta"><span class="trial-left"></span><button class="btn btn-quiet btn-sm" data-act="finish" hidden>直接帮我拆好</button></div>
+        </div>
+      </div>`);
+    say("不用想得很完整，像跟朋友吐槽那样说就行。", "35");
+    main.querySelector("[data-back]").addEventListener("click", () => goalPick());
+    const thread = main.querySelector(".trial-thread"), comp = main.querySelector(".trial-composer");
+    const ta = comp.querySelector("textarea"), send = comp.querySelector(".send");
+    const left = comp.querySelector(".trial-left"), finishBtn = comp.querySelector("[data-act=finish]");
+    const history = [{ role: "assistant", content: goal.open }];
+    let waiting = false;
+    const scroll = () => requestAnimationFrame(() => thread.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "end" }));
+    const msg = (role, text) => {
+      const el = document.createElement("div");
+      el.className = `msg ${role}`;
+      el.innerHTML = role === "user" ? `<div class="bub">${esc(text)}</div>`
+        : `${agentMini()}<div class="col"><div class="bub"><div class="txt">${text === null ? `<span class="dots"><i></i><i></i><i></i></span>` : esc(text)}</div></div></div>`;
+      thread.append(el); scroll();
+      return el;
+    };
+    const rounds = () => history.filter((m) => m.role === "user").length;
+    const refresh = () => {
+      const n = rounds();
+      send.classList.toggle("ready", !waiting && !!ta.value.trim());
+      left.textContent = n >= 3 ? "" : `还能聊 ${3 - n} 句`;
+      finishBtn.hidden = n < 1 || waiting;
+      ta.disabled = waiting;
+    };
+    async function ask(text, opts = {}) {
+      if (waiting) return;
+      waiting = true;
+      if (text) { history.push({ role: "user", content: text }); msg("user", text); }
+      comp.querySelector(".hints").classList.add("hide");
+      ta.value = ""; refresh();
+      ball.set("30", { force: true });
+      const wait = msg("assistant", null);
+      try {
+        const r = await api.onboardPlan({ goal: goal.t, history, ...opts,
+          about: { persona: A.persona, nickname: A.nickname, traits: A.traits, boundaries: A.boundaries } });
+        history.push({ role: "assistant", content: r.reply });
+        wait.querySelector(".txt").textContent = r.reply;
+        if (r.plan) { comp.hidden = true; planCard(goal, r); }
+        else ball.set("35", { force: true });
+      } catch (e) {
+        wait.remove();
+        if (text) { history.pop(); ta.value = text; }
+        toast(e.message, "err");
+        ball.set("12", { force: true });
+      }
+      waiting = false;
+      refresh();
+      if (!comp.hidden) ta.focus();
+    }
+    ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 140) + "px"; refresh(); });
+    ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send.click(); } });
+    send.addEventListener("click", () => { const t = ta.value.trim(); if (t) ask(t); });
+    comp.querySelectorAll("[data-fill]").forEach((b) => b.addEventListener("click", () => ask(b.dataset.fill)));
+    finishBtn.addEventListener("click", () => {
+      history.push({ role: "user", content: "我大概就是这样，帮我拆成一条能走的路吧。" });
+      msg("user", "帮我拆成小步吧");
+      ask("", { finish: true });
+    });
+    msg("assistant", goal.open);
+    refresh();
+    setTimeout(() => ta.focus(), 300);
+
+    // 3. 小光拆好的路：勾想要的、改不合适的
+    function planCard(goal, r) {
+      const p = r.plan;
+      const P = { title: p.title, category: p.category, days: p.days, due: p.due_in_days,
+        rows: [
+          ...(carry?.step && goal.t === carry.goal ? [{ kind: "step", text: carry.step, on: true, locked: true }] : []),
+          ...p.milestones.map((text) => ({ kind: "ms", text, on: true })),
+          ...p.habits.map((text) => ({ kind: "habit", text, on: true })),
+          ...p.steps.map((text) => ({ kind: "step", text, on: true })),
+        ] };
+      say("我帮你拆了一下。不合适的直接改，不想要的点掉。", "19", "bounce");
+      const card = document.createElement("div");
+      card.className = "ob-plan";
+      card.innerHTML = `
+        <div class="ob-prow head"><span class="ob-tag" style="--c:var(--accent)">${icon("star")}愿望</span>
+          <input class="ob-in" data-w="title" maxlength="30" value="${esc(P.title)}"></div>
+        <div class="ob-spans">${SPANS.map(([d, l]) => `<button class="ob-chip plain sm ${P.days === d ? "on" : ""}" data-days="${d}">${l}</button>`).join("")}</div>
+        ${P.rows.map((x, i) => { const [ic, col, tag] = ROW[x.kind]; return `<div class="ob-prow">
+          <button class="ob-ck" data-row="${i}" ${x.locked ? "disabled" : ""} aria-label="要不要这一项">${icon("check")}</button>
+          <span class="ob-tag" style="--c:${col}">${icon(ic)}${tag}</span>
+          ${x.locked ? `<span class="ob-fixed">${esc(x.text)}<small>刚才定的</small></span>` : `<input class="ob-in" data-rowin="${i}" maxlength="40" value="${esc(x.text)}">`}</div>`; }).join("")}
+        <div class="ob-plan-acts"><button class="btn btn-quiet btn-sm" data-again>换件事聊聊</button><button class="btn btn-main" data-take>放进计划</button></div>`;
+      thread.append(card); scroll();
+      card.querySelector("[data-w=title]").addEventListener("input", (e) => { P.title = e.target.value; });
+      card.querySelectorAll("[data-days]").forEach((b) => b.addEventListener("click", () => {
+        P.days = +b.dataset.days;
+        card.querySelectorAll("[data-days]").forEach((x) => x.classList.toggle("on", x === b));
+      }));
+      card.querySelectorAll("[data-row]").forEach((b) => b.addEventListener("click", () => { const x = P.rows[+b.dataset.row]; x.on = !x.on; b.closest(".ob-prow").classList.toggle("off", !x.on); }));
+      card.querySelectorAll("[data-rowin]").forEach((inp) => inp.addEventListener("input", () => { P.rows[+inp.dataset.rowin].text = inp.value; }));
+      card.querySelector("[data-again]").addEventListener("click", () => goalPick());
+      card.querySelector("[data-take]").addEventListener("click", () => {
+        if (!P.title.trim()) return card.querySelector("[data-w=title]").focus();
+        W = P; done.wish = true;
+        remember = [...new Set([...(r.remember || []), ...remember])].slice(0, 3);
+        whyGoal = r.why_goal || whyGoal;
+        hub(`好，「${P.title.trim()}」这条路先记下了，进门后在蜕变计划里。`);
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------- 进门 ----
+  async function finish() {
     if (busy) return;
     busy = true;
-    root.querySelectorAll(".ob-foot button, [data-out]").forEach((b) => (b.disabled = true));
-    const answers = { ...A, theme: localStorage.getItem("xg-theme") || "forest" };
-    const rows = (kind) => W.rows.filter((r) => r.kind === kind && r.on && !r.locked && r.text.trim()).map((r) => r.text.trim());
-    if (W.on && !skipWish && W.title.trim()) {
-      answers.wish = { title: W.title.trim(), category: W.cat || guess(W.title), days: W.days, milestones: rows("ms"), steps: rows("step"), habits: rows("habit") };
+    root.querySelectorAll("[data-enter], [data-out]").forEach((b) => (b.disabled = true));
+    const answers = { ...A, theme: localStorage.getItem("xg-theme") || "forest", remember, intent_why: whyGoal };
+    if (W?.title.trim()) {
+      const rows = (kind) => W.rows.filter((x) => x.kind === kind && x.on && !x.locked && x.text.trim()).map((x) => x.text.trim());
+      answers.wish = { title: W.title.trim(), category: W.category, days: W.days, due_in_days: W.due, milestones: rows("ms"), habits: rows("habit"), steps: rows("step") };
       answers.intent_primary = W.title.trim();
-      answers.intent_why = W.why.trim();
-    } else if (carry?.goal) {
-      answers.intent_primary = carry.goal.replace(/^想/, "");
-      answers.intent_why = carry.why_goal || "";
     }
     try {
       await api.onboard(answers, carry);
@@ -213,17 +302,13 @@ export function renderOnboarding(root) {
       setTimeout(() => window.dispatchEvent(new CustomEvent("xg:enter")), 1100);
     } catch (e) {
       busy = false;
-      root.querySelectorAll(".ob-foot button, [data-out]").forEach((b) => (b.disabled = false));
+      root.querySelectorAll("[data-enter], [data-out]").forEach((b) => (b.disabled = false));
       say("没成功，再试一次？", "34");
       toast(e.message || "没保存上", "err");
     }
   }
 
-  root.querySelectorAll(".ob-dot").forEach((d) => d.addEventListener("click", () => { const i = +d.dataset.sec; if (i <= seen && i !== sec) go(i); }));
-  $("[data-next]").addEventListener("click", () => (sec < 2 ? go(sec + 1) : finish()));
-  $("[data-skip]").addEventListener("click", () => (sec < 2 ? go(sec + 1) : finish(true)));
-  $("[data-out]").addEventListener("click", () => finish(sec < 2));
-  render();
-  say(SECS[0].hi, "02");
+  $("[data-out]").addEventListener("click", () => finish());
+  hub();
   setTimeout(() => ball.set("02", { force: true }), 1200);
 }
