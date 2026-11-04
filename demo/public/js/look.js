@@ -3,7 +3,7 @@ import { api } from "./api.js";
 import { setData } from "./store.js";
 import { sheet, h, toast, esc } from "./ui.js";
 import { mountBall, setAgentLook, currentLook, lookPicture } from "./ball.js";
-import { LOOKS, SHAPES, THEMES, MATERIALS, XG_COLORS, parseLook, lookName } from "./jelly.js";
+import { LOOKS, SHAPES, LOOK_SHAPES, THEMES, MATERIALS, XG_COLORS, parseLook, lookName } from "./jelly.js";
 
 const FACES = [["02", "平常"], ["10", "开心"], ["14", "害羞"], ["35", "在听"], ["15", "困了"], ["20", "喜欢"]];
 const pics = new Map();
@@ -44,7 +44,7 @@ export function openLookSheet({ onSaved } = {}) {
       const sw = (keys) => keys.map((k) => { const T = THEMES[k]; return `<button class="lk-sw ${k === L.color ? "on" : ""}" data-color="${k}" style="--a:${T.f0};--b:${T.f1};--c:${T.f2}"><i></i><span>${esc(T.n)}</span></button>`; }).join("");
       lb.innerHTML = `
         <div class="lk-sec">形状</div>
-        <div class="lk-shapes">${Object.keys(SHAPES).map((k) => `<button class="${k === L.shape ? "on" : ""}" data-shape="${k}">${silhouette(k)}<span>${esc(SHAPES[k].n)}</span></button>`).join("")}</div>
+        <div class="lk-shapes">${LOOK_SHAPES.map((k) => `<button class="${k === L.shape ? "on" : ""}" data-shape="${k}">${silhouette(k)}<span>${esc(SHAPES[k].n)}</span></button>`).join("")}</div>
         <div class="lk-sec">颜色 <small>小光同款</small></div>
         <div class="lk-sws">${sw(XG_COLORS)}</div>
         <div class="lk-sec">颜色 <small>更多</small></div>

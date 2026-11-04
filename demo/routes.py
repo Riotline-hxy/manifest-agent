@@ -311,8 +311,10 @@ def profile(h, u, b, q):
         raise ApiError(400, "没有这个氛围")
     if "agent_hue" in patch and patch["agent_hue"] not in onboarding.AGENT_COLORS | {""}:
         raise ApiError(400, "没有这个颜色")
-    if "agent_avatar_id" in patch and not onboarding.valid_look(patch["agent_avatar_id"]):
-        raise ApiError(400, "没有这个外貌")
+    if "agent_avatar_id" in patch:
+        patch["agent_avatar_id"] = onboarding.norm_look(patch["agent_avatar_id"])   # 旧页面还可能发下架的形状
+        if not onboarding.valid_look(patch["agent_avatar_id"]):
+            raise ApiError(400, "没有这个外貌")
     for k in ("traits", "boundaries"):
         if k in patch:
             patch[k] = [clip(str(x), 20) for x in (patch[k] or [])][:6]

@@ -12,11 +12,21 @@ from . import growth, journey
 from .store import Store
 from .util import clip, iso, now
 
-# 小光的外貌：形状.颜色.质感（和 public/js/jelly.js 里的 SHAPES / THEMES / MATERIALS 保持一致）
-LOOK_SHAPES = {"hex", "mochi", "cube", "onigiri", "flower", "star", "drop", "heart", "cloud", "pudding", "cat", "gummy"}
+# 小光的外貌：形状.颜色.质感（和 public/js/jelly.js 里的 LOOK_SHAPES / THEMES / MATERIALS 保持一致）
+LOOK_SHAPES = {"cloud", "mochi", "cat", "star", "cube", "flower"}
+# 下架的形状：存过的外貌换成最接近的保留形状，颜色和质感不变（和 jelly.js 的 RETIRED 一致）
+RETIRED_SHAPES = {"hex": "cube", "pudding": "cube", "onigiri": "mochi", "drop": "mochi", "gummy": "mochi", "heart": "flower"}
 LOOK_COLORS = {"origin", "gold", "moon", "dawn", "sun", "mint", "sea", "sakura", "orange", "sky", "lilac", "night"}
 LOOK_MATERIALS = {"jelly", "liquid"}
 LOOK_DEFAULT = "cloud.moon.jelly"
+
+
+def norm_look(v) -> str:
+    """Old shape names become the shape that replaced them; anything else is returned as is."""
+    parts = str(v or "").split(".")
+    if len(parts) == 3:
+        parts[0] = RETIRED_SHAPES.get(parts[0], parts[0])
+    return ".".join(parts)
 
 
 def valid_look(v) -> bool:
@@ -49,7 +59,7 @@ def apply(store: Store, answers: dict) -> dict:
     g = lambda k: answers.get(k)
     a = {
         "agent_name": clip(str(g("agent_name") or "").strip(), 8) or "小光",
-        "agent_avatar_id": g("agent_avatar_id") if valid_look(g("agent_avatar_id")) else LOOK_DEFAULT,
+        "agent_avatar_id": norm_look(g("agent_avatar_id")) if valid_look(norm_look(g("agent_avatar_id"))) else LOOK_DEFAULT,
         "persona": g("persona") if g("persona") in PERSONAS else "gentle",
         "care_style": g("care_style") if g("care_style") in CARE_STYLES else "nudge",
         "theme": g("theme") if g("theme") in THEMES else "forest",

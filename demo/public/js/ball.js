@@ -5,7 +5,7 @@
 // - 心情有优先级：用户点它 > 完成小步、里程碑等事件 > 聊天里的情景表情 > 待机时自己的小动作
 //   开心和情景表情停留约 1 分钟后回到待机；刷新页面也回到待机（心情不存）
 // - 消息头像 / toast 用同一个形象的静态快照，全站只有一种形象
-import { Jelly, track, untrack, snapshot, parseLook, LOOK_DEFAULT, lookBase, lookOpts } from "./jelly.js";
+import { Jelly, track, untrack, snapshot, parseLook, normLook, LOOK_DEFAULT, lookBase, lookOpts } from "./jelly.js";
 
 export const MOOD = {
   idle: "02", curious: "03", happy: "10", puzzled: "11", sad: "12", surprised: "13", shy: "14",
@@ -30,7 +30,7 @@ const FACE = {
   "37": ["think"], "39": ["idle", "talk"], "40": ["think"], "20": ["love"], "21": ["grumpy"], "22": ["wink"],
 };
 
-let agentLook = localStorage.getItem("xg-look") || LOOK_DEFAULT;
+let agentLook = normLook(localStorage.getItem("xg-look")) || LOOK_DEFAULT;   // 已下架的形状换成最接近的
 const live = new Set();
 const agents = new Set();
 let mood = "02";
@@ -178,7 +178,7 @@ setInterval(() => {
 
 /* ---------- 外貌 ---------- */
 export function setAgentLook(look) {
-  look = parseLook(look) ? look : LOOK_DEFAULT;
+  look = normLook(look) || LOOK_DEFAULT;
   if (look === agentLook) return;
   agentLook = look;
   localStorage.setItem("xg-look", look);
@@ -222,6 +222,22 @@ export function lookPicture(look, expr = "idle") {
   return snapshot(look, expr).replace(/id="([^"]+)"/g, (m, a) => `id="lp${++miniSeq}_${a}"`)
     .replace(/url\(#([^)]+)\)/g, (m, a) => `url(#lp${miniSeq}_${a})`);
 }
+
+// 夜里（晚上 7 点到早上 6 点）每种质感都会发一点光。想白天看效果：localStorage「xg-night」设成 on（off = 一直不亮）
+const isNight = () => {
+  const f = localStorage.getItem("xg-night");
+  if (f === "on" || f === "off") return f === "on";
+  const hr = new Date().getHours();
+  return hr >= 19 || hr < 6;
+};
+function syncNight() {
+  if (isNight() === Jelly.night) return;
+  Jelly.setNight(isNight());
+  snap = null;   // 消息头像这类静态快照也跟着换
+  document.querySelectorAll(".agent-mini").forEach((n) => { n.innerHTML = agentMini(true); });
+}
+syncNight();
+setInterval(syncNight, 60000);
 
 let raf = 0, px = 0, py = 0;
 window.addEventListener("pointermove", (e) => {

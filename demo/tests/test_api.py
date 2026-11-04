@@ -1165,9 +1165,16 @@ class ApiTest(unittest.TestCase):
         self.assertEqual((s, d["profile"]["agent_avatar_id"]), (200, "cat.lilac.liquid"))
         for bad in ("soft", "cat.lilac", "cat.neon.jelly", "dragon.moon.jelly", "cat.moon.metal", ""):
             self.assertEqual(c.req("POST", "/api/profile", {"agent_avatar_id": bad})[0], 400, bad)
+        # 下架的形状：换成最接近的保留形状，颜色和质感不变
+        for old, new in (("hex.origin.jelly", "cube.origin.jelly"), ("heart.sakura.liquid", "flower.sakura.liquid"), ("gummy.sky.jelly", "mochi.sky.jelly")):
+            s, d = c.req("POST", "/api/profile", {"agent_avatar_id": old})
+            self.assertEqual((s, d["profile"]["agent_avatar_id"]), (200, new), old)
         c2, _ = self.member("look2")
         s, d = c2.req("POST", "/api/onboard", {"answers": {**ONBOARD, "agent_avatar_id": "star.night.jelly"}})
         self.assertEqual((s, d["profile"]["agent_avatar_id"]), (200, "star.night.jelly"))
+        c3, _ = self.member("look3")
+        s, d = c3.req("POST", "/api/onboard", {"answers": {**ONBOARD, "agent_avatar_id": "drop.sea.liquid"}})
+        self.assertEqual((s, d["profile"]["agent_avatar_id"]), (200, "mochi.sea.liquid"))
         keys = [q["key"] for q in c2.req("GET", "/api/bootstrap")[1]["onboarding"]]
         self.assertNotIn("agent_hue", keys)
         self.assertIn("agent_avatar_id", keys)

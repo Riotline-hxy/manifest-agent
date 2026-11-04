@@ -99,7 +99,7 @@ export function renderOnboarding(root) {
       swap(`${pageHead("认识小光")}
         <div class="ob-fields">
           <div class="ob-field"><label>样子</label>
-            <div class="ob-looks">${LOOKS.slice(0, 6).map((x) => `<button class="ob-look ${x.id === A.agent_avatar_id ? "on" : ""}" data-look="${x.id}" aria-label="${esc(x.n)}">${lookPicture(x.id)}</button>`).join("")}</div></div>
+            <div class="ob-looks">${LOOKS.map((x) => `<button class="ob-look ${x.id === A.agent_avatar_id ? "on" : ""}" data-look="${x.id}" aria-label="${esc(x.n)}">${lookPicture(x.id)}</button>`).join("")}</div></div>
           <div class="ob-field"><label>说话</label><div class="ob-chips">${PERSONAS.map((o) => chip("persona", o, A.persona === o[0])).join("")}</div></div>
           <div class="ob-field"><label>几天没动时</label><div class="ob-chips">${CARES.map((o) => chip("care_style", o, A.care_style === o[0])).join("")}</div></div>
           <div class="ob-field"><label>名字</label><input class="ob-in ob-name" data-in="agent_name" maxlength="8" value="${esc(A.agent_name)}" aria-label="小光的名字"></div>

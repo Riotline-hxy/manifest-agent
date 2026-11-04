@@ -118,6 +118,6 @@ deploy/              部署脚本与 systemd 服务（服务文件改了要手�
 
 ## 形象与素材
 
-- 小光的形象是自研的果冻形象（`public/js/jelly.js`，设计稿在 `creative/jelly-hex/`）：12 种形状 × 12 种颜色 × 2 种质感，用户在「设置 → 外貌」里选，默认云朵 · 月白。页面只通过 `public/js/ball.js` 用它。原来的 Emotion Ball 已不再加载（`public/vendor/emotion-ball/` 只是旧文件，可以删）。
+- 小光的形象是自研的果冻形象（`public/js/jelly.js`，设计稿在 `creative/jelly-hex/`、`creative/jelly-material/`）：6 种形状（云朵、糯米团、猫耳、星星、方糖、花朵）× 12 种颜色 × 2 种质感，用户在「设置 → 外貌」里选，默认云朵 · 月白。眼睛高光是一颗小四角星（眼里有光）；晚上 7 点到早上 6 点，所有质感都会发一点光。以前选过下架形状（六边形、饭团、水滴、爱心、布丁、软糖）的，自动换成最接近的保留形状，颜色和质感不变。页面只通过 `public/js/ball.js` 用它。原来的 Emotion Ball 已不再加载（`public/vendor/emotion-ball/` 只是旧文件，可以删）。
 - 小镇的建筑、树、路和星罐都是代码画的 SVG（`public/js/town.js`、`public/js/art.js`）；位图只有 PWA 图标（`tools/build_icons.py` 画的）。
 - 字体：源流圆体 CN（Resource Han Rounded，SIL OFL 1.1）与 Nunito（SIL OFL 1.1）。

@@ -93,6 +93,17 @@ const SHAPES = {
   gummy:   { n: '软糖', pts: () => finishShape(superellipse(134, 88, 2.6)), faceY: 4, fs: .95 },
 };
 for (const k in SHAPES) SHAPES[k].P = SHAPES[k].pts();
+// shape drafts (creative page only, not offered in the app yet): reworked versions of shapes whose meaning was thin
+export const SHAPE_DRAFTS = {
+  hill:   { n: '小山', pts: () => finishShape(roundedPoly([[0, -150], [196, 104], [-196, 104]], 58), .1), faceY: 30, fs: .9 },
+  house:  { n: '小屋', pts: () => finishShape(roundedPoly([[0, -128], [116, -32], [106, 96], [-106, 96], [-116, -32]], 30), .04), faceY: 26, fs: .95 },
+  pillow: { n: '枕头', pts: () => finishShape(param(t => {
+    const c = Math.cos(t), s = Math.sin(t), n = 3.2, k = 1 - .085 * Math.cos(4 * t);   // pinched edges, puffy corners
+    return [132 * k * Math.sign(c) * Math.abs(c) ** (2 / n), 90 * k * Math.sign(s) * Math.abs(s) ** (2 / n)];
+  })), faceY: 16, fs: .95 },
+};
+for (const k in SHAPE_DRAFTS) SHAPE_DRAFTS[k].P = SHAPE_DRAFTS[k].pts();
+const shapeOf = name => SHAPES[name] || SHAPE_DRAFTS[name] || SHAPES.hex;
 
 /* ---------- colours: 小光's palette, each base colour turned into the same jelly material ---------- */
 const hex2 = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -214,6 +225,8 @@ function eyeShape(rx, ry, o, k, s) {
   const lash = L.length > 1 ? 'M' + L.map(x => f1(x) + ',' + f1(yU(x))).join('L') : '';
   return { fill, lash };
 }
+// little stars inside the body (material 'stars'): [x, y] as a fraction of the body's half-size, size. Kept clear of the face.
+const STARS = [[-.6, .42, 1], [.62, .34, .8], [-.22, .76, .7], [.34, .7, .9], [-.68, -.2, .7], [.64, -.46, .6], [.06, -.72, .55]];
 const HEART = 'M0,.72C-.12,.6-1,.08-1,-.38C-1,-.86-.44,-1.06 0,-.6C.44,-1.06 1,-.86 1,-.38C1,.08 .12,.6 0,.72Z';
 const SPARK = 'M0,-1Q.12,-.12 1,0Q.12,.12 0,1Q-.12,.12-1,0Q-.12,-.12 0,-1Z';
 
@@ -223,7 +236,7 @@ const faceSet = s => `
 <g data-f="${s}">
   <g class="bl0"><ellipse rx="11" ry="7" class="blush"/></g><g class="bl1"><ellipse rx="11" ry="7" class="blush"/></g>
   <g class="m"><path class="mouth inkS inkF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></g>
-  ${[0, 1].map(i => `<g class="e${i}"><ellipse class="halo" rx="24" ry="27" opacity="0"/><path class="eye inkF"/><path class="lash inkS" fill="none" stroke-linecap="round" stroke-linejoin="round"/><ellipse class="gl"/><path class="heart inkF" d="${HEART}"/>${i === 0 ? '<path class="tear" opacity="0" d="M0,-7C2.5,-3 5,0 5,3A5,5 0 0 1 -5,3C-5,0 -2.5,-3 0,-7Z" fill="#f4feff" stroke="#5fbfc9" stroke-opacity=".55"/>' : ''}</g>`).join('')}
+  ${[0, 1].map(i => `<g class="e${i}"><ellipse class="halo" rx="24" ry="27" opacity="0"/><path class="eye inkF"/><path class="lash inkS" fill="none" stroke-linecap="round" stroke-linejoin="round"/><ellipse class="gl"/><path class="gs" d="${SPARK}" opacity="0"/><path class="heart inkF" d="${HEART}"/>${i === 0 ? '<path class="tear" opacity="0" d="M0,-7C2.5,-3 5,0 5,3A5,5 0 0 1 -5,3C-5,0 -2.5,-3 0,-7Z" fill="#f4feff" stroke="#5fbfc9" stroke-opacity=".55"/>' : ''}</g>`).join('')}
 </g>`;
 
 export class Jelly {
@@ -241,6 +254,9 @@ export class Jelly {
   <radialGradient id="${id}ca"><stop class="gc0" offset="0" stop-opacity=".6"/><stop class="gc1" offset="1" stop-opacity="0"/></radialGradient>
   <radialGradient id="${id}hl"><stop class="gh_0" offset="0" stop-opacity=".55"/><stop class="gh_1" offset=".55" stop-opacity=".2"/><stop class="gh_2" offset="1" stop-opacity="0"/></radialGradient>
   <radialGradient id="${id}bl"><stop class="gb0" offset="0" stop-opacity=".8"/><stop class="gb1" offset="1" stop-opacity="0"/></radialGradient>
+  <radialGradient id="${id}co"><stop offset="0" stop-color="#fff" stop-opacity="1"/><stop offset=".3" stop-color="#fffbea" stop-opacity=".85"/><stop offset=".62" stop-color="#fff6d6" stop-opacity=".35"/><stop offset="1" stop-color="#fff6d6" stop-opacity="0"/></radialGradient>
+  <radialGradient id="${id}au"><stop class="gau" offset=".5" stop-opacity=".75"/><stop class="gau" offset=".72" stop-opacity=".32"/><stop class="gau" offset="1" stop-opacity="0"/></radialGradient>
+  <radialGradient id="${id}lu"><stop class="glu" offset="0" stop-opacity="0"/><stop class="glu" offset=".62" stop-opacity="0"/><stop class="glu" offset="1" stop-opacity=".85"/></radialGradient>
   <linearGradient id="${id}sn" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".75"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
   <linearGradient id="${id}lq" x1="0" y1="0" x2="0" y2="1"><stop class="glq0" offset="0"/><stop class="glq1" offset="1"/></linearGradient>
   <clipPath id="${id}c"><path class="clip"/></clipPath>
@@ -249,16 +265,20 @@ export class Jelly {
 <ellipse class="shadow" cx="0" cy="128" rx="90" ry="14" fill="url(#${id}sh)"/>
 <g class="arcs" fill="none" stroke-linecap="round" opacity="0"><path class="a0" stroke-width="3.2"/><path class="a1" stroke-width="2"/></g>
 <g class="body">
+  <ellipse class="aura" fill="url(#${id}au)" opacity="0"/>
   <path class="side"/>
   <path class="bodyP" fill="url(#${id}f)"/>
   <g clip-path="url(#${id}c)">
     <ellipse cx="0" cy="72" rx="82" ry="40" fill="url(#${id}ug)"/>
+    <ellipse class="core" fill="url(#${id}co)" opacity="0"/>
     <path class="tint" opacity="0"/>
     <path class="liq" fill="url(#${id}lq)" opacity="0"/>
     <circle class="bub" r="3" fill="#fff" opacity="0"/><circle class="bub" r="2.2" fill="#fff" opacity="0"/>
     <path class="liqLine" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0"/>
     <path class="rl" fill="url(#${id}rl)"/>
     <path class="rd" fill="url(#${id}rd)"/>
+    <path class="lum" fill="url(#${id}lu)" opacity="0"/>
+    <g class="stars">${`<path class="st" d="${SPARK}" opacity="0"/>`.repeat(STARS.length)}</g>
     <g class="sheen" opacity="0"><rect x="-30" y="-240" width="60" height="480" fill="url(#${id}sn)" transform="rotate(16)"/></g>
     <g class="face">${faceSet(0)}${faceSet(1)}</g>
   </g>
@@ -275,16 +295,16 @@ export class Jelly {
 </g>`;
     const q = s => svg.querySelector(s), qa = s => [...svg.querySelectorAll(s)];
     this.E = {};
-    ['clip', 'side', 'bodyP', 'rl', 'rd', 'edge', 'tint', 'liq', 'liqLine', 'glq0', 'glq1', 'sheen', 'spec', 'streak', 'dot', 'shadow', 'caustic', 'arcs', 'a0', 'a1', 'body',
+    ['clip', 'side', 'bodyP', 'rl', 'rd', 'edge', 'tint', 'aura', 'core', 'lum', 'liq', 'liqLine', 'glq0', 'glq1', 'sheen', 'spec', 'streak', 'dot', 'shadow', 'caustic', 'arcs', 'a0', 'a1', 'body',
      'z0', 'z1', 'z2', 'q', 'd0', 'd1', 'd2', 'ht0', 'ht1', 'ht2', 'anger',
      'gf0', 'gf1', 'gf2', 'grl', 'grd0', 'grd1', 'grd2', 'gu0', 'gu1', 'gh0', 'gh1', 'gh2', 'gc0', 'gc1', 'gb0', 'gb1', 'gh_0', 'gh_1', 'gh_2'].forEach(c => this.E[c] = q('.' + c));
-    this.outline = [this.E.clip, this.E.side, this.E.bodyP, this.E.rl, this.E.rd, this.E.edge, this.E.tint];
+    this.outline = [this.E.clip, this.E.side, this.E.bodyP, this.E.rl, this.E.rd, this.E.edge, this.E.tint, this.E.lum];
     this.sets = [0, 1].map(s => {
       const g = q(`[data-f="${s}"]`), gq = c => g.querySelector(c);
       return { bl: [gq('.bl0'), gq('.bl1')], m: gq('.m'), e: [gq('.e0'), gq('.e1')] };
     });
     this.Q = { eye: [0, 1].map(i => qa(`.e${i} .eye`)), lash: [0, 1].map(i => qa(`.e${i} .lash`)), gl: [0, 1].map(i => qa(`.e${i} .gl`)),
-      heart: [0, 1].map(i => qa(`.e${i} .heart`)), mouth: qa('.mouth'), bub: qa('.bub'), halo: qa('.halo'), blush: qa('.blush'), tear: qa('.tear'),
+      heart: [0, 1].map(i => qa(`.e${i} .heart`)), gs: [0, 1].map(i => qa(`.e${i} .gs`)), st: qa('.st'), gau: qa('.gau'), glu: qa('.glu'), mouth: qa('.mouth'), bub: qa('.bub'), halo: qa('.halo'), blush: qa('.blush'), tear: qa('.tear'),
       inkF: qa('.inkF'), inkS: qa('.inkS'), acc: qa('.acc'), spk: qa('.spk') };
     this.Q.blush.forEach(e => e.setAttribute('fill', `url(#${id}bl)`));
     this.Q.halo.forEach(e => e.setAttribute('fill', `url(#${id}hl)`));
@@ -298,7 +318,7 @@ export class Jelly {
     this.nextBlink = this.t + 1 + Math.random() * 3; this.blinkT = -9; this.blink2 = false;
     this.nextSac = this.t + 1; this.nextGlance = this.t + 2 + Math.random() * 3; this.breathPh = Math.random() * TAU;
     this.prevYaw = null; this.speed = 0; this.flash = 0; this.burstT = -9; this.cache = {};
-    const sh = SHAPES[opt.shape || 'hex'];
+    const sh = shapeOf(opt.shape || 'hex');
     this.shapeName = opt.shape || 'hex';
     this.shFrom = this.shTo = sh.P; this.fFrom = this.fTo = { faceY: sh.faceY, fs: sh.fs };
     this.shMix = new Spring(1, 140, 11); this.shapeDirty = true; this.basePts = sh.P;
@@ -307,6 +327,10 @@ export class Jelly {
     // material: 'jelly' = one solid jelly; 'liquid' = jelly on top, a sloshing liquid below the face
     this.material = opt.material || 'jelly';
     this.liq = new Spring(this.material === 'liquid' ? 1 : 0, 26, 8.6);
+    // material drafts (creative page only): light = a light inside, stars = little stars inside, glow = glows in the dark
+    this.mat = {}; for (const k of ['light', 'stars', 'glow']) this.mat[k] = new Spring(this.material === k ? 1 : 0, 30, 11);
+    this.lit = 0; this.level = new Spring(1, 22, 8); this.starN = 5; this.starBorn = STARS.map(() => -9);
+    this.nite = new Spring(Jelly.night ? 1 : 0, 20, 9);   // at night every material glows (Jelly.setNight)
     this.sl = { th: new Spring(0, 34, 2.6), w: new Spring(0, 58, 2.4) };
     this.prevYv = 0; this.prevAy = 0; this.prevVy = 0;
     this.pinch = { amt: new Spring(0, 240, 15), x: 0, y: -60, held: false };
@@ -317,7 +341,18 @@ export class Jelly {
   setMaterial(name) {
     if (name === this.material) return;
     this.material = name; this.liq.t = name === 'liquid' ? 1 : 0;
+    for (const k in this.mat) this.mat[k].t = name === k ? 1 : 0;
     this.sl.w.vel += 26; this.wake();
+  }
+  // you got something done: each material answers its own way (lights up / one more star / water rises)
+  glowUp() {
+    this.lit = 1;
+    if (this.material === 'stars' && this.starN < STARS.length) this.starBorn[this.starN++] = this.t;
+    if (this.material === 'liquid') { this.level.t = this.level.t > .97 ? .25 : Math.min(1, this.level.t + .25); this.sl.w.vel += 34; }
+    this.hop(16, .16, .56);
+  }
+  setLevel(v) { this.level.t = this.level.v = clamp(v, 0, 1); this.wake(); }
+  setStars(n) { this.starN = clamp(n, 0, STARS.length); this.wake();
   }
 
   wake() { this.awake = true; this.quietT = 0; }
@@ -326,7 +361,7 @@ export class Jelly {
     if (name === this.shapeName) return;
     const m = this.shMix.v;
     this.fFrom = { faceY: lerp(this.fFrom.faceY, this.fTo.faceY, m), fs: lerp(this.fFrom.fs, this.fTo.fs, m) };
-    this.shFrom = this.basePts; this.shTo = SHAPES[name].P; this.fTo = { faceY: SHAPES[name].faceY, fs: SHAPES[name].fs };
+    this.shFrom = this.basePts; this.shTo = shapeOf(name).P; this.fTo = { faceY: shapeOf(name).faceY, fs: shapeOf(name).fs };
     this.shapeName = name; this.shMix.v = 0; this.shMix.vel = 0; this.shMix.t = 1; this.shapeDirty = true;
     this.impulse(.35); this.wake();
   }
@@ -473,6 +508,10 @@ export class Jelly {
     const ink = rgb(c.ink);
     this.Q.inkF.forEach(e => set(e, 'fill', ink)); this.Q.inkS.forEach(e => set(e, 'stroke', ink));
     this.Q.gl.flat().forEach(e => set(e, 'fill', rgb(c.glint)));
+    this.Q.gs.flat().forEach(e => set(e, 'fill', rgb(c.glint)));
+    this.Q.gau.forEach(e => set(e, 'stop-color', rgb(c.glow))); this.Q.glu.forEach(e => set(e, 'stop-color', rgb(c.glow)));
+    const lightBody = (.299 * c.f1[0] + .587 * c.f1[1] + .114 * c.f1[2]) / 255 > .8;   // white stars vanish on a pale body: use warm gold there
+    this.Q.st.forEach(e => set(e, 'fill', lightBody ? '#f6b93b' : '#ffffff'));
     this.Q.acc.forEach(e => set(e, 'fill', rgb(c.accent)));
     set(E.arcs, 'stroke', rgb(c.glow));
     this.Q.spk.forEach((e, i) => set(e, 'fill', i % 3 === 0 ? '#ffffff' : rgb(c.glow)));
@@ -499,7 +538,7 @@ export class Jelly {
     for (let i = 0; i < 2; i++) {
       for (const k in S) S[k].step(h);
       this.gl.x.step(h); this.gl.y.step(h); this.sac.x.step(h); this.sac.y.step(h);
-      this.shMix.step(h); this.thMix.step(h); this.liq.step(h); this.sl.th.step(h); this.sl.w.step(h); this.pinch.amt.step(h);
+      this.shMix.step(h); this.thMix.step(h); this.liq.step(h); this.level.step(h); this.nite.step(h); for (const k in this.mat) this.mat[k].step(h); this.sl.th.step(h); this.sl.w.step(h); this.pinch.amt.step(h);
     }
 
     let ay = 0, asx = 1, asy = 1, ayaw = 0, sheen = -1;
@@ -544,7 +583,7 @@ export class Jelly {
     const lq = this.liq.v, liqOn = lq > .004 || this.liq.t > 0;
     if (liqOn || this._liq) {
       this._liq = liqOn;
-      const L = lerp(YB + 28, this.liqL, clamp(lq, -.1, 1.15)), W = this.maxX + 16;
+      const L = lerp(YB + 28, this.liqL, clamp(lq, -.1, 1.15) * clamp(this.level.v, 0, 1.05)), W = this.maxX + 16;
       const tt = Math.tan(clamp(this.sl.th.v, -.45, .45)), wa = clamp(this.sl.w.v, -9, 9), rip = this.alive ? .8 : 0;
       let line = '';
       for (let i = 0; i <= 16; i++) {
@@ -561,6 +600,36 @@ export class Jelly {
         w(el, 'opacity', op(.5 * sstep(0, .12, p) * (1 - sstep(.86, 1, p)) * clamp(lq, 0, 1)));
       });
     }
+    // material drafts: every layer breathes with the body; lit = the flash after glowUp()
+    this.lit *= Math.exp(-dt * 1.3);
+    const bs = this.alive ? Math.sin(this.breathPh) : 0, lit = this.lit, cy = (this.minY + YB) / 2, hy = (YB - this.minY) / 2;
+    this.nite.t = Jelly.night ? 1 : 0;
+    const ml = this.mat.light.v, mst = this.mat.stars.v, mg = Math.max(this.mat.glow.v, this.nite.v);
+    if (ml > .003 || this._ml) {
+      this._ml = ml > .003;
+      const r = this.maxX * .6 * (1 + .08 * bs + .18 * lit);
+      w(E.core, 'cy', f1(this.face.faceY + 52 * this.face.fs)); w(E.core, 'rx', f1(r)); w(E.core, 'ry', f1(r * .7));   // under the mouth, so the eyes keep their contrast
+      w(E.core, 'opacity', op(clamp(ml, 0, 1) * (.7 + .3 * bs + .5 * lit)));
+    }
+    if (mst > .003 || this._mst) {
+      this._mst = mst > .003;
+      this.Q.st.forEach((el, i) => {
+        const [u, vv, sz] = STARS[i], on = i < this.starN;
+        if (!on) { w(el, 'opacity', 0); return; }
+        const age = t - this.starBorn[i], pop = age < .7 ? sstep(0, .22, age) * (1 + .7 * Math.sin(Math.PI * clamp(age / .7, 0, 1))) : 1;
+        const tw = this.alive ? .74 + .26 * Math.sin(t * 1.8 + i * 2.3) : .9;
+        const x = u * this.maxX * .8 + (this.alive ? Math.cos(t * .4 + i) * 2 : 0), y = cy + vv * hy * .8 + (this.alive ? Math.sin(t * .55 + i * 1.7) * 4 : 0);
+        w(el, 'transform', `translate(${f1(x)} ${f1(y)}) scale(${f1(Math.max(.01, sz * 10.5 * tw * pop))}) rotate(${f1(this.alive ? Math.sin(t * .3 + i) * 12 : 0)})`);
+        w(el, 'opacity', op(clamp(mst, 0, 1) * (.75 + .25 * tw)));
+      });
+    }
+    if (mg > .003 || this._mg) {
+      this._mg = mg > .003;
+      w(E.aura, 'cy', f1(cy)); w(E.aura, 'rx', f1(this.maxX * 1.4 * (1 + .04 * bs))); w(E.aura, 'ry', f1(hy * 1.4 * (1 + .04 * bs)));
+      w(E.aura, 'opacity', this.lite ? 0 : op(clamp(mg, 0, 1) * (.75 + .25 * bs + .3 * lit)));
+      w(E.lum, 'opacity', op(clamp(mg, 0, 1) * (.7 + .2 * bs + .25 * lit)));
+    }
+
     const yr = rad(yaw), s2 = Math.sin(2 * yr);
     w(E.side, 'transform', `translate(${f1(7 - 14 * s2)} ${f1(4 + pitch * .25)})`);
     w(E.spec, 'transform', `translate(${f1(-12 * s2)} ${f1(-pitch * .3)})`);
@@ -607,8 +676,11 @@ export class Jelly {
         this.Q.eye[i].forEach(e => e.setAttribute('d', sh.fill));
         this.Q.lash[i].forEach(e => { e.setAttribute('d', sh.lash); e.setAttribute('stroke-width', lw); });
         this.Q.gl[i].forEach(e => { e.setAttribute('cx', f1(rx * .34)); e.setAttribute('cy', f1(-ry * .42)); e.setAttribute('rx', f1(rx * .24)); e.setAttribute('ry', f1(rx * .28)); });
+        this.Q.gs[i].forEach(e => e.setAttribute('transform', `translate(${f1(rx * .34)} ${f1(-ry * .4)}) scale(${f1(rx * .46)})`));
       }
-      this.Q.gl[i].forEach(e => w(e, 'opacity', op(v('glint') * sstep(.7, .95, o))));
+      const gop = v('glint') * sstep(.7, .95, o), es = Jelly.eyeStar ? 1 : 0;
+      this.Q.gl[i].forEach(e => w(e, 'opacity', op(gop * (1 - es))));
+      this.Q.gs[i].forEach(e => w(e, 'opacity', op(gop * es)));
       const hs = heart * 15 * (1 + .06 * Math.sin(t * 6) * Math.min(1, heart));
       this.Q.heart[i].forEach(e => w(e, 'transform', `scale(${Math.max(.001, hs).toFixed(3)})`));
     }
@@ -682,7 +754,8 @@ export class Jelly {
 
     // thumbnails go to sleep once nothing is moving
     if (!this.alive) {
-      let busy = this.acts.length || this.shapeDirty || this.thDirty || this._spk || sp > .01 || !this.liq.still || !this.sl.th.still || !this.sl.w.still || pinching;
+      let busy = this.acts.length || this.shapeDirty || this.thDirty || this._spk || sp > .01 || !this.liq.still || !this.sl.th.still || !this.sl.w.still || pinching
+        || !this.level.still || !this.nite.still || this.lit > .01 || Object.values(this.mat).some(m => !m.still);
       if (!busy) for (const k2 in S) if (!S[k2].still) { busy = true; break; }
       this.quietT = busy ? 0 : this.quietT + dt;
       if (this.quietT > .3) this.awake = false;
@@ -740,6 +813,11 @@ Jelly.prototype.bindTouch = function ({ onDouble, onTap } = {}) {
 };
 // edge shading shared by every jelly on the page: hue 0 = old grey edge, 1 = clean same-hue edge; amt = how strong
 Jelly.rim = { hue: 1, amt: .24, light: 1 };
+// 「眼里有光」: the eye glint is a tiny four-point star (false = the old round dot)
+Jelly.eyeStar = true;
+// night: every material glows a little (soft halo + luminous edge). The app decides when it is night (ball.js)
+Jelly.night = false;
+Jelly.setNight = on => { on = !!on; if (on === Jelly.night) return; Jelly.night = on; for (const j of LIVE) j.wake(); };
 // write an attribute only when its value actually changes
 Jelly.w = (el, a, v) => { const c = el.__c || (el.__c = {}); if (c[a] !== v) { c[a] = v; el.setAttribute(a, v); } };
 
@@ -749,24 +827,25 @@ export const MATERIALS = {
   liquid: { n: '晃晃水', h: '下半身会晃' },
 };
 export const LOOK_DEFAULT = 'cloud.moon.jelly';
+// the app offers six shapes; the rest of SHAPES stay for the design pages only
+export const LOOK_SHAPES = ['cloud', 'mochi', 'cat', 'star', 'cube', 'flower'];
+// shapes that left the app: a saved look moves to the closest one that stayed, keeping its colour and material
+const RETIRED = { hex: 'cube', pudding: 'cube', onigiri: 'mochi', drop: 'mochi', gummy: 'mochi', heart: 'flower' };
 export const LOOKS = [
   { id: 'cloud.moon.jelly', n: '云朵 · 月白', h: '软软地陪着你' },
-  { id: 'hex.origin.jelly', n: '六边形 · 初见青', h: '最初的样子' },
   { id: 'mochi.sun.jelly', n: '糯米团 · 暖阳橙', h: '软乎乎' },
   { id: 'cat.lilac.jelly', n: '猫耳 · 丁香', h: '歪头看你' },
-  { id: 'heart.sakura.jelly', n: '爱心 · 樱花粉', h: '被你暖到' },
   { id: 'star.night.jelly', n: '星星 · 夜光', h: '晚上也陪你' },
-  { id: 'drop.sea.liquid', n: '水滴 · 海雾蓝', h: '慢慢来' },
   { id: 'cube.gold.jelly', n: '方糖 · 森林金', h: '甜一点' },
-  { id: 'pudding.orange.liquid', n: '布丁 · 柑橘', h: '弹一下' },
-  { id: 'onigiri.mint.jelly', n: '饭团 · 薄荷绿', h: '有点机灵' },
   { id: 'flower.dawn.jelly', n: '花朵 · 晨光紫', h: '温柔一点' },
-  { id: 'gummy.sky.jelly', n: '软糖 · 天空蓝', h: '圆滚滚' },
 ];
 export function parseLook(s) {
-  const [shape, color, material] = String(s || '').split('.');
-  return SHAPES[shape] && THEMES[color] && MATERIALS[material] ? { shape, color, material } : null;
+  let [shape, color, material] = String(s || '').split('.');
+  shape = RETIRED[shape] || shape;
+  return LOOK_SHAPES.includes(shape) && THEMES[color] && MATERIALS[material] ? { shape, color, material } : null;
 }
+// the same look written the current way (old shape names replaced), or null if it is not a look
+export const normLook = s => { const L = parseLook(s); return L ? `${L.shape}.${L.color}.${L.material}` : null; };
 export const lookName = s => { const L = parseLook(s) || parseLook(LOOK_DEFAULT); return `${SHAPES[L.shape].n} · ${THEMES[L.color].n}`; };
 export const lookBase = s => THEMES[(parseLook(s) || parseLook(LOOK_DEFAULT)).color].base;
 export const lookOpts = s => { const L = parseLook(s) || parseLook(LOOK_DEFAULT); return { shape: L.shape, theme: L.color, material: L.material }; };
@@ -798,6 +877,7 @@ export function snapshot(look, expr = 'idle', { crop = true, ground = false } = 
   const j = new Jelly(svg, { ...lookOpts(look), expr });
   for (let i = 0; i < 2; i++) j.frame(1 / 60);
   if (!ground) [j.E.shadow, j.E.caustic].forEach(e => e.setAttribute('opacity', 0));
+  j.E.aura.setAttribute('opacity', 0);   // the night halo would be cut off by the tight crop; the glowing edge stays
   if (crop) svg.setAttribute('viewBox', '-142 -146 284 284');
   svg.setAttribute('aria-hidden', 'true');
   return svg.outerHTML;
