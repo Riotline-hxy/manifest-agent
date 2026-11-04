@@ -2,7 +2,7 @@
 - 小光：外貌、说话方式（persona）、几天没动时怎么陪你（care_style）、名字；
 - 你：怎么称呼、作息节奏、像什么样的人、别对我做什么——写进画像和几条基础记忆；
 - 第一个愿望：一个方向 + 现成的路（1 个里程碑、几个小步、1 个习惯），直接放进蜕变计划。
-什么都不填也能进门：画像用默认值，不建愿望。care_style 和「重新认识我」场景写的是同一个字段。
+什么都不填也能进门：画像用默认值，不建愿望。
 """
 from __future__ import annotations
 
@@ -236,7 +236,7 @@ def seed_guest(store: Store) -> None:
                           ("step", "完成一小步：约 Mia 周末一起练口语 20 分钟", 8),
                           ("memory", "猜了一条：可能其实会说，更怕的是说错", 10),
                           ("record", "记下好消息：小组里第一次主动提问", 10),
-                          ("scene", "完成「重新认识我」，互动偏好：一起找原因", 11)]:
+                          ("scene", "做完「聊聊现在的你」", 11)]:
         store.log(kind, text)
         store.c.execute("UPDATE activity SET at=? WHERE id=(SELECT id FROM activity ORDER BY rowid DESC LIMIT 1)", (at(d, 22),))
     store.push_inbox("明天那一步不急。今天想说的话，我都在。", "checkin")

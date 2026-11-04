@@ -43,6 +43,10 @@ DEFAULT_PROFILE = {
     "care_style": "",       # nudge | analyze | quiet | ""
     "pace": "gentle",       # gentle | steady
     "persona": "gentle",    # 小光的性格：gentle 温柔 | clear 有条理 | lively 活泼
+    # 陪伴偏好（「聊聊现在的你」里确认的，设置里能改）：都是一句短话，空着就是没选。只是参考，不会自己开提醒
+    "chat_style": "",       # 聊天时希望小光怎么陪：如「多听你说，不急着给建议」
+    "remind_pref": "",      # 想坚持的事希望多久被提醒一次：每天 / 每周几次 / 每周一次 / 暂时不需要提醒
+    "energy_time": "",      # 一天里比较有精神的时候：早上 / 下午 / 晚上 / 不太固定
     "custom_moods": [],     # 用户自己加的心情词
     "digest_on": True,      # 例行任务「夜里整理记忆」的开关
     "notebook": {},         # 小光的笔记本：夜里整理时更新的、关于 TA 的长期笔记 {text, updated_at}

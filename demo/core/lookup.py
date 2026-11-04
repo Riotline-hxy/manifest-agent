@@ -179,6 +179,8 @@ def look_up(st, area: str, query: str = "") -> dict:
               f"你的名字：{p.get('agent_name') or '小光'}；性格：{PERSONA.get(p.get('persona') or 'gentle')}",
               f"主动消息：{PROACTIVE.get(p.get('proactive') or 'normal')}（23:00–08:00 不发）",
               f"互动偏好：{CARE.get(p.get('care_style') or '', '没选')}",
+              f"聊天时希望你：{p.get('chat_style') or '没选'}；提醒想坚持的事：{p.get('remind_pref') or '没选'}（只是偏好，没开提醒）；"
+              f"比较有精神的时候：{p.get('energy_time') or '没选'}",
               f"小镇的名字：{p.get('town_name') or '我的小镇'}；页面氛围：{THEME.get(p.get('theme') or '', p.get('theme') or '默认')}",
               f"建档时最想靠近：{p.get('intent_primary') or '没填'}" + (f"（因为：{p['intent_why']}）" if p.get("intent_why") else ""),
               "别人常觉得 TA：" + ("、".join(p.get("traits") or []) or "没填"),

@@ -32,7 +32,7 @@ export function renderIdeas(root) {
           <p>${esc(pick.desc)}</p>
           <div class="ft-meta"><span class="pill">${icon("clock")}约 ${pick.minutes} 分钟</span>
             <span class="pill">${counts[pick.scene] ? `做过 ${counts[pick.scene]} 次` : "还没试过"}</span><span class="pill acc">完成 +12 经验 · +10 金币</span>${task && !task.done ? `<span class="pill good">今天的每日任务再 +${task.xp} 经验 · +${task.coins} 金币</span>` : ""}</div>
-          <button class="btn btn-main btn-lg" data-idea="${esc(pick.id)}">开始 ${icon("arrow")}</button>
+          <button class="btn btn-main btn-lg" data-idea="${esc(pick.id)}">${esc(pick.cta || "开始")} ${icon("arrow")}</button>
         </div>
         <div class="ft-side"><div class="speech ft-say">今天想试试这个吗？</div><div class="ft-ball"></div></div>
       </section>

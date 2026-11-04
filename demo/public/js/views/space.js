@@ -1,5 +1,5 @@
 // 我的空间：档案 · 记忆（可改可删、带修订记录）· 夜里的整理 · 时间线 · 设置（含氛围与小光的颜色）。
-// 「重新认识我」不封在这里——它是点子里的体验；这里只看结果、随时改。
+// 「聊聊现在的你」不封在这里，它是点子里的体验；这里只看结果（记忆、设置里的陪伴偏好），随时改。
 import { api } from "../api.js";
 import { state, setData, go } from "../store.js";
 import { esc, toast, sheet, h, confirmSheet, fmtDay, icon, tile } from "../ui.js";
@@ -191,6 +191,8 @@ function settingsTab(body, root) {
         ${seg("persona", [["gentle", "温柔"], ["clear", "有条理"], ["lively", "活泼"]], p.persona || "gentle")}</div>
       <div class="set-row">${tile("compass", "var(--c-mint)", 40)}<div class="sl"><b>中断的时候</b><small>三天没动时，小光怎么反应</small></div>
         ${seg("care_style", [["nudge", "轻轻提醒"], ["analyze", "一起找原因"], ["quiet", "先别提"]], p.care_style)}</div>
+      <div class="set-row">${tile("chat", "var(--c-violet)", 40)}<div class="sl"><b>陪伴偏好</b><small>${esc(prefLine(p))}</small></div>
+        <button class="btn btn-sm btn-ghost" data-prefs>修改</button></div>
       <div class="set-row">${tile("letter", "var(--c-sky)", 40)}<div class="sl"><b>主动消息</b><small>23:00–08:00 不打扰 · <button class="set-link" data-proactive>让它现在说一句</button></small></div>
         ${seg("proactive", [["more", "多"], ["normal", "刚好"], ["less", "少"], ["off", "不要"]], p.proactive || "normal")}</div>
       <div class="set-row">${tile("palette", "var(--c-lemon)", 40)}<div class="sl"><b>外貌</b><small>${esc(lookName(look))}</small></div>
@@ -225,6 +227,7 @@ function settingsTab(body, root) {
   body.querySelector("[data-look]").addEventListener("click", () => openLookSheet({ onSaved: () => renderSpace(root) }));
   body.querySelectorAll(".seg").forEach((sg) => sg.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => save({ [sg.dataset.key]: b.dataset.v }, "改好了"))));
   body.querySelector("[data-name-edit2]").addEventListener("click", () => nameSheet(root));
+  body.querySelector("[data-prefs]").addEventListener("click", () => prefsSheet(root));
   body.querySelector("[data-account]").addEventListener("click", () => (guest ? openAccount() : confirmLogout()));
   body.querySelector("[data-rename]").addEventListener("click", () => {
     const input = h("input", { class: "field", maxlength: "10", placeholder: "比如：晴天镇" });
@@ -298,6 +301,36 @@ function installGuide() {
 
 async function confirmLogout() {
   if (await confirmSheet("退出登录？", "下次用用户名和密码就能回来，记录都在。", "退出", "back")) logout();
+}
+
+// 陪伴偏好：在「聊聊现在的你」里确认的三样，这里看、改、清空（再点一下选中的就是不设）
+const PREFS = [["chat_style", "聊天时，希望我"], ["remind_pref", "想坚持的事，多久提醒一次"], ["energy_time", "一天里比较有精神的时候"]];
+
+function prefLine(p) {
+  const parts = [p.chat_style, p.remind_pref && `提醒：${p.remind_pref}`, p.energy_time && `${p.energy_time}比较有精神`].filter(Boolean);
+  return parts.join(" · ") || "还没选，可以去点子里「聊聊现在的你」";
+}
+
+function prefsSheet(root) {
+  const p = state.data.profile || {};
+  const opts = state.data.prefs?.options || {};
+  const cur = Object.fromEntries(PREFS.map(([k]) => [k, p[k] || ""]));
+  const body = h("div", { class: "j-add prefs", html: PREFS.map(([k, label]) => {
+    const list = [...(opts[k] || [])];
+    if (cur[k] && !list.includes(cur[k])) list.push(cur[k]);     // 自己改过的说法也留着
+    return `<label class="lbl">${esc(label)}</label><div class="ob-chips">${list.map((v) =>
+      `<button class="chip ${cur[k] === v ? "on" : ""}" data-k="${k}" data-v="${esc(v)}">${esc(v)}</button>`).join("")}</div>`;
+  }).join("") + `<p class="muted j-note">提醒频率只是偏好，不会自己开提醒；真要提醒时，小光会先问你提醒什么、几点。</p>` });
+  body.querySelectorAll("[data-k]").forEach((b) => b.addEventListener("click", () => {
+    const { k, v } = b.dataset;
+    cur[k] = cur[k] === v ? "" : v;
+    body.querySelectorAll(`[data-k="${k}"]`).forEach((x) => x.classList.toggle("on", x.dataset.v === cur[k]));
+  }));
+  const s = sheet({ title: "陪伴偏好", sticker: "chat", body,
+    footer: [h("button", { class: "btn btn-ghost", onclick: () => s.close() }, "取消"), h("button", { class: "btn btn-main", onclick: async () => {
+      try { setData(await api.profile(cur)); s.close(); toast("改好了"); renderSpace(root); } catch (e) { toast(e.message, "err"); }
+    } }, "保存")] });
+  s.panel.classList.add("j-sheet");
 }
 
 // 改名字：称呼（小光怎么叫你、页面上显示的名字）；正式账号还可以改登录用户名

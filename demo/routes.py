@@ -293,7 +293,8 @@ def chat(h, u, b, q):
 
 PROFILE_FIELDS = {"nickname", "agent_name", "agent_hue", "agent_avatar_id", "intent_primary", "intent_why",
                   "schedule_hint", "traits", "mbti_hint", "boundaries", "proactive",
-                  "care_style", "pace", "theme", "persona", "custom_moods"}
+                  "care_style", "pace", "theme", "persona", "custom_moods",
+                  "chat_style", "remind_pref", "energy_time"}
 
 
 def profile(h, u, b, q):
@@ -315,6 +316,9 @@ def profile(h, u, b, q):
     for k in ("traits", "boundaries"):
         if k in patch:
             patch[k] = [clip(str(x), 20) for x in (patch[k] or [])][:6]
+    for k in ("chat_style", "remind_pref", "energy_time"):   # 陪伴偏好：一句短话，空着就是没选
+        if k in patch:
+            patch[k] = clip(str(patch[k] or "").strip(), 30)
     for k, v in list(patch.items()):
         if isinstance(v, str):
             patch[k] = clip(v, 60)
@@ -531,31 +535,58 @@ def scene_start(h, u, b, q):
 
 
 def scene_answer(h, u, b, q):
-    text = clip(str(b.get("text") or ""), 300).strip()
-    if not text:
+    raw = b.get("text")
+    if isinstance(raw, list):     # 多选
+        value = [clip(str(x), 60) for x in raw[:8] if str(x).strip()]
+    else:
+        value = clip(str(raw or ""), 300).strip()
+    if not value:
         raise ApiError(400, "写一句也行")
     with Store(u["id"]) as st:
         run = st.get_scene(str(b.get("run_id") or ""))
         if not run or run["status"] != "open":
             raise ApiError(404, "这个场景已经结束了")
+        review = scenes.is_review(run["scene"])
         q = scenes.resume(st, run["id"])["step"]["q"]
-        out = scenes.answer(st, run["id"], text)
-        # keep the scene's Q&A in the one persistent thread, like the rest of the conversation
-        st.add_msg("assistant", q, {"scene": run["scene"]})
-        st.add_msg("user", text, {"scene": run["scene"]})
+        out = scenes.answer(st, run["id"], value)
+        # 答完就写的场景：问答放进同一条对话里。先确认再存的场景：用户点保存之前，回答不进对话、不进记忆
+        if not review:
+            st.add_msg("assistant", q, {"scene": run["scene"]})
+            st.add_msg("user", value if isinstance(value, str) else "、".join(value), {"scene": run["scene"]})
         if out["done"]:
-            st.add_msg("assistant", out["summary"], {"scene_done": True, "wrote": [w["label"] for w in out["wrote"]]})
+            if not review:
+                st.add_msg("assistant", out["summary"], {"scene_done": True, "wrote": [w["label"] for w in out["wrote"]]})
             out["xp"] = growth.award(st, "practice", ref="scene:" + run["id"],
                                      note="完成练习：" + scenes.SCENES[run["scene"]]["title"])
             out["state"] = bootstrap(st)
         return 200, out
 
 
+def scene_save(h, u, b, q):
+    """结束页「保存选中的内容」：只写勾选的那几项（文字用用户改过的）。"""
+    items = [x for x in (b.get("items") or []) if isinstance(x, dict)] if isinstance(b.get("items"), list) else []
+    with Store(u["id"]) as st:
+        try:
+            out = scenes.save(st, str(b.get("run_id") or ""), items, str(b.get("extra") or ""))
+        except KeyError:
+            raise ApiError(404, "这次的练习找不到了")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, {**out, "state": bootstrap(st)}
+
+
+def scene_discard(h, u, b, q):
+    """结束页「返回对话」：这次的回答不留。"""
+    with Store(u["id"]) as st:
+        scenes.discard(st, str(b.get("run_id") or ""))
+        return 200, {"ok": True}
+
+
 def scene_cancel(h, u, b, q):
     with Store(u["id"]) as st:
         run = st.scene_active()
         if run:
-            st.update_scene(run["id"], run["step"], run["answers"], "abandoned")
+            st.update_scene(run["id"], run["step"], [] if scenes.is_review(run["scene"]) else run["answers"], "abandoned")
         return 200, {"ok": True}
 
 
@@ -775,6 +806,8 @@ ROUTES = {
     ("POST", "/api/scene/start"): (scene_start, True),
     ("POST", "/api/scene/answer"): (scene_answer, True),
     ("POST", "/api/scene/cancel"): (scene_cancel, True),
+    ("POST", "/api/scene/save"): (scene_save, True),
+    ("POST", "/api/scene/discard"): (scene_discard, True),
     ("POST", "/api/proactive/now"): (proactive_now, True),
     ("POST", "/api/inbox/seen"): (inbox_seen, True),
     ("GET", "/api/growth"): (growth_get, True),

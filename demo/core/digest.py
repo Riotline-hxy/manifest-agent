@@ -20,7 +20,8 @@ from .memory import KINDS
 from .store import Store
 from .util import clip, day_key, now
 
-PROTECTED = {"chat:explicit", "confirmed", "onboarding"}
+# 用户亲口要求记的、亲手确认的、建档写的，以及在点子结束页勾选保存的：夜里整理只有拿到原话依据才能改
+PROTECTED = {"chat:explicit", "confirmed", "onboarding", "scene:relearn", "scene:seven_steps_lite"}
 LONG_PASTE = 1200
 
 PROMPT = """你在为「显化陪伴」应用做每天一次的记忆整理。下面是用户某一天的全部材料和已有记忆。

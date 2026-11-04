@@ -19,7 +19,7 @@ from datetime import timedelta
 import threading
 
 from . import academy, growth, guide, journey, llm, lookup, memory, nudges, tasks, town
-from .scenes import SCENES
+from .scenes import CHAT_HOW, SCENES
 from .store import Store
 from .util import clip, day_key, now, parse_iso
 
@@ -103,7 +103,7 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
   「那个里程碑改到 11 月 4 日」「习惯改成每周三次」「这一步删了吧」「删掉早睡早起这个愿望」「把收起的那个愿望找回来」「再开一个愿望：学吉他」「加个里程碑」。
   你提议过、TA 同意了的修改，也直接用 edit_plan，不要再走 propose_plan。TA 说到达了某个里程碑 → edit_plan(change, status=done)。
 - 用户明确要加一个重复做的事（「帮我加个每周健身三次」）→ add_habit；用户说今天做了某个习惯里的事（「今天去健身了」）→ checkin_habit。
-- 用户想冥想、感恩、理清目标、走一遍七步、或想「重新认识我」→ start_scene。
+- 用户想冥想、感恩、理清目标、聊聊愿望（显化七步）、或想「聊聊现在的你」（最近的变化、习惯和喜好）→ start_scene。
 - 需要回忆以前的事、而下面没提供时 → search_memory（记住的要点）或 search_chats（以前聊天的原话）。
 - TA 明确让你把一件事记到轨迹上，或者你刚问过「要不要留在轨迹上」、TA 说「好 / 留吧」→ 直接 edit_plan(add, kind=moment) 存下，
   不要再提议一次。改、删轨迹上的瞬间也用 edit_plan。
@@ -120,8 +120,8 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
   你不能替 TA 买或摆建筑（那是 TA 自己在「我的小镇」里点的），可以说说能建什么、带 TA 去看看。
 - 定时任务：新安排 → schedule_task；关掉、重新打开、删掉、改时间 → edit_task。
 - 用户问某个心理 / 显化概念 → knowledge_search，只说检索到的内容，并说明是团队整理的版本。
-- TA 想改设置（怎么称呼 TA、你的名字和性格、主动消息多少、被打断时你怎么做、小镇的名字、页面氛围）→ update_settings。
-  「以后别催我」→ care_style=quiet；「多来找我」「督促我」→ proactive=more。
+- TA 想改设置（怎么称呼 TA、你的名字和性格、主动消息多少、被打断时你怎么做、聊天时你怎么陪、提醒的频率、小镇的名字、页面氛围）→ update_settings。
+  「以后别催我」→ care_style=quiet；「多来找我」「督促我」→ proactive=more；「以后多听我说就好」→ chat_style。
 - 需要用工具时先调用、再开口，不要先说一句再去调用（否则会说两遍）。
 - 调用工具后，用一句自然的话告诉对方你做了什么；工具返回 ok=false 时必须说没写成，不能说「已经记好了」。
 - 工具返回的 xp 里如果 capped 或 duplicate 为真，说明这次没加分，别暗示加了。
@@ -298,6 +298,10 @@ TOOLS = [
             "theme": {"type": "string", "enum": ["forest", "midnight", "paper", "peach", "mist"],
                       "description": "页面氛围：森林夜 / 深空 / 晨光 / 暖阳 / 海雾"},
             "schedule_hint": {"type": "string", "description": "TA 的作息"},
+            "chat_style": {"type": "string", "description": "聊天时 TA 希望你怎么陪，一句短话，如「多听你说，不急着给建议」「帮你想想具体可以怎么做」"},
+            "remind_pref": {"type": "string", "enum": ["每天", "每周几次", "每周一次", "暂时不需要提醒"],
+                            "description": "想坚持的事希望多久被提醒一次（只是偏好，不会开提醒）"},
+            "energy_time": {"type": "string", "enum": ["早上", "下午", "晚上", "不太固定"], "description": "TA 一天里比较有精神的时候"},
             "boundaries": {"type": "array", "items": {"type": "string"}, "description": "TA 不希望你碰的话题（整份替换）"}}}}},
 ]
 
@@ -323,6 +327,8 @@ def core_block(p: dict, store: Store) -> str:
         lines.append("别人常觉得 TA：" + "、".join(p["traits"]))
     if p.get("schedule_hint"):
         lines.append("作息：" + p["schedule_hint"])
+    if p.get("energy_time"):
+        lines.append(f"一天里比较有精神的时候：{p['energy_time']}（商量计划、什么时候做事时可以参考；不要据此自己设提醒）")
     if p.get("mbti_hint"):
         lines.append(f"MBTI（只是好玩，不用来判断）：{p['mbti_hint']}")
     cur = journey.current(store)
@@ -362,7 +368,17 @@ def system_prompt(store: Store, retrieved: list[dict]) -> str:
     b = [x for x in (p.get("boundaries") or []) if x and x != "无"]
     bound = ("- 这个人明确说过的边界（必须遵守）：" + "、".join(b) + "\n") if b else ""
     care = CARE_STYLE.get(p.get("care_style") or "", "")
-    care = ("- 互动偏好（来自 TA 在「重新认识我」里的选择）：" + care + "\n") if care else ""
+    care = [("- 中断时（TA 选的）：" + care) if care else ""]
+    cs = (p.get("chat_style") or "").strip()
+    if cs:
+        care.append("- 聊天时 TA 希望你：" + CHAT_HOW.get(cs, f"「{cs}」") + "。这是 TA 自己选的陪伴方式，平时按这个来；TA 说想换就换。")
+    rp = (p.get("remind_pref") or "").strip()
+    if rp == "暂时不需要提醒":
+        care.append("- TA 说暂时不需要提醒：别主动提议定提醒，TA 自己开口要的时候再安排。")
+    elif rp:
+        care.append(f"- 想坚持一件事时，TA 希望被提醒的频率：{rp}。这只是偏好，现在没有开任何提醒；"
+                    "TA 真要提醒时，先问清提醒什么、哪天几点，再用 schedule_task。")
+    care = "".join(x + "\n" for x in care if x)
     s = PERSONA.format(name=p.get("agent_name") or "小光", boundaries=bound, care=care, app_map=guide.MAP,
                        voice=VOICES.get(p.get("persona") or "gentle", VOICES["gentle"]))
     s += "\n## 你知道的（核心）\n" + (core_block(p, store) or "（还很少）")
@@ -512,11 +528,14 @@ def _pick_task(uid: str, ref: str, prefer: bool | None = None) -> dict | None:
 
 SETTING_LABEL = {"nickname": "称呼", "agent_name": "我的名字", "persona": "我的性格", "proactive": "主动找你的频率",
                  "care_style": "你中断时我怎么做", "town_name": "小镇的名字", "theme": "页面氛围", "schedule_hint": "作息",
-                 "boundaries": "不想聊的话题"}
+                 "boundaries": "不想聊的话题", "chat_style": "聊天时我怎么陪你", "remind_pref": "提醒的频率",
+                 "energy_time": "比较有精神的时候"}
 SETTING_VALUE = {"persona": {"gentle": "温柔", "clear": "有条理", "lively": "活泼"},
                  "proactive": {"more": "多一点", "normal": "刚好", "less": "少一点", "off": "不主动找"},
                  "care_style": {"nudge": "轻轻提醒", "analyze": "一起找原因", "quiet": "先不提"},
-                 "theme": {"forest": "森林夜", "midnight": "深空", "paper": "晨光", "peach": "暖阳", "mist": "海雾"}}
+                 "theme": {"forest": "森林夜", "midnight": "深空", "paper": "晨光", "peach": "暖阳", "mist": "海雾"},
+                 "remind_pref": {v: v for v in ("每天", "每周几次", "每周一次", "暂时不需要提醒")},
+                 "energy_time": {v: v for v in ("早上", "下午", "晚上", "不太固定")}}
 
 
 def update_settings(store: Store, args: dict) -> dict:
@@ -533,7 +552,7 @@ def update_settings(store: Store, args: dict) -> dict:
             v = [clip(str(x).strip(), 20) for x in (v if isinstance(v, list) else [v]) if str(x).strip()][:6]
             shown = "、".join(v)
         else:
-            v = clip(str(v).strip(), 10 if k == "town_name" else 20 if k in ("nickname", "agent_name") else 60)
+            v = clip(str(v).strip(), 10 if k == "town_name" else 20 if k in ("nickname", "agent_name") else 30 if k == "chat_style" else 60)
             shown = v
         patch[k] = v
         changed.append(f"{SETTING_LABEL[k]}改成「{shown}」")

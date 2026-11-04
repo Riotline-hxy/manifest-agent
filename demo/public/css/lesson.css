@@ -11,7 +11,7 @@
 .lesson-bar > i { min-width: 14px; background: var(--good); }
 .lesson-count { color: var(--text-3); font-size: 14px; min-width: 40px; text-align: right; }
 
-.lesson-stage { overflow-y: auto; width: min(740px, 100%); margin: 0 auto; padding: 22px 24px 24px; }
+.lesson-stage { overflow-y: auto; width: min(740px, 100%); margin: 0 auto; padding: 22px 24px 24px; display: flex; flex-direction: column; }
 .lesson-kicker { font-size: 12.5px; font-weight: 900; letter-spacing: .16em; color: var(--accent); margin: 0 0 14px 6px; }
 .lesson-ask { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 26px; }
 .lesson-q { flex: 1; margin-top: 18px; font-size: 20px; line-height: 1.5; padding: 15px 19px; }
@@ -42,6 +42,57 @@
 .opt-prev i { position: absolute; left: 8px; bottom: 7px; width: 16px; height: 16px; border-radius: 50%; }
 .opt-swatch { flex: none; width: 34px; height: 34px; border-radius: 50%; box-shadow: inset 0 -3px 0 rgba(0,0,0,.12); }
 .lesson-text { margin-top: 14px; font-size: 16.5px; border-radius: 18px; padding: 15px 17px; }
+.lesson-text.hide { display: none; }
+.opts.one { grid-template-columns: 1fr; }
+/* 输入框为主、选项只是个退路（「暂时不知道」）：放在输入框下面，小一号 */
+.opts.after { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.opts.after .opt { min-height: 46px; padding: 8px 14px; font-size: 14.5px; }
+.lesson-q.reply { border-color: var(--accent); }
+
+/* 「显化七步」那行小字：钉在答题区下面，这一题对应的那一步亮起来 */
+.lesson-note { margin-top: auto; padding-top: 26px; text-align: center; font-size: 12.5px; font-weight: 700; color: var(--text-3); letter-spacing: .04em; }
+.lesson-note:empty { display: none; }
+.lesson-note span { margin-right: 8px; }
+.lesson-note b { font-weight: 700; transition: color .3s; }
+.lesson-note b.on { color: var(--accent); font-weight: 900; }
+.lesson-note i { font-style: normal; opacity: .6; }
+
+/* 结束页：这次聊到的（勾选、改一改、保存选中的） */
+.rv { display: grid; gap: 12px; }
+.rv-h { font-size: 13px; font-weight: 900; color: var(--text-3); letter-spacing: .08em; margin: 2px 0 -2px 4px; }
+.rv-list { display: grid; gap: 10px; }
+.rv-item {
+  display: flex; align-items: flex-start; gap: 12px; padding: 13px 12px 13px 14px; border-radius: 18px; cursor: pointer;
+  background: var(--surface); border: 2px solid var(--line-2); transition: border-color .15s, background .15s, opacity .15s;
+  animation: opt-in .5s var(--spring) backwards; animation-delay: calc(var(--i) * 70ms + 150ms);
+}
+.rv-item.on { border-color: var(--accent); background: var(--accent-soft); }
+.rv-item:not(.on) .rv-main { opacity: .62; }
+.rv-item.off { cursor: default; }
+.rv-check { flex: none; width: 24px; height: 24px; margin-top: 1px; border-radius: 8px; border: 2px solid var(--line-2); display: grid; place-items: center; color: transparent; background: var(--surface); }
+.rv-check .ic-svg { width: 15px; height: 15px; }
+.rv-item.on .rv-check { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.rv-main { flex: 1; min-width: 0; }
+.rv-t { display: flex; align-items: center; gap: 8px; }
+.rv-t b { font-size: 13px; color: var(--text-2); }
+.rv-to { margin-left: auto; font-size: 11.5px; font-weight: 800; color: var(--text-3); white-space: nowrap; }
+.rv-text { margin-top: 3px; font-size: 16px; font-weight: 800; line-height: 1.5; color: var(--text); word-break: break-word; }
+.rv-text textarea { width: 100%; margin-top: 2px; font-size: 15.5px; border-radius: 12px; padding: 9px 11px; }
+.rv-note { display: block; margin-top: 4px; font-size: 12px; font-weight: 700; color: var(--text-3); }
+.rv-edit { flex: none; width: 34px; height: 34px; color: var(--text-3); }
+.rv-edit:hover { color: var(--text); }
+.rv-extra { display: grid; gap: 4px; margin-top: 6px; padding: 14px; border-radius: 18px; background: var(--surface); border: 1px dashed var(--line-2); }
+.rv-extra b { font-size: 15px; }
+.rv-extra small { font-size: 12.5px; font-weight: 700; color: var(--text-3); }
+.rv-extra textarea { margin-top: 6px; font-size: 15.5px; border-radius: 14px; padding: 11px 13px; }
+.rv-xp { display: flex; align-items: center; gap: 6px; margin: 2px 0 0 4px; font-size: 13px; font-weight: 800; color: var(--text-3); }
+.rv-xp .ic-svg { width: 15px; height: 15px; color: var(--accent); }
+.rv-done { display: grid; gap: 8px; }
+.rv-d { display: flex; align-items: flex-start; gap: 10px; padding: 11px 14px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line);
+  animation: opt-in .5s var(--spring) backwards; animation-delay: calc(var(--i) * 70ms + 250ms); }
+.rv-d > .ic-svg { flex: none; width: 18px; height: 18px; margin-top: 2px; color: var(--good); }
+.rv-d b { display: block; font-size: 15px; line-height: 1.45; }
+.rv-d span { font-size: 12.5px; font-weight: 700; color: var(--text-3); }
 
 .lesson-foot { border-top: 1px solid var(--line); transition: background .3s; }
 .lesson-foot.good { background: var(--good-soft); border-top-color: transparent; }

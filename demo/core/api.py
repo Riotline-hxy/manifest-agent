@@ -4,14 +4,14 @@ from __future__ import annotations
 from . import academy, cheer, growth, journey, scenes, scheduler, tasks, town
 from .store import Store
 
-VERSION = "3.3.1"
+VERSION = "3.4.0"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
 IDEAS = [
-    {"id": "relearn", "title": "重新认识我", "scene": "relearn", "minutes": 4,
-     "group": "默契", "prompt": "如果你连续三天没完成计划，你希望我怎么办？",
-     "desc": "六个生活里的小岔路。答完，我会按你选的方式陪你。"},
+    {"id": "relearn", "title": "聊聊现在的你", "scene": "relearn", "minutes": 2, "cta": "开始聊聊",
+     "group": "默契", "prompt": "最近的我有些变化，想和你重新聊聊。",
+     "desc": "最近的你有没有一些变化？我们可以重新聊聊你的习惯和喜好。"},
     {"id": "clarify", "title": "说清想要的", "scene": "clarify", "minutes": 3,
      "group": "愿望", "prompt": "用一句话描述你想要的生活画面。",
      "desc": "把「想变好」拆成一个能看见的具体早晨。"},
@@ -21,9 +21,9 @@ IDEAS = [
     {"id": "gratitude", "title": "三分钟感恩", "scene": "gratitude", "minutes": 3,
      "group": "日常", "prompt": "我想记下三件已经发生的好事。",
      "desc": "小到一杯热水也算。练习的是注意力。"},
-    {"id": "seven_steps_lite", "title": "七步轻走一遍", "scene": "seven_steps_lite", "minutes": 6,
-     "group": "愿望", "prompt": "带我快速走一遍显化七步。",
-     "desc": "澄清、信念、感受、行动、感恩、释放、见证，每步一句话。"},
+    {"id": "seven_steps_lite", "title": "聊聊你的愿望", "scene": "seven_steps_lite", "minutes": 2,
+     "group": "愿望", "prompt": "陪我聊聊我最近想实现的愿望。",
+     "desc": "我们一起聊聊，你最近想实现的愿望吧～七个小问题，正好走一遍显化七步。"},
     {"id": "know-me", "title": "你现在有多了解我", "scene": "", "minutes": 1,
      "group": "默契", "prompt": "__know_me__",
      "desc": "让我说你记得的我，也说出我不确定的部分。"},
@@ -50,6 +50,12 @@ def preferences(p: dict) -> dict:
         "why": p.get("intent_why") or "",
         "nickname": p.get("nickname") or "",
         "boundaries": p.get("boundaries") or [],
+        # 陪伴偏好：设置里那张「陪伴偏好」表单用这些选项
+        "chat_style": p.get("chat_style") or "",
+        "remind_pref": p.get("remind_pref") or "",
+        "energy_time": p.get("energy_time") or "",
+        "options": {"chat_style": [shown for shown, _ in scenes.CHAT_STYLES.values()],
+                    "remind_pref": scenes.REMIND, "energy_time": scenes.ENERGY},
     }
 
 

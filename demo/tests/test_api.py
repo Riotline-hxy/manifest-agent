@@ -490,7 +490,184 @@ class ApiTest(unittest.TestCase):
             for i in range(len(sc["steps"])):
                 _, out = c.req("POST", "/api/scene/answer", {"run_id": d["run"]["id"], "text": f"回答{i}"})
             self.assertTrue(out["done"], sid)
+            if sc.get("review"):      # 先确认再存：答完什么都没写，勾选后保存才写
+                self.assertNotIn("wrote", out, sid)
+                items = [{"key": it["key"], "text": it["text"]} for it in out["review"]["items"] if not it.get("off")]
+                s, out = c.req("POST", "/api/scene/save", {"run_id": d["run"]["id"], "items": items})
+                self.assertEqual(s, 200, out)
             self.assertGreaterEqual(len(out["wrote"]), 1, sid)
+
+    def _scene(self, c, sid, answers):
+        """走完一个场景，返回 (run_id, 每一步的返回)。"""
+        _, d = c.req("POST", "/api/scene/start", {"scene": sid})
+        rid, outs = d["run"]["id"], [d]
+        for a in answers:
+            s, out = c.req("POST", "/api/scene/answer", {"run_id": rid, "text": a})
+            self.assertEqual(s, 200, out)
+            outs.append(out)
+        return rid, outs
+
+    def test_wish_chat_new_wish_becomes_wish_and_step(self):
+        c, uid = self.onboarded("seven_new")
+        _, boot = c.req("GET", "/api/bootstrap")
+        old = boot["journey"]["wishes"][0]
+        _, d = c.req("POST", "/api/scene/start", {"scene": "seven_steps_lite"})
+        first = d["step"]
+        self.assertIn(f"「{old['title']}」", first["q"])                     # 有愿望：先确认还是不是它
+        self.assertEqual(first["chips"], ["是的，还是这个愿望", "我想换一个愿望"])
+        self.assertEqual((first["foot"]["words"][0], first["foot"]["at"]), ("澄清", 0))
+        self.assertTrue(first["optional"] and first["plain"])
+        c.req("POST", "/api/scene/cancel")
+        rid, outs = self._scene(c, "seven_steps_lite", [
+            "希望自己更有勇气换工作", "现在还不太相信", "安心", "本周开始改简历", "之前积累的工作经验",
+            "必须一次就把简历写好", "我愿意先试一试"])
+        self.assertEqual(outs[2]["reply"], "没关系，不用现在就相信。我们可以慢慢聊。")
+        self.assertNotIn("reply", outs[3])
+        done = outs[-1]
+        self.assertTrue(done["done"])
+        self.assertEqual(done["xp"]["amount"], 12)
+        rv = done["review"]
+        self.assertEqual(rv["say"], "聊完啦～这是你接下来想尝试的事：")
+        self.assertEqual([it["key"] for it in rv["items"]], ["try", "wish", "say", "worry"])
+        # 点保存之前：不建愿望、不加小步、不进对话
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertEqual(len(boot["journey"]["wishes"]), 1)
+        self.assertNotIn("本周开始改简历", [s["title"] for s in boot["steps"]])
+        self.assertFalse(any("简历" in m["content"] for m in boot["messages"]))
+        items = [{"key": "try", "text": "本周开始改简历"}, {"key": "wish", "text": "更有勇气换工作"},
+                 {"key": "say", "text": "我愿意先试一试"}, {"key": "worry", "text": "必须一次就把简历写好"}]
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": items})
+        self.assertEqual(s, 200, out)
+        self.assertEqual([w["type"] for w in out["wrote"]], ["wish", "step", "moment", "memory"])
+        self.assertIn("「更有勇气换工作」放进愿望里了，第一小步是「本周开始改简历」", out["reply"])
+        st_ = out["state"]
+        new = next(w for w in st_["journey"]["wishes"] if w["title"] == "更有勇气换工作")
+        self.assertEqual(st_["journey"]["current"], new["id"])
+        step = next(s for s in st_["steps"] if s["title"] == "本周开始改简历")
+        self.assertEqual(step["wish_id"], new["id"])
+        mo = [m for m in st_["journey"]["moments"] if m["wish_id"] == new["id"]]
+        self.assertEqual([(m["text"], m["source"]) for m in mo], [("对自己说：我愿意先试一试", "scene")])
+        self.assertIn("想到「更有勇气换工作」时会有压力：必须一次就把简历写好", [m["text"] for m in st_["memories"]])
+        self.assertEqual(st_["messages"][-1]["content"], out["reply"])
+        self.assertEqual(c.req("POST", "/api/scene/save", {"run_id": rid, "items": items})[0], 400)   # 同一次不能存两遍
+
+    def test_wish_chat_keeps_wish_and_skips_unknowns(self):
+        c, uid = self.onboarded("seven_keep")
+        _, boot = c.req("GET", "/api/bootstrap")
+        wish = boot["journey"]["wishes"][0]
+        # 什么都没想好：没有卡片，结束语换成谢谢
+        _, outs = self._scene(c, "seven_steps_lite", ["是的，还是这个愿望", "（跳过）", "暂时想不到", "暂时不知道",
+                                                      "（跳过）", "（跳过）", "现在还想不到"])
+        self.assertEqual(outs[4]["reply"], "没关系，还没想好也可以。")
+        self.assertEqual(outs[-1]["review"]["items"], [])
+        self.assertEqual(outs[-1]["review"]["say"], "聊完啦～谢谢你愿意和我一起想一想。")
+        # 自己写「不知道」也不生成小步；只勾了一项就只存那一项，小步挂在原来的愿望下
+        _, outs = self._scene(c, "seven_steps_lite", ["是的，还是这个愿望", "我觉得有可能", "开心", "不知道",
+                                                      "（跳过）", "怕坚持不下来", "慢慢来就好"])
+        self.assertEqual(outs[4]["reply"], "没关系，还没想好也可以。")
+        rv = outs[-1]["review"]
+        self.assertEqual(rv["say"], "聊完啦～接下来做什么，还可以再想一想。")
+        self.assertEqual([it["key"] for it in rv["items"]], ["say", "worry"])
+        rid, outs = self._scene(c, "seven_steps_lite", [wish["title"], "（跳过）", "（跳过）", "周末去跑一次步",
+                                                        "（跳过）", "（跳过）", "（跳过）"])
+        self.assertEqual([it["key"] for it in outs[-1]["review"]["items"]], ["try"])   # 写的就是已有的愿望：不算新愿望
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": [{"key": "try", "text": "周末去跑一次步"}]})
+        self.assertEqual(s, 200, out)
+        step = next(s for s in out["state"]["steps"] if s["title"] == "周末去跑一次步")
+        self.assertEqual(step["wish_id"], wish["id"])
+        self.assertEqual(len(out["state"]["journey"]["wishes"]), 1)
+        self.assertIn(f"放进「{wish['title']}」的小步里了", out["reply"])
+
+    def test_relearn_saves_only_checked_and_ai_sorts_extra(self):
+        c, uid = self.onboarded("relearn_ai")
+        before = len(c.req("GET", "/api/bootstrap")[1]["messages"])
+        rid, outs = self._scene(c, "relearn", ["正在经历一些变化", "出门走走，换个环境", ["多一点勇气和行动力", "多一点属于自己的时间"],
+                                               "早上", "多听我说，不急着给建议", "每周一次"])
+        self.assertEqual(outs[1]["reply"], "听起来最近有些变化。如果你想聊，我愿意听。")
+        self.assertNotIn("reply", outs[2])
+        self.assertEqual(outs[3]["reply"], "好呀，你想要的这些，我们可以慢慢聊。")
+        rv = outs[-1]["review"]
+        shown = {it["key"]: it["text"] for it in rv["items"]}
+        self.assertEqual(shown["more"], "勇气和行动力、属于自己的时间")
+        self.assertEqual(shown["chat"], "多听你说，不急着给建议")
+        self.assertEqual(rv["extra"]["q"], "还有什么想让我知道的吗？")
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertEqual(len(boot["messages"]), before)                      # 答题不进对话
+        self.assertFalse(any(m["source"] == "scene:relearn" for m in boot["memories"]))
+        self.fake.json_out = {"reply": "最近在变，也想多一点勇气。以后我多听你说，不急着给建议。",
+                              "good": ["今天吃到了超好吃的寿司"], "meme": [], "memories": [{"text": "喜欢吃寿司", "kind": "preference"}]}
+        items = [{"key": k, "text": t} for k, t in shown.items() if k != "remind"]   # 提醒频率没勾
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": items, "extra": "今天吃到了超好吃的寿司，我真的好爱寿司"})
+        self.assertEqual(s, 200, out)
+        self.assertEqual(out["reply"], self.fake.json_out["reply"])
+        sent = self.fake.seen_json[-1][1]["content"]
+        self.assertIn("希望我这样陪你：多听你说，不急着给建议", sent)
+        self.assertNotIn("每周一次", sent)
+        p = out["state"]["profile"]
+        self.assertEqual((p["chat_style"], p["energy_time"], p["remind_pref"]), ("多听你说，不急着给建议", "早上", ""))
+        mems = {m["text"]: m for m in out["state"]["memories"]}
+        life = next(t for t in mems if "最近的生活：正在经历一些变化" in t)
+        self.assertEqual(mems[life]["kind"], "event")
+        self.assertIn("有空的时候，最近更想：出门走走，换个环境", mems)
+        self.assertIn("最近希望生活里多一点：勇气和行动力、属于自己的时间", mems)
+        self.assertEqual(mems["喜欢吃寿司"]["source"], "scene:relearn")
+        self.assertEqual([r["text"] for r in out["state"]["records"] if r["type"] == "good"], ["今天吃到了超好吃的寿司"])
+        self.assertEqual(out["state"]["messages"][-1]["content"], out["reply"])
+        # 小光以后按这个陪：聊天时的系统提示里有陪伴方式和有精神的时候
+        self.fake.turns = [[("text", "嗯。")]]
+        c.sse("今天有点乱")
+        sys_prompt = self.fake.seen[-1][0]["content"]
+        self.assertIn("聊天时 TA 希望你：多听 TA 说，先接住，不急着给建议", sys_prompt)
+        self.assertIn("一天里比较有精神的时候：早上", sys_prompt)
+        # 再做一次：近况更新上一次那条，不越堆越多，旧说法在修订记录里
+        self.fake.json_out = None
+        rid, outs = self._scene(c, "relearn", ["最近想慢下来，休息一下", "（跳过）", "（跳过）", "（跳过）", "（跳过）", "暂时不需要提醒"])
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": [{"key": "life", "text": "最近想慢下来，休息一下"},
+                                                                          {"key": "remind", "text": "暂时不需要提醒"}]})
+        self.assertEqual(s, 200, out)
+        lives = [m for m in out["state"]["memories"] if "最近的生活：" in m["text"]]
+        self.assertEqual(len(lives), 1)
+        self.assertIn("最近想慢下来", lives[0]["text"])
+        self.assertTrue(any("正在经历一些变化" in (r["old_text"] or "") for r in out["state"]["revisions"]))
+        self.assertTrue(out["reply"])                                        # 模型不在：固定的一句
+        self.assertEqual(out["state"]["prefs"]["remind_pref"], "暂时不需要提醒")
+
+    def test_relearn_back_keeps_nothing(self):
+        c, uid = self.onboarded("relearn_back")
+        _, boot = c.req("GET", "/api/bootstrap")
+        n_msgs, n_mems = len(boot["messages"]), len(boot["memories"])
+        rid, outs = self._scene(c, "relearn", ["忙忙碌碌，有很多事情要处理", "找朋友聊天或一起玩", "（跳过）", "晚上",
+                                               "给我一些鼓励和信心", "每天"])
+        self.assertGreater(outs[-1]["xp"]["amount"], 0)                      # 练习经验照给
+        self.assertEqual(c.req("POST", "/api/scene/discard", {"run_id": rid})[0], 200)
+        with Store(uid) as st:
+            self.assertEqual(st.get_scene(rid)["answers"], [])              # 回答清掉了
+        self.assertEqual(c.req("POST", "/api/scene/save", {"run_id": rid, "items": [{"key": "chat", "text": "x"}]})[0], 400)
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertEqual((len(boot["messages"]), len(boot["memories"]), boot["profile"]["chat_style"]), (n_msgs, n_mems, ""))
+        # 中途关掉也一样
+        _, d = c.req("POST", "/api/scene/start", {"scene": "relearn"})
+        c.req("POST", "/api/scene/answer", {"run_id": d["run"]["id"], "text": "正在经历一些变化"})
+        c.req("POST", "/api/scene/cancel")
+        with Store(uid) as st:
+            self.assertEqual(st.get_scene(d["run"]["id"])["answers"], [])
+        # 模型不在时，想让小光知道的话先原样记成一条
+        rid, outs = self._scene(c, "relearn", ["（跳过）"] * 6)
+        self.assertEqual(outs[-1]["review"]["items"], [])
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": [], "extra": "最近在学吉他"})
+        self.assertEqual(s, 200, out)
+        self.assertIn("想让小光知道：最近在学吉他", [m["text"] for m in out["state"]["memories"]])
+        self.assertEqual(c.req("POST", "/api/scene/save", {"run_id": rid, "items": []})[0], 400)
+
+    def test_companion_prefs_editable_in_settings(self):
+        c, _ = self.onboarded("prefs")
+        s, d = c.req("POST", "/api/profile", {"chat_style": "给你一些鼓励和信心", "remind_pref": "每周几次", "energy_time": "晚上"})
+        self.assertEqual(s, 200, d)
+        self.assertEqual((d["prefs"]["chat_style"], d["prefs"]["remind_pref"], d["prefs"]["energy_time"]),
+                         ("给你一些鼓励和信心", "每周几次", "晚上"))
+        self.assertIn("多听你说，不急着给建议", d["prefs"]["options"]["chat_style"])
+        _, d = c.req("POST", "/api/profile", {"remind_pref": ""})            # 再点一下就是不设
+        self.assertEqual(d["prefs"]["remind_pref"], "")
 
     def test_lazy_day_never_resets_progress(self):
         c, _ = self.onboarded("lazy")
