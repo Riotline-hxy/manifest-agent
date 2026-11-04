@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import academy, cheer, growth, journey, scenes, scheduler, tasks, town
 from .store import Store
 
-VERSION = "3.5.0"
+VERSION = "3.5.1"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
@@ -14,7 +14,7 @@ IDEAS = [
      "desc": "最近的你有没有一些变化？我们可以重新聊聊你的习惯和喜好。"},
     {"id": "seven_steps_lite", "title": "聊聊你的愿望", "scene": "seven_steps_lite", "minutes": 2,
      "group": "聊聊", "prompt": "陪我聊聊我最近想实现的愿望。",
-     "desc": "我们一起聊聊，你最近想实现的愿望吧～七个小问题，正好走一遍显化七步。"},
+     "desc": "我们一起聊聊，你最近想实现的愿望吧～"},
     {"id": "meditation", "title": "遇见更好的自己", "scene": "meditation", "minutes": 3,
      "group": "日常", "prompt": "陪我放松几分钟，想象一下期待的生活。",
      "desc": "花几分钟放松一下，想象你期待的生活。"},

@@ -117,7 +117,7 @@ SCENES = {
     },
     "seven_steps_lite": {
         "title": "聊聊你的愿望", "minutes": 2, "stage": "七步", "review": True,
-        "desc": "我们一起聊聊，你最近想实现的愿望吧～七个小问题，正好走一遍显化七步。",
+        "desc": "我们一起聊聊，你最近想实现的愿望吧～",
         "steps": [
             {"key": "wish", "foot": 0},   # 有没有愿望，问法不同：见 _render_step
             {"key": "belief", "foot": 1, "q": "想到这个愿望，你觉得自己有机会实现它吗？",
