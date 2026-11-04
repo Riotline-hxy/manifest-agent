@@ -1,23 +1,26 @@
 // 「一课」：所有引导场景共用的全屏问答（多邻国式）。
 // 上：进度条；中：小光 + 气泡 + 选项卡 / 输入框 / 呼吸圈；下：继续按钮。
 // 每答一题，小光有一个小反应；有的题答完小光会回一句话（点继续再往下）。
-// 结束有两种：答完就写的场景是完成页（经验数字滚动上来）；先确认再存的场景是「这次聊到的」，勾选、改一改，再保存。
+// 结束有三种：答完就写的场景是完成页（经验数字滚动上来）；两个「聊聊」是「这次聊到的」，勾选、改一改，再保存；
+// 冥想是「有没有什么让你想记住」。冥想（calm）的节奏慢一点：话一行一行出来，选了就往下走，有背景音乐。
 
-import { esc, icon, tile } from "./ui.js";
+import { esc, icon, tile, toast } from "./ui.js";
 import { mountBall, lookPicture } from "./ball.js";
 import { confetti, countUp } from "./fx.js";
 
 const NICE = ["记下了", "嗯，我懂了", "这个很重要", "谢谢你告诉我", "收到", "好，就按你说的"];
 const KEYS = "123456789";
+const LINE = 900;      // 冥想里，每一行话之间隔多久（毫秒）
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function runLesson({ kicker = "", start, answer, review: rvApi, onClose, onDone, finishLabel = "继续" }) {
+export function runLesson({ kicker = "", start, answer, review: rvApi, music, onClose, onDone, finishLabel = "继续" }) {
   const el = document.createElement("div");
   el.className = "lesson";
   el.innerHTML = `
     <div class="lesson-top">
       <button class="lesson-x" aria-label="关闭">×</button>
       <div class="bar lesson-bar"><i></i></div>
+      <button class="lesson-music" hidden aria-label="背景音乐">${icon("music")}</button>
       <span class="lesson-count num"></span>
     </div>
     <div class="lesson-stage">
@@ -45,11 +48,22 @@ export function runLesson({ kicker = "", start, answer, review: rvApi, onClose, 
   let sel = [];          // 选中的选项（按点的先后）
   let busy = false;
   let breathTimer = 0;
+  let readyTimer = 0;
   let next = null;       // 小光回应之后要接着出的那一题
   let ending = null;     // 结束页：{ out, back } —— 这时候关掉 = 返回对话（这次的回答不留）
 
+  // 背景音乐：右上角一个小音符，点一下开 / 关
+  if (music) {
+    const mb = $(".lesson-music");
+    mb.hidden = false;
+    mb.addEventListener("click", () => music.toggle());
+    music.onChange((on) => { mb.classList.toggle("off", !on); mb.setAttribute("aria-pressed", on); mb.title = on ? "关掉音乐" : "放点音乐"; });
+  }
+
   const close = (result) => {
     clearInterval(breathTimer);
+    clearTimeout(readyTimer);
+    music?.stop();
     document.removeEventListener("keydown", onKey);
     el.classList.remove("in");
     el.classList.add("out");
@@ -63,12 +77,19 @@ export function runLesson({ kicker = "", start, answer, review: rvApi, onClose, 
     go.classList.toggle("off", !on);
   }
 
-  function say(text) {
+  // 冥想的话一行一行慢慢出来；返回最后一行出来要多久
+  function say(text, calm = step?.calm) {
     const q = $(".lesson-q");
-    q.textContent = text;
+    q.classList.toggle("calm", !!calm);
+    const lines = String(text || "").split("\n");
+    if (calm) q.innerHTML = lines.map((l, i) => `<span class="ln" style="--d:${i * LINE}ms">${esc(l)}</span>`).join("");
+    else q.textContent = text;
     q.classList.remove("pop", "reply"); void q.offsetWidth; q.classList.add("pop");
-    return q;
+    return calm ? (lines.length - 1) * LINE + 500 : 0;
   }
+
+  // 冥想用的那颗光：慢慢地吸、呼；warm 是「一束温暖的光」来了
+  const orb = (warm = false) => `<div class="breath soft ${warm ? "warm" : ""}"><span class="b-ring"></span><span class="b-fill"></span></div>`;
 
   // 「显化七步」那行小字：这一题对应的那一步亮起来
   function note(s) {
@@ -81,18 +102,22 @@ export function runLesson({ kicker = "", start, answer, review: rvApi, onClose, 
     next = null;
     value = null;
     sel = [];
+    clearTimeout(readyTimer);
+    el.classList.toggle("calm", !!s.calm);
     const total = s.total || 1;
     $(".lesson-bar > i").style.width = `${Math.max(4, (s.index / total) * 100)}%`;
     $(".lesson-count").textContent = `${s.index + 1}/${total}`;
-    const q = say(s.q);
-    if (s.hint) q.insertAdjacentHTML("beforeend", `<small>${esc(s.hint)}</small>`);
+    const lead = say(s.q);
+    if (s.hint) $(".lesson-q").insertAdjacentHTML("beforeend", `<small>${esc(s.hint)}</small>`);
     note(s);
-    ball.set(s.timer ? "focused" : "listening");
+    ball.set(s.timer ? "focused" : s.breath ? "tired" : "listening");
     skip.style.visibility = s.optional ? "visible" : "hidden";
+    go.style.visibility = s.auto ? "hidden" : "visible";      // 冥想的选择页：选了就走，不用按钮
     $(".lesson-react").textContent = "";
     el.querySelector(".lesson-foot").classList.remove("good");
     go.textContent = "继续";
     const box = $(".lesson-answer");
+    box.style.setProperty("--lead", `${lead}ms`);
     clearInterval(breathTimer);
     const opts = s.opts || (s.chips || []).map((c) => ({ v: c, label: c }));
 
@@ -104,6 +129,15 @@ export function runLesson({ kicker = "", start, answer, review: rvApi, onClose, 
         breathe(box.querySelector(".breath"), s.timer, () => { value = opts[0]?.v || "做完了"; setReady(true); ball.set("satisfied"); });
       });
       setReady(false);
+      return;
+    }
+    // 只有一个按钮的页（「准备好了」）：话说完，按钮才亮
+    if (s.cta && !opts.length && !s.ph) {
+      box.innerHTML = s.breath ? orb() : "";
+      go.textContent = s.cta;
+      value = s.cta;
+      setReady(false);
+      readyTimer = setTimeout(() => setReady(true), lead);
       return;
     }
     const free = !!(s.ph || s.free);
@@ -156,6 +190,7 @@ export function runLesson({ kicker = "", start, answer, review: rvApi, onClose, 
   }
 
   function pick(b) {
+    if (busy) return;
     const v = b.dataset.v;
     const ta = el.querySelector(".lesson-text");
     if (step.multi) {
@@ -181,28 +216,38 @@ export function runLesson({ kicker = "", start, answer, review: rvApi, onClose, 
     collect();
     step.onPick?.(v, ball);
     ball.set("curious");
+    if (step.auto && !step.multi && !isAsk(v)) setTimeout(() => submit(), 320);   // 冥想：选了就往下走
   }
 
   async function submit(skipIt = false) {
     if (ending) return;
-    if (next) return show(next);              // 小光说完一句，点继续进下一题
+    if (next) {                               // 小光说完一句，点继续进下一题（话还没说完时按钮是灰的）
+      if (!go.classList.contains("off")) show(next);
+      return;
+    }
     if (busy || (!skipIt && go.classList.contains("off"))) return;
     busy = true;
     const v = skipIt ? null : value;
-    // 小反应：底栏变绿 + 一句话 + 小光开心一下（只有文字选项的场景不说「记下了」：点保存之前什么都没存）
-    el.querySelector(".lesson-foot").classList.add("good");
-    $(".lesson-react").innerHTML = `${tile(skipIt ? "arrow" : "check", "var(--good)", 40)}${step.plain ? "" : `<b>${skipIt ? "没关系，跳过" : NICE[(Math.random() * NICE.length) | 0]}</b>`}`;
-    ball.set(skipIt ? "shy" : "happy");
-    ball.pulse("bounce");
+    // 小反应：底栏变绿 + 一句话 + 小光开心一下（只有文字选项的场景不说「记下了」：点保存之前什么都没存；冥想里什么都不闪）
+    if (!step.calm) {
+      el.querySelector(".lesson-foot").classList.add("good");
+      $(".lesson-react").innerHTML = `${tile(skipIt ? "arrow" : "check", "var(--good)", 40)}${step.plain ? "" : `<b>${skipIt ? "没关系，跳过" : NICE[(Math.random() * NICE.length) | 0]}</b>`}`;
+      ball.set(skipIt ? "shy" : "happy");
+      ball.pulse("bounce");
+    } else {
+      el.classList.add("turning");
+    }
     go.classList.add("off");
     try {
-      const [out] = await Promise.all([answer(v, step), wait(650)]);
+      const [out] = await Promise.all([answer(v, step), wait(step.calm ? 700 : 650)]);
       busy = false;
-      if (out.done) return out.review ? reviewPage(out) : finish(out);
-      if (out.reply) return replyThen(out.reply, out.step);
+      el.classList.remove("turning");
+      if (out.done) return out.review?.kind === "feel" ? feelPage(out) : out.review ? reviewPage(out) : finish(out);
+      if (out.reply) return replyThen(out.reply, out.step, out.glow);
       show(out.step);
     } catch (e) {
       busy = false;
+      el.classList.remove("turning");
       ball.set("error");
       $(".lesson-react").innerHTML = `<b style="color:var(--danger)">${esc(e.message || "没成功，再试一次")}</b>`;
       el.querySelector(".lesson-foot").classList.remove("good");
@@ -210,17 +255,23 @@ export function runLesson({ kicker = "", start, answer, review: rvApi, onClose, 
     }
   }
 
-  // 小光的回应：气泡里说一句，答题区空出来，点继续再出下一题
-  function replyThen(text, nextStep) {
-    say(text).classList.add("reply");
+  // 小光的回应：气泡里说一句，答题区空出来，点继续再出下一题。glow：那束光亮起来
+  function replyThen(text, nextStep, glow = false) {
+    const lead = say(text);
+    $(".lesson-q").classList.add("reply");
     ball.set("happy");
-    $(".lesson-answer").innerHTML = "";
+    const box = $(".lesson-answer");
+    box.style.setProperty("--lead", `${lead}ms`);
+    box.innerHTML = glow ? orb(true) : "";
     $(".lesson-react").textContent = "";
     el.querySelector(".lesson-foot").classList.remove("good");
     skip.style.visibility = "hidden";
+    go.style.visibility = "visible";
     go.textContent = "继续";
-    setReady(true);
     next = nextStep;
+    setReady(!lead);
+    clearTimeout(readyTimer);
+    if (lead) readyTimer = setTimeout(() => setReady(true), lead);
   }
 
   function finish(out) {
@@ -351,6 +402,73 @@ export function runLesson({ kicker = "", start, answer, review: rvApi, onClose, 
         go.textContent = "保存选中的内容";
         skip.classList.remove("off");
         ready();
+      }
+    };
+  }
+
+  // ---- 冥想的结束页：有没有什么想记住？记下感受（保存 / 不保存）· 和小光聊聊 · 直接结束 ----
+  function feelPage(out) {
+    clearInterval(breathTimer);
+    $(".lesson-bar > i").style.width = "100%";
+    $(".lesson-count").textContent = "";
+    note(null);
+    ball.set("happy");
+    const rv = out.review;
+    let saving = false;
+    const finishWith = async (extra) => { if (saving) return; saving = true; await rvApi?.back?.(); close({ ...out, review: true, ...extra }); };
+    ending = { back: () => finishWith({ stay: true }) };
+    say(rv.say, false);
+    const box = $(".lesson-answer");
+    box.style.setProperty("--lead", "0ms");
+    box.innerHTML = `<div class="opts one">${rv.choices.map((c, i) => `
+        <button class="opt" data-k="${esc(c.key)}" style="--i:${i}"><span class="key">${KEYS[i]}</span><span class="lbl">${esc(c.label)}</span></button>`).join("")}</div>
+      <div class="feel-write" hidden>
+        <textarea class="field lesson-text" rows="3" maxlength="180" placeholder="${esc(rv.ph || "")}"></textarea>
+        ${rv.to ? `<small class="rv-note">${esc(rv.to)}</small>` : ""}
+      </div>
+      ${out.xp?.amount ? `<div class="rv-xp">${icon("bolt")}经验 +${out.xp.amount}${out.xp.coins ? ` · 金币 +${out.xp.coins}` : ""}</div>` : ""}`;
+    const write = box.querySelector(".feel-write");
+    const ta = write.querySelector("textarea");
+    skip.style.visibility = "hidden";
+    go.style.visibility = "hidden";
+    $(".lesson-react").innerHTML = "";
+    el.querySelector(".lesson-foot").classList.remove("good");
+
+    box.querySelectorAll(".opt").forEach((b) => b.addEventListener("click", async () => {
+      if (saving) return;
+      box.querySelectorAll(".opt.on").forEach((x) => x.classList.remove("on"));
+      b.classList.add("on");
+      const k = b.dataset.k;
+      if (k === "end") return finishWith({ stay: true });
+      if (k === "talk") {
+        saving = true;
+        try { close({ ...(await rvApi.save([], "", true)), review: true }); }
+        catch (e) { saving = false; toast(e.message || "没打开对话，再试一次", "err"); }
+        return;
+      }
+      // 记下感受：出输入框，下面换成「不保存 / 保存」
+      write.hidden = false;
+      setTimeout(() => ta.focus(), 60);
+      skip.textContent = "不保存";
+      skip.style.visibility = "visible";
+      go.style.visibility = "visible";
+      go.textContent = "保存";
+      setReady(!!ta.value.trim());
+    }));
+    ta.addEventListener("input", () => setReady(!!ta.value.trim()));
+    skip.onclick = () => finishWith({ stay: true });
+    go.onclick = async () => {
+      if (saving || go.classList.contains("off")) return;
+      saving = true;
+      go.classList.add("off");
+      try {
+        const res = await rvApi.save([], ta.value.trim());
+        toast("记下了，在「好消息」里能看到", "", "star");
+        close({ ...res, review: true, stay: true });
+      } catch (e) {
+        saving = false;
+        setReady(true);
+        toast(e.message || "没存上，再试一次", "err");
       }
     };
   }

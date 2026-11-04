@@ -45,7 +45,7 @@ export const api = {
   record: (type, text) => post("/api/record", { type, text }),
   sceneStart: (scene) => post("/api/scene/start", { scene }),
   sceneAnswer: (run_id, text) => post("/api/scene/answer", { run_id, text }),
-  sceneSave: (run_id, items, extra) => post("/api/scene/save", { run_id, items, extra }),
+  sceneSave: (run_id, items, extra, talk = false) => post("/api/scene/save", { run_id, items, extra, talk }),
   sceneDiscard: (run_id) => post("/api/scene/discard", { run_id }),
   sceneCancel: () => post("/api/scene/cancel"),
   growth: () => get("/api/growth"),

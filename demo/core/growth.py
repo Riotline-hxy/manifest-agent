@@ -223,6 +223,11 @@ def _pick(st, day: str) -> dict:
     from .scenes import SCENES
     if cur.get("day") == day and all(t in DAILY for t in cur.get("ids", [])) and cur.get("scene") in SCENES:
         return cur
+    if cur.get("day") == day and all(t in DAILY for t in cur.get("ids", [])):
+        # 今天推荐的练习下架了（说清想要的）：只换练习，今天的四件事不动
+        out = {**cur, "scene": random.Random(f"{st.uid}:{day}:scene").choice(list(SCENES))}
+        st.set_profile({"daily_pick": out})
+        return out
     rnd = random.Random(f"{st.uid}:{day}")
     ok = _eligible(st)
     yesterday = set(cur.get("ids") or [])

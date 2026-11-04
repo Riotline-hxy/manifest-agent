@@ -548,6 +548,9 @@ def scene_answer(h, u, b, q):
         run = st.get_scene(str(b.get("run_id") or ""))
         if not run or run["status"] != "open":
             raise ApiError(404, "这个场景已经结束了")
+        if run["scene"] not in scenes.SCENES:     # 已经下架的练习（说清想要的）：做到一半的直接结束
+            st.update_scene(run["id"], run["step"], [], "abandoned")
+            raise ApiError(404, "这个练习已经下架了")
         review = scenes.is_review(run["scene"])
         q = scenes.resume(st, run["id"])["step"]["q"]
         out = scenes.answer(st, run["id"], value)
@@ -565,11 +568,11 @@ def scene_answer(h, u, b, q):
 
 
 def scene_save(h, u, b, q):
-    """结束页「保存选中的内容」：只写勾选的那几项（文字用用户改过的）。"""
+    """结束页「保存选中的内容」：只写勾选的那几项（文字用用户改过的）。冥想结束页的「记下感受」「和你聊聊」也走这里。"""
     items = [x for x in (b.get("items") or []) if isinstance(x, dict)] if isinstance(b.get("items"), list) else []
     with Store(u["id"]) as st:
         try:
-            out = scenes.save(st, str(b.get("run_id") or ""), items, str(b.get("extra") or ""))
+            out = scenes.save(st, str(b.get("run_id") or ""), items, str(b.get("extra") or ""), talk=bool(b.get("talk")))
         except KeyError:
             raise ApiError(404, "这次的练习找不到了")
         except ValueError as e:

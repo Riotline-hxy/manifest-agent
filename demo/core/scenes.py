@@ -1,15 +1,18 @@
 """点子里的引导场景：一题一题问（界面在 public/js/lesson.js），这里管进度和写回。
 
 两种结束方式：
-- 答完就写（clarify / gratitude / meditation）：最后一题答完，直接写进记忆、计划或好消息；
-- 先确认再存（review=True：「聊聊你的愿望」「聊聊现在的你」）：答题时什么都不写，也不进聊天记录。
-  结束页把能留下的内容列成卡片，用户勾选、可以改，点「保存选中的内容」才写（save）；
-  点「返回对话」就把这次的回答清掉（discard）。练习经验在答完时就给，存不存都算。
+- 答完就写（gratitude）：最后一题答完，直接写进好消息和记忆；
+- 先确认再存（review=True：「聊聊你的愿望」「聊聊现在的你」「遇见更好的自己」）：答题时什么都不写，也不进聊天记录。
+  两个「聊聊」的结束页把能留下的内容列成卡片，用户勾选、可以改，点「保存选中的内容」才写（save）；
+  冥想的结束页问一句「有没有什么让你想记住」：记下感受 / 和小光聊聊 / 直接结束。
+  不保存就把这次的回答清掉（discard）。练习经验在答完时就给，存不存都算。
 
 题目字段：q 问题，hint 气泡里的小字；chips 选项；ask {选项: 占位}：选了它才出输入框，答案是输入的文字；
 ph 一直显示的输入框；after 选项放在输入框下面；multi / max 多选；none 算作「没想好」的选项；
 replies {选项: 小光的回应}、reply_any 选了就回应、reply_unknown 回答「不知道」时的回应；
-foot 「显化七步」那行小字里点亮第几个。
+foot 「显化七步」那行小字里点亮第几个；cta 没有选项、只有一个按钮的页（按钮上的字）；
+breath 这一页放一颗慢慢呼吸的光；glow 回应时那颗光变暖、亮起来。
+场景上的 calm：冥想的节奏，选了就往下走、不能跳过，问题一行一行慢慢出来；music 背景音乐。
 """
 from __future__ import annotations
 
@@ -37,6 +40,19 @@ CHAT_STYLES = {
 }
 CHAT_HOW = {shown: how for shown, how in CHAT_STYLES.values()}
 REMIND = ["每天", "每周几次", "每周一次", "暂时不需要提醒"]
+
+# 「遇见更好的自己」：选项原文 → 结束后小光开口时用的短说法
+PLACE = {"在温暖安静的家里": "温暖安静的家里", "在阳光下，享受户外的空气": "阳光下的户外",
+         "在喜欢的城市，自由地走走": "喜欢的城市里", "在一个让我有成就感的地方": "一个让你有成就感的地方",
+         "其他，我有自己的画面": "自己的画面里"}
+FUTURE_SELF = {"更自信，敢于表达自己的想法": "更自信", "更平静，不再总是担心": "更平静", "更自由，能选择喜欢的生活": "更自由",
+               "更有力量，愿意尝试新事物": "更有力量", "被爱包围，也懂得爱自己": "被爱包围"}
+# 那束光带来的感受 → 在心里对自己说的话
+LIGHT = {"勇气": "我可以带着一点点勇气，尝试我想做的事。", "平静": "我可以慢下来，找到自己的节奏。",
+         "爱与陪伴": "我值得被爱，也可以温柔地照顾自己。", "自信": "我正在慢慢相信自己。",
+         "对生活的期待": "我愿意发现生活中正在发生的美好。"}
+FEEL = [{"key": "write", "label": "我想记下刚才的感受"}, {"key": "talk", "label": "我想和你聊聊"},
+        {"key": "end", "label": "先不记录，结束"}]
 ENERGY = ["早上", "下午", "晚上", "不太固定"]
 
 SCENES = {
@@ -69,15 +85,6 @@ SCENES = {
              "chips": REMIND + ["还没想好"], "none": ["还没想好"]},
         ],
     },
-    "clarify": {
-        "title": "说清想要的", "minutes": 3, "stage": "澄清",
-        "desc": "把模糊的「想变好」说成一个具体画面。",
-        "steps": [
-            {"q": "用一句话说你想要的生活片段，越具体越好。", "ph": "比如：周末早上，在阳台上写完一篇自己满意的文章"},
-            {"q": "去掉「应该」之后，哪半句是真的？", "ph": "留下你真正想要的那部分"},
-            {"q": "如果它已经实现了，明天早上你会先做什么？", "ph": "越小越好"},
-        ],
-    },
     "gratitude": {
         "title": "三分钟感恩", "minutes": 3, "stage": "感恩",
         "desc": "找三件已经发生的好事，小到一杯热水也算。",
@@ -88,13 +95,24 @@ SCENES = {
         ],
     },
     "meditation": {
-        "title": "短冥想引导", "minutes": 4, "stage": "感受",
-        "desc": "4 拍吸、4 拍呼，六轮，然后感受愿望实现时的身体。",
+        "title": "遇见更好的自己", "minutes": 3, "stage": "冥想", "review": True, "calm": True,
+        "music": "/audio/meditation.mp3",
+        "desc": "花几分钟放松一下，想象你期待的生活。",
         "steps": [
-            {"q": "找个舒服的姿势。跟着圆圈呼吸：4 拍吸、4 拍呼，共 6 轮。准备好就开始。",
-             "timer": {"inhale": 4, "exhale": 4, "rounds": 6}, "chips": ["做完了"]},
-            {"q": "想象你的意图已经实现了。身体哪里最先放松？", "ph": "肩膀、眉心、胸口……"},
-            {"q": "用一个词记下这种感觉。", "chips": ["平静", "轻松", "温暖", "踏实", "开阔"]},
+            {"key": "relax", "breath": True, "cta": "准备好了",
+             "q": "找一个舒服的姿势。\n轻轻吸一口气，再慢慢呼出来。\n这一刻，你可以先放下手里的事。"},
+            {"key": "place", "q": "现在，想象一年后的某一天。\n那时的你，正待在一个让自己舒服的地方。\n你希望自己在哪里？",
+             "chips": list(PLACE)},
+            {"key": "self", "q": "在这个地方，你看到了未来的自己。\n你最希望那时的自己是什么样的？",
+             "chips": list(FUTURE_SELF), "reply_any": "那是你期待成为的样子。\n我们一起再看看，那时的你过着怎样的生活。"},
+            {"key": "joy", "q": "想象一下，未来的你刚刚经历了一件让自己开心的事。\n你希望是什么？",
+             "chips": ["勇敢做了一件以前不敢做的事", "完成了一件自己一直期待的事", "有人理解我、支持我",
+                       "拥有了一段轻松自在的时间", "我有自己的想象"]},
+            {"key": "light", "glow": True,
+             "q": "想象一束温暖的光，轻轻来到你的身边。\n它带来了你此刻需要的感受。\n你希望它带来什么？",
+             "chips": list(LIGHT), "replies": {k: f"你选择了{k}。\n现在，试着在心里对自己说：\n{v}" for k, v in LIGHT.items()}},
+            {"key": "back", "breath": True, "cta": "我准备好了",
+             "q": "再轻轻呼吸一次。\n感受一下你的身体，也留意身边的声音。\n等你准备好了，慢慢睁开眼睛，或者抬起目光。\n欢迎回来。"},
         ],
     },
     "seven_steps_lite": {
@@ -128,7 +146,7 @@ SERVER_ONLY = ("replies", "reply_any", "reply_unknown", "none")
 
 def catalog() -> list[dict]:
     return [{"id": k, "title": v["title"], "minutes": v["minutes"], "stage": v["stage"], "desc": v["desc"],
-             "icon": v.get("icon", ""), "steps": len(v["steps"])} for k, v in SCENES.items()]
+             "icon": v.get("icon", ""), "music": v.get("music", ""), "steps": len(v["steps"])} for k, v in SCENES.items()]
 
 
 def is_review(sid: str) -> bool:
@@ -148,7 +166,11 @@ def _render_step(store: Store, scene_id: str, i: int) -> dict:
     st["q"] = st.get("q", "").replace("{intent}", store.profile().get("intent_primary") or "想成为的自己")
     st["index"], st["total"] = i, len(sc["steps"])
     if sc.get("review"):
-        st["optional"], st["plain"] = True, True
+        st["optional"], st["plain"] = not sc.get("calm"), True
+    if sc.get("calm"):        # 冥想：选了就往下走
+        st["calm"] = True
+        if st.get("chips"):
+            st["auto"] = True
     if "foot" in st:
         st["foot"] = {"label": "显化七步", "words": SEVEN, "at": st["foot"]}
     return st
@@ -218,6 +240,8 @@ def answer(store: Store, run_id: str, value) -> dict:
         out = {"done": False, "step": _render_step(store, sid, len(answers))}
         if reply:
             out["reply"] = reply
+            if step.get("glow"):
+                out["glow"] = True
         return out
     store.update_scene(run_id, len(answers), answers, "done")
     if sc.get("review"):
@@ -255,6 +279,9 @@ def _seven_target(store: Store, wish_ans: str) -> tuple[dict | None, str]:
 def review(store: Store, sid: str, a: list) -> dict:
     by = _by_key(sid, a)
     items = []
+    if sid == "meditation":
+        return {"kind": "feel", "say": "刚刚的几分钟里，有没有什么让你想记住？", "choices": FEEL,
+                "ph": "写下刚才的感受，一句也好", "to": "会记在「好消息」里"}
     if sid == "seven_steps_lite":
         target, new = _seven_target(store, by["wish"])
         if _has(sid, by, "try"):
@@ -292,24 +319,28 @@ def _shown(key: str, v) -> str:
 
 # ---------------------------------------------------------------- 保存 / 不保存 ----
 
-def save(store: Store, run_id: str, chosen: list, extra: str = "") -> dict:
-    """只写用户勾选的；文字用用户改过的版本。写完把这次的回答清掉，同一次不能存两遍。"""
+def save(store: Store, run_id: str, chosen: list, extra: str = "", talk: bool = False) -> dict:
+    """只写用户勾选的；文字用用户改过的版本。写完把这次的回答清掉，同一次不能存两遍。
+    冥想：extra 是用户写下的感受（记成一颗小确幸）；talk=True 是「我想和你聊聊」，小光带着刚才的画面先开口。"""
     run = store.get_scene(run_id)
     if not run or run["status"] != "done" or not is_review(run["scene"]):
         raise KeyError(run_id)
     if not run["answers"]:
         raise ValueError("这次聊到的已经处理过了")
     sid = run["scene"]
-    allowed = {it["key"]: it for it in review(store, sid, run["answers"])["items"] if not it.get("off")}
-    picks = {}
-    for it in chosen[:10]:
-        k = str((it or {}).get("key") or "")
-        if k in allowed:
-            picks[k] = clip(str(it.get("text") or "").strip(), 60) or allowed[k]["text"]
-    extra = clip((extra or "").strip(), 300) if sid == "relearn" else ""
-    if not picks and not extra:
-        raise ValueError("还没有选中要保存的内容")
-    out = _save_seven(store, run["answers"], picks) if sid == "seven_steps_lite" else _save_relearn(store, picks, extra)
+    if sid == "meditation":
+        out = _meditation_talk(run["answers"]) if talk else _meditation_note(store, extra)
+    else:
+        allowed = {it["key"]: it for it in review(store, sid, run["answers"])["items"] if not it.get("off")}
+        picks = {}
+        for it in chosen[:10]:
+            k = str((it or {}).get("key") or "")
+            if k in allowed:
+                picks[k] = clip(str(it.get("text") or "").strip(), 60) or allowed[k]["text"]
+        extra = clip((extra or "").strip(), 300) if sid == "relearn" else ""
+        if not picks and not extra:
+            raise ValueError("还没有选中要保存的内容")
+        out = _save_seven(store, run["answers"], picks) if sid == "seven_steps_lite" else _save_relearn(store, picks, extra)
     store.update_scene(run_id, run["step"], [], "done")
     if out["reply"]:
         store.add_msg("assistant", out["reply"], {"scene": sid, "scene_done": True, "wrote": [w["label"] for w in out["wrote"]]})
@@ -371,6 +402,28 @@ def _save_seven(store: Store, answers: list, picks: dict) -> dict:
     if "worry" in picks:
         lines.append("让你有压力的那个想法，我也记着，想聊的时候随时说。")
     return {"reply": "".join(lines[:3]), "wrote": wrote}
+
+
+def _meditation_note(store: Store, extra: str) -> dict:
+    text = clip((extra or "").strip(), 180)
+    if not text:
+        raise ValueError("写一句再保存吧")
+    store.add_record("good", "冥想后：" + text)
+    return {"reply": "", "wrote": [{"type": "record", "label": "刚才的感受", "text": text, "where": "好消息"}]}
+
+
+def _meditation_talk(answers: list) -> dict:
+    """「我想和你聊聊」：小光先开口提一句刚才的画面，用户接着说；之后的对话里小光也知道刚才想象了什么。"""
+    by = _by_key("meditation", answers)
+    bits = []
+    if by.get("place") in PLACE:
+        bits.append(f"你在{PLACE[by['place']]}")
+    if by.get("self") in FUTURE_SELF:
+        bits.append(f"看到了{FUTURE_SELF[by['self']]}的自己")
+    if by.get("light") in LIGHT:
+        bits.append(f"那束光带来了{by['light']}")
+    head = ("刚才那几分钟，" + "，".join(bits) + "。") if bits else "刚才那几分钟，你陪自己慢了下来。"
+    return {"reply": head + "想从哪儿聊起都行。", "wrote": []}
 
 
 # 近况记成记忆。再做一次时更新上一次的那条（旧说法留在修订记录里），不越堆越多。
@@ -481,30 +534,16 @@ def finish(store: Store, sid: str, a: list[str]) -> list[dict]:
         m = store.add_memory(text, kind, "scene:" + sid)
         out.append({"type": "memory", "label": "记住了一条", "item": m})
 
-    def step(title, why):
-        s = store.add_step(title, why=why, wish=store.profile().get("intent_primary") or "")
-        out.append({"type": "step", "label": "加了一小步", "item": s})
-
     def rec(type_, text):
         r = store.add_record(type_, text)
         out.append({"type": "record", "label": "记下一条好消息" if type_ == "good" else "记下一条发现", "item": r})
 
-    if sid == "clarify":
-        step(clip(a[2], 40), "来自「说清想要的」：" + clip(a[0], 40))
-        mem("想要的画面：" + clip(a[1] or a[0], 60), "intent")
-    elif sid == "gratitude":
+    if sid == "gratitude":
         text = "；".join(clip(x, 40) for x in a)
         rec("good", text)
         mem("感恩三件事：" + text, "good_news")
-    elif sid == "meditation":
-        mem(f"想到意图实现时，{clip(a[1], 20)}先放松，感觉是「{clip(a[2], 8)}」", "insight")
-        rec("find", f"冥想时的感觉：{clip(a[2], 8)}")
     return out
 
 
 def summary(sid: str, a: list[str]) -> str:
-    if sid == "clarify":
-        return f"你想要的画面是「{clip(a[0], 30)}」。明天早上的第一件事，我放进计划了：{clip(a[2], 30)}。"
-    if sid == "gratitude":
-        return "三件好事都收好了。今天其实没有那么空。"
-    return f"记下了这种「{clip(a[2], 8)}」。下次想放弃的时候，可以先回到这里。"
+    return "三件好事都收好了。今天其实没有那么空。"

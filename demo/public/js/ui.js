@@ -169,6 +169,7 @@ export const ICONS = {
   trash: '<path d="M5 7h14M10 4h4M7 7l1 13h8l1-13"/>',
   download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
   play: '<path d="M8 5.5v13l10.5-6.5z"/>',
+  music: '<path d="M9 17.5V6.5l10-2.5v11"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15" r="2.5"/>',
   egg: '<path d="M12 3.5c3.6 0 6.5 5.3 6.5 9.5a6.5 6.5 0 0 1-13 0C5.5 8.8 8.4 3.5 12 3.5z"/>',
   report: '<path d="M7 3.5h7l4 4v13H7z"/><path d="M14 3.5v4h4M9.5 12h6M9.5 15.5h4"/>',
   quote: '<path d="M9.5 7.5H6v4.5h3.5V15c0 1.5-1 2.5-2.5 2.5M18.5 7.5H15v4.5h3.5V15c0 1.5-1 2.5-2.5 2.5"/>',

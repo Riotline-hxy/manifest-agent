@@ -4,29 +4,23 @@ from __future__ import annotations
 from . import academy, cheer, growth, journey, scenes, scheduler, tasks, town
 from .store import Store
 
-VERSION = "3.4.0"
+VERSION = "3.5.0"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
 IDEAS = [
     {"id": "relearn", "title": "聊聊现在的你", "scene": "relearn", "minutes": 2, "cta": "开始聊聊",
-     "group": "默契", "prompt": "最近的我有些变化，想和你重新聊聊。",
+     "group": "聊聊", "prompt": "最近的我有些变化，想和你重新聊聊。",
      "desc": "最近的你有没有一些变化？我们可以重新聊聊你的习惯和喜好。"},
-    {"id": "clarify", "title": "说清想要的", "scene": "clarify", "minutes": 3,
-     "group": "愿望", "prompt": "用一句话描述你想要的生活画面。",
-     "desc": "把「想变好」拆成一个能看见的具体早晨。"},
-    {"id": "meditation", "title": "短冥想引导", "scene": "meditation", "minutes": 4,
-     "group": "日常", "prompt": "陪我呼吸六轮，然后感受愿望实现时的身体。",
-     "desc": "4 拍吸、4 拍呼。身体常常比头脑先知道。"},
+    {"id": "seven_steps_lite", "title": "聊聊你的愿望", "scene": "seven_steps_lite", "minutes": 2,
+     "group": "聊聊", "prompt": "陪我聊聊我最近想实现的愿望。",
+     "desc": "我们一起聊聊，你最近想实现的愿望吧～七个小问题，正好走一遍显化七步。"},
+    {"id": "meditation", "title": "遇见更好的自己", "scene": "meditation", "minutes": 3,
+     "group": "日常", "prompt": "陪我放松几分钟，想象一下期待的生活。",
+     "desc": "花几分钟放松一下，想象你期待的生活。"},
     {"id": "gratitude", "title": "三分钟感恩", "scene": "gratitude", "minutes": 3,
      "group": "日常", "prompt": "我想记下三件已经发生的好事。",
      "desc": "小到一杯热水也算。练习的是注意力。"},
-    {"id": "seven_steps_lite", "title": "聊聊你的愿望", "scene": "seven_steps_lite", "minutes": 2,
-     "group": "愿望", "prompt": "陪我聊聊我最近想实现的愿望。",
-     "desc": "我们一起聊聊，你最近想实现的愿望吧～七个小问题，正好走一遍显化七步。"},
-    {"id": "know-me", "title": "你现在有多了解我", "scene": "", "minutes": 1,
-     "group": "默契", "prompt": "__know_me__",
-     "desc": "让我说你记得的我，也说出我不确定的部分。"},
 ]
 
 

@@ -464,22 +464,91 @@ class ApiTest(unittest.TestCase):
 
     def test_scene_waits_for_each_answer_then_writes(self):
         c, _ = self.onboarded("scene")
-        s, d = c.req("POST", "/api/scene/start", {"scene": "clarify"})
+        s, d = c.req("POST", "/api/scene/start", {"scene": "gratitude"})
         self.assertEqual(s, 200)
         rid = d["run"]["id"]
-        _, d1 = c.req("POST", "/api/scene/answer", {"run_id": rid, "text": "周末早上在阳台看书"})
+        _, d1 = c.req("POST", "/api/scene/answer", {"run_id": rid, "text": "食堂的汤很好喝"})
         self.assertFalse(d1["done"])
         self.assertEqual(d1["step"]["index"], 1)
         _, boot = c.req("GET", "/api/bootstrap")
         self.assertEqual(boot["scene"]["id"], rid)      # resumable after reload
-        c.req("POST", "/api/scene/answer", {"run_id": rid, "text": "在阳台看书"})
-        _, d3 = c.req("POST", "/api/scene/answer", {"run_id": rid, "text": "把书放到床头"})
+        c.req("POST", "/api/scene/answer", {"run_id": rid, "text": "同事帮我带了伞"})
+        _, d3 = c.req("POST", "/api/scene/answer", {"run_id": rid, "text": "按时下班了"})
         self.assertTrue(d3["done"])
         types = sorted(w["type"] for w in d3["wrote"])
-        self.assertEqual(types, ["memory", "step"])
+        self.assertEqual(types, ["memory", "record"])
         _, boot = c.req("GET", "/api/bootstrap")
-        self.assertIn("把书放到床头", [x["title"] for x in boot["steps"]])
+        self.assertIn("食堂的汤很好喝；同事帮我带了伞；按时下班了", [x["text"] for x in boot["records"]])
         self.assertIsNone(boot["scene"])
+
+    def test_removed_ideas_are_gone(self):
+        c, uid = self.onboarded("removed")
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertEqual([i["id"] for i in boot["ideas"]], ["relearn", "seven_steps_lite", "meditation", "gratitude"])
+        self.assertNotIn("clarify", [s["id"] for s in boot["scenes"]])
+        self.assertEqual(c.req("POST", "/api/scene/start", {"scene": "clarify"})[0], 404)
+        with Store(uid) as st:     # 上线前做到一半的「说清想要的」：再答就结束，不报错
+            st.c.execute("INSERT INTO scene_run(id, scene, step, answers, status, created_at) VALUES('sc_old','clarify',1,'[\"x\"]','active','2026-11-01T10:00:00')")
+        s, d = c.req("POST", "/api/scene/answer", {"run_id": "sc_old", "text": "y"})
+        self.assertEqual((s, d.get("error")), (404, "这个练习已经下架了"))
+        with Store(uid) as st:
+            self.assertEqual((st.get_scene("sc_old")["status"], st.get_scene("sc_old")["answers"]), ("abandoned", []))
+
+    def test_meditation_journey_keeps_nothing_unless_asked(self):
+        c, uid = self.onboarded("meditate")
+        _, boot = c.req("GET", "/api/bootstrap")
+        med = next(s for s in boot["scenes"] if s["id"] == "meditation")
+        self.assertEqual((med["title"], med["music"]), ("遇见更好的自己", "/audio/meditation.mp3"))
+        n_msgs, n_recs, n_mems = len(boot["messages"]), len(boot["records"]), len(boot["memories"])
+        answers = ["准备好了", "在阳光下，享受户外的空气", "更平静，不再总是担心", "有人理解我、支持我", "自信", "我准备好了"]
+        rid, outs = self._scene(c, "meditation", answers)
+        first = outs[0]["step"]
+        self.assertEqual((first["cta"], first["breath"], first["calm"], first["optional"]), ("准备好了", True, True, False))
+        self.assertTrue(outs[1]["step"]["auto"])                              # 选了就往下走
+        self.assertEqual(outs[3]["reply"], "那是你期待成为的样子。\n我们一起再看看，那时的你过着怎样的生活。")
+        self.assertEqual(outs[5]["reply"], "你选择了自信。\n现在，试着在心里对自己说：\n我正在慢慢相信自己。")
+        self.assertTrue(outs[5]["glow"])
+        done = outs[-1]
+        self.assertEqual(done["review"]["kind"], "feel")
+        self.assertEqual([x["key"] for x in done["review"]["choices"]], ["write", "talk", "end"])
+        self.assertEqual(done["xp"]["amount"], 12)
+        _, boot = c.req("GET", "/api/bootstrap")                             # 冥想时选的什么都没存
+        self.assertEqual((len(boot["messages"]), len(boot["records"]), len(boot["memories"])), (n_msgs, n_recs, n_mems))
+        # 记下感受：一颗小确幸
+        self.assertEqual(c.req("POST", "/api/scene/save", {"run_id": rid, "extra": "  "})[0], 400)
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "extra": "肩膀松下来了，想多晒太阳"})
+        self.assertEqual(s, 200, out)
+        self.assertEqual(out["state"]["records"][0]["text"], "冥想后：肩膀松下来了，想多晒太阳")
+        self.assertEqual(out["state"]["records"][0]["type"], "good")
+        self.assertEqual(len(out["state"]["messages"]), n_msgs)
+        # 和你聊聊：小光带着刚才的画面先开口
+        rid, outs = self._scene(c, "meditation", answers)
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "talk": True})
+        self.assertEqual(s, 200, out)
+        self.assertEqual(out["reply"], "刚才那几分钟，你在阳光下的户外，看到了更平静的自己，那束光带来了自信。想从哪儿聊起都行。")
+        self.assertEqual(out["state"]["messages"][-1]["content"], out["reply"])
+        # 先不记录：什么都不留
+        rid, outs = self._scene(c, "meditation", answers)
+        c.req("POST", "/api/scene/discard", {"run_id": rid})
+        with Store(uid) as st:
+            self.assertEqual(st.get_scene(rid)["answers"], [])
+
+    def test_audio_supports_range_requests(self):
+        import pathlib
+        from core.util import PUBLIC
+        f = pathlib.Path(PUBLIC) / "audio" / "_range_test.mp3"
+        f.parent.mkdir(exist_ok=True)
+        f.write_bytes(bytes(range(32, 127)) * 10)     # 950 字节，测试客户端按 UTF-8 读，所以只放可见字符
+        try:
+            c = Client(self.port)
+            s, body, _ = c.req("GET", "/audio/_range_test.mp3", headers={"Range": "bytes=10-19"}, raw=True)
+            self.assertEqual((s, body), (206, bytes(range(42, 52)).decode()))
+            s, body, _ = c.req("GET", "/audio/_range_test.mp3", headers={"Range": "bytes=5000-"}, raw=True)
+            self.assertEqual(s, 416)
+            s, body, _ = c.req("GET", "/audio/_range_test.mp3", raw=True)
+            self.assertEqual((s, len(body)), (200, 950))
+        finally:
+            f.unlink()
 
     def test_every_scene_writes_something(self):
         from core import scenes
@@ -492,8 +561,12 @@ class ApiTest(unittest.TestCase):
             self.assertTrue(out["done"], sid)
             if sc.get("review"):      # 先确认再存：答完什么都没写，勾选后保存才写
                 self.assertNotIn("wrote", out, sid)
-                items = [{"key": it["key"], "text": it["text"]} for it in out["review"]["items"] if not it.get("off")]
-                s, out = c.req("POST", "/api/scene/save", {"run_id": d["run"]["id"], "items": items})
+                if out["review"].get("kind") == "feel":     # 冥想：写下感受再保存
+                    body = {"run_id": d["run"]["id"], "extra": "很放松"}
+                else:
+                    body = {"run_id": d["run"]["id"], "items": [{"key": it["key"], "text": it["text"]}
+                                                               for it in out["review"]["items"] if not it.get("off")]}
+                s, out = c.req("POST", "/api/scene/save", body)
                 self.assertEqual(s, 200, out)
             self.assertGreaterEqual(len(out["wrote"]), 1, sid)
 
@@ -974,7 +1047,7 @@ class ApiTest(unittest.TestCase):
             st.set_profile({"daily_pick": {"day": day_key(), "ids": ["act", "good", "pick", "act3"], "scene": "meditation"}})
         _, d = c.req("GET", "/api/bootstrap")
         self.assertEqual(d["growth"]["daily"]["pick"], "meditation")   # 点子页的今日推荐就是它
-        self.assertIn("短冥想", next(t for t in d["growth"]["daily"]["tasks"] if t["id"] == "pick")["label"])
+        self.assertIn("遇见更好的自己", next(t for t in d["growth"]["daily"]["tasks"] if t["id"] == "pick")["label"])
         from core import scenes
         _, run = c.req("POST", "/api/scene/start", {"scene": "gratitude"})   # 做别的练习：不算「今天推荐的」
         for i in range(len(scenes.SCENES["gratitude"]["steps"])):

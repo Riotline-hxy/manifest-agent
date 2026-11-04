@@ -119,11 +119,48 @@
 .wrote .w b { display: block; font-size: 15px; }
 .wrote .w span { font-size: 13px; color: var(--text-2); }
 
+/* 背景音乐：进度条右边一个小音符，关着时划一道 */
+.lesson-music { position: relative; flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: var(--accent); transition: color .2s, background .2s; }
+.lesson-music[hidden] { display: none; }
+.lesson-music .ic-svg { width: 20px; height: 20px; }
+.lesson-music:hover { background: var(--surface-2); }
+.lesson-music.off { color: var(--text-3); }
+.lesson-music.off::after { content: ""; position: absolute; width: 22px; height: 2px; border-radius: 2px; background: currentColor; transform: rotate(-45deg); }
+
+/* 冥想（calm）：话一行一行慢慢出来，选项等话说完再出来；翻页时整页淡一下，不闪绿 */
+.lesson-q.calm { font-size: 18.5px; line-height: 1.75; }
+.lesson-q.calm .ln { display: block; animation: ln-in 1s var(--ease) backwards; animation-delay: var(--d, 0ms); }
+@keyframes ln-in { from { opacity: 0; transform: translateY(6px); } }
+.lesson.calm .opts .opt { animation-delay: calc(var(--lead, 0ms) + var(--i) * 80ms + 150ms); }
+.lesson.calm .lesson-ask, .lesson.calm .lesson-answer { transition: opacity .5s var(--ease); }
+.lesson.turning .lesson-ask, .lesson.turning .lesson-answer { opacity: 0; }
+
+/* 冥想里那颗慢慢呼吸的光（8 秒一吸一呼）；warm 是「一束温暖的光」 */
+.breath.soft { width: 200px; height: 200px; margin: 10px auto 0; animation: orb-in 1.4s var(--ease) backwards; animation-delay: var(--lead, 0ms); }
+.breath.soft .b-ring { border: 1.5px solid var(--line-2); opacity: .55; animation: none; }
+.breath.soft .b-fill { animation: orb-breathe 8s ease-in-out infinite; }
+.breath.warm .b-fill { background: radial-gradient(circle at 40% 35%, #fff6dc, #ffd08a 55%, #f4a25e); box-shadow: 0 0 80px rgba(255, 200, 120, .5); animation-duration: 6s; }
+@keyframes orb-breathe { 0%, 100% { transform: scale(.5); } 50% { transform: scale(.94); } }
+@keyframes orb-in { from { opacity: 0; transform: scale(.85); } }
+
+/* 冥想的结束页：记下感受 */
+.feel-write { display: grid; gap: 6px; margin-top: 12px; }
+.feel-write[hidden] { display: none; }
+.feel-write .lesson-text { margin-top: 0; }
+.lesson-answer > .rv-xp { margin-top: 14px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lesson-q.calm .ln, .breath.soft, .breath.soft .b-fill, .lesson.calm .opts .opt { animation: none !important; }
+  .breath.soft .b-fill { transform: scale(.75); }
+}
+
 @media (max-width: 700px) {
   .opts, .opts.many { grid-template-columns: 1fr; }
   .lesson-ask { gap: 10px; }
   .lesson-ball { width: 76px !important; height: 76px !important; }
   .lesson-q { font-size: 17px; margin-top: 4px; }
+  .lesson-q.calm { font-size: 16.5px; }
+  .breath.soft { width: 160px; height: 160px; }
   .lesson-foot-in { padding: 14px 16px; min-height: 84px; }
   .lesson-go { min-width: 120px; }
   .lesson-react { font-size: 15px; }

@@ -6,11 +6,10 @@ import { mountBall } from "../ball.js";
 import { startScene } from "../scene.js";
 
 const META = {
-  relearn: ["compass", "var(--c-violet)"], "know-me": ["eye", "var(--c-violet)"],
-  clarify: ["flag", "var(--c-orange)"], seven_steps_lite: ["steps", "var(--c-orange)"],
+  relearn: ["compass", "var(--c-violet)"], seven_steps_lite: ["steps", "var(--c-orange)"],
   meditation: ["wind", "var(--c-sky)"], gratitude: ["heart", "var(--c-pink)"],
 };
-const GROUPS = [["默契", "让小光更懂你"], ["愿望", "把想要的说清楚"], ["日常", "几分钟就能做完"]];
+const GROUPS = [["聊聊", "答几个小问题，小光更懂你"], ["日常", "几分钟就能做完"]];
 
 export function renderIdeas(root) {
   const ideas = state.data.ideas || [];
@@ -59,13 +58,7 @@ export function renderIdeas(root) {
   mountBall(root.querySelector(".ft-ball"), { size: 96 });
   root.querySelectorAll("[data-idea]").forEach((b) => b.addEventListener("click", () => {
     const idea = ideas.find((i) => i.id === b.dataset.idea);
-    if (!idea) return;
-    if (!idea.scene) {
-      state.autoSend = "小光，你现在有多了解我？说说你记得的，也说说你还不确定的。";
-      go("chat");
-      return;
-    }
-    startScene(idea.scene);
+    if (idea) startScene(idea.scene);
   }));
   root.querySelectorAll("[data-art]").forEach((b) => b.addEventListener("click", () => go("article", { id: b.dataset.art })));
   root.querySelector("[data-go]")?.addEventListener("click", () => go("academy"));

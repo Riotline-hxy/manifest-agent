@@ -34,6 +34,7 @@ mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("image/svg+xml", ".svg")
 mimetypes.add_type("image/webp", ".webp")
 mimetypes.add_type("application/manifest+json", ".webmanifest")
+mimetypes.add_type("audio/mpeg", ".mp3")
 
 CSP = ("default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
        "script-src 'self'; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'")
@@ -190,9 +191,28 @@ class Handler(BaseHTTPRequestHandler):
         if ctype.startswith("text/") or ctype.endswith("javascript"):
             ctype += "; charset=utf-8"
         cache = "no-cache" if f.suffix in (".html", ".js", ".css") else "public, max-age=86400"
-        extra = {"Cache-Control": cache}
+        extra = {"Cache-Control": cache, "Accept-Ranges": "bytes"}
         if f.suffix == ".html":
             extra.update({"Content-Security-Policy": CSP, "X-Frame-Options": "DENY"})
+        # 按段取（冥想的背景音乐）：iPhone 的 Safari 放音频一定要服务器支持 Range，否则放不出来
+        rng = (self.headers.get("Range") or "").strip()
+        if rng.startswith("bytes=") and "," not in rng:
+            a, _, b = rng[6:].partition("-")
+            size = len(data)
+            try:
+                start, end = (size - int(b), size - 1) if a == "" else (int(a), min(size - 1, int(b)) if b else size - 1)
+            except ValueError:
+                start, end = 0, size - 1
+            start = max(0, start)
+            if start >= size or start > end:
+                self._headers(416, ctype, 0, {"Content-Range": f"bytes */{size}"})
+                self.end_headers()
+                return
+            data = data[start:end + 1]
+            self._headers(206, ctype, len(data), {**extra, "Content-Range": f"bytes {start}-{end}/{size}"})
+            self.end_headers()
+            self.wfile.write(data)
+            return
         self._headers(200, ctype, len(data), extra)
         self.end_headers()
         self.wfile.write(data)

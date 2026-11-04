@@ -203,7 +203,7 @@ def seed_guest(store: Store) -> None:
             good_rows.append((d, r["id"]))
 
     # 三次已完成的练习 + 两个已走的场景
-    for sid, d in [("meditation", 4), ("gratitude", 8), ("clarify", 11)]:
+    for sid, d in [("meditation", 4), ("gratitude", 8), ("seven_steps_lite", 11)]:
         rid = f"sc_seed_{sid}"
         store.c.execute(
             "INSERT OR REPLACE INTO scene_run(id, scene, step, answers, status, created_at) VALUES(?,?,?,?,?,?)",
@@ -222,7 +222,7 @@ def seed_guest(store: Store) -> None:
         backdated_award("action", "step:" + sid, d, 22)
     for d, rid in good_rows:
         backdated_award("good", "rec:" + rid, d, 20)
-    for sid, d in [("meditation", 4), ("gratitude", 8), ("clarify", 11)]:
+    for sid, d in [("meditation", 4), ("gratitude", 8), ("seven_steps_lite", 11)]:
         backdated_award("practice", "scene:sc_seed_" + sid, d, 20)
     for d in range(15):
         backdated_award("checkin", "day:" + at(d, 9)[:10], d, 9)
