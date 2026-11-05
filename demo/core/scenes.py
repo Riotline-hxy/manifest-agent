@@ -95,7 +95,7 @@ SCENES = {
         ],
     },
     "meditation": {
-        "title": "遇见更好的自己", "minutes": 3, "stage": "冥想", "review": True, "calm": True,
+        "title": "冥想体验：遇见更好的自己", "minutes": 3, "stage": "冥想", "review": True, "calm": True,
         "music": "/audio/meditation.mp3",
         "desc": "花几分钟放松一下，想象你期待的生活。",
         "steps": [

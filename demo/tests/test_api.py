@@ -498,7 +498,7 @@ class ApiTest(unittest.TestCase):
         c, uid = self.onboarded("meditate")
         _, boot = c.req("GET", "/api/bootstrap")
         med = next(s for s in boot["scenes"] if s["id"] == "meditation")
-        self.assertEqual((med["title"], med["music"]), ("遇见更好的自己", "/audio/meditation.mp3"))
+        self.assertEqual((med["title"], med["music"]), ("冥想体验：遇见更好的自己", "/audio/meditation.mp3"))
         n_msgs, n_recs, n_mems = len(boot["messages"]), len(boot["records"]), len(boot["memories"])
         answers = ["准备好了", "在阳光下，享受户外的空气", "更平静，不再总是担心", "有人理解我、支持我", "自信", "我准备好了"]
         rid, outs = self._scene(c, "meditation", answers)
