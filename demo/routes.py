@@ -5,7 +5,7 @@ the only source of the user id.
 """
 from __future__ import annotations
 
-from core import academy, admin, auth, digest, metrics, webpush, growth, journey, llm, onboarding, report, scenes, scheduler, tasks, town, trial
+from core import academy, admin, auth, digest, metrics, webpush, growth, journey, kickstart, llm, onboarding, report, scenes, scheduler, tasks, town, trial
 from core.store import Store
 from core.util import clip, day_key, iso
 from core.api import VERSION, ApiError, bootstrap, public_user
@@ -587,6 +587,53 @@ def scene_discard(h, u, b, q):
         return 200, {"ok": True}
 
 
+def kick_home(h, u, b, q):
+    """两分钟启动：最近做过的事、没做完的那一次。"""
+    with Store(u["id"]) as st:
+        return 200, kickstart.home(st)
+
+
+KICK_LLM = {"start", "answer", "adjust", "stuck", "more"}
+
+
+def kick_api(h, u, b, q):
+    """两分钟启动的每一步：开始 / 回答三问 / 完成或跳过这一步 / 调整路线 / 遇到困难 / 继续 / 结束 / 中途关掉 / 删掉一条记忆。"""
+    act = str(b.get("action") or "")
+    if act in KICK_LLM:
+        key = "kick:" + u["id"]
+        if auth.too_many(key, 60):
+            raise ApiError(429, "点得有点快，歇一会儿再试")
+        auth.note_fail(key)
+    rid = str(b.get("run_id") or "")
+    with Store(u["id"]) as st:
+        try:
+            if act == "start":
+                out = kickstart.start(st, str(b.get("task") or ""), str(b.get("mode") or "default"), str(b.get("step_id") or ""))
+            elif act == "answer":
+                out = kickstart.answer(st, rid, b.get("answers") if isinstance(b.get("answers"), dict) else {})
+            elif act in ("done", "skip"):
+                out = kickstart.advance(st, rid, act)
+            elif act in ("adjust", "stuck"):
+                out = kickstart.feedback(st, rid, act, str(b.get("text") or ""))
+            elif act == "more":
+                out = kickstart.more(st, rid)
+            elif act == "finish":
+                out = kickstart.finish(st, rid, bool(b.get("remember")))
+            elif act == "close":
+                out = kickstart.close(st, rid)
+            elif act == "forget":
+                out = kickstart.forget(st, str(b.get("id") or ""))
+            else:
+                raise ApiError(400, "未知操作")
+        except KeyError:
+            raise ApiError(404, "这次启动已经结束了")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        if act in ("finish", "forget") or out.get("xp"):
+            out["state"] = bootstrap(st)
+        return 200, out
+
+
 def scene_cancel(h, u, b, q):
     with Store(u["id"]) as st:
         run = st.scene_active()
@@ -771,7 +818,8 @@ def export(h, u, b, q):
     """Data portability: everything we store about you, as JSON."""
     with Store(u["id"]) as st:
         return 200, {"user": public_user(u), "exported_at": iso(), **bootstrap(st),
-                     "memories": st.memories(limit=10000), "messages": st.messages(10000)}
+                     "memories": st.memories(limit=10000), "messages": st.messages(10000),
+                     "kick_memory": kickstart.entries(st, limit=10000)}
 
 
 ROUTES = {
@@ -813,6 +861,8 @@ ROUTES = {
     ("POST", "/api/scene/cancel"): (scene_cancel, True),
     ("POST", "/api/scene/save"): (scene_save, True),
     ("POST", "/api/scene/discard"): (scene_discard, True),
+    ("GET", "/api/kick"): (kick_home, True),
+    ("POST", "/api/kick"): (kick_api, True),
     ("POST", "/api/proactive/now"): (proactive_now, True),
     ("POST", "/api/inbox/seen"): (inbox_seen, True),
     ("GET", "/api/growth"): (growth_get, True),

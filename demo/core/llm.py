@@ -146,11 +146,12 @@ def stream_chat(messages, tools=None, model=None, reasoning=None, timeout=None):
     yield ("done", {"finish_reason": finish, "usage": usage})
 
 
-def complete_json(messages, model=None, timeout=40) -> dict | None:
+def complete_json(messages, model=None, timeout=40, reasoning="low") -> dict | None:
     """Non-streaming call that must return a JSON object. Used by the memory
-    write pipeline and proactive-copy generation. Returns None on failure."""
+    write pipeline and proactive-copy generation. Returns None on failure.
+    reasoning=None 用配置里的默认（现在是关掉思考，最快）；要用户等着看结果的地方（两分钟启动）这样传。"""
     try:
-        resp = _request(_body(messages, model=model, reasoning="low", stream=False, json_mode=True), False, timeout)
+        resp = _request(_body(messages, model=model, reasoning=reasoning, stream=False, json_mode=True), False, timeout)
         with resp:
             d = json.loads(resp.read())
         _note_usage(d.get("usage"), "bg")

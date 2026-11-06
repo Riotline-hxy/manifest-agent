@@ -23,6 +23,7 @@ const TOOL = {
   checkin_habit: ["checkc", "var(--c-mint)", "习惯打卡"],
   remember: ["memory", "var(--c-violet)", "记住了"], correct_memory: ["edit", "var(--c-violet)", "改掉旧记忆"],
   search_memory: ["memory", "var(--c-violet)", "翻了翻记忆"], get_growth: ["home", "var(--c-mint)", "查了成长"],
+  kick_history: ["play", "var(--c-mint)", "翻了翻启动记忆"],
   knowledge_search: ["book", "var(--c-coral)", "心灵学堂"], set_care_style: ["compass", "var(--c-sky)", "互动偏好"],
   start_scene: ["wind", "var(--c-mint)", "开始练习"], checkin: ["chat", "var(--c-sky)", "今天来聊了"],
   propose_moment: ["sparkles", "var(--c-violet)", "要留在轨迹上吗"],

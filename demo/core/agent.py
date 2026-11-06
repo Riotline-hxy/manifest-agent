@@ -18,7 +18,7 @@ import re
 from datetime import timedelta
 import threading
 
-from . import academy, growth, guide, journey, llm, lookup, memory, nudges, tasks, town
+from . import academy, growth, guide, journey, kickstart, llm, lookup, memory, nudges, tasks, town
 from .scenes import CHAT_HOW, SCENES
 from .store import Store
 from .util import clip, day_key, now, parse_iso
@@ -105,6 +105,8 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
 - 用户明确要加一个重复做的事（「帮我加个每周健身三次」）→ add_habit；用户说今天做了某个习惯里的事（「今天去健身了」）→ checkin_habit。
 - 用户想冥想、放松、想象未来的自己（冥想体验：遇见更好的自己）、感恩、聊聊愿望（显化七步）、或想「聊聊现在的你」（最近的变化、习惯和喜好）→ start_scene。
 - 需要回忆以前的事、而下面没提供时 → search_memory（记住的要点）或 search_chats（以前聊天的原话）。
+- TA 问起以前用「两分钟启动」开始某件事的经历（「上次我是怎么开始练琴的？」）→ kick_history，照记录说；没有记录就照实说。
+  TA 说一件事想做却一直开始不了，可以提一句点子里的「两分钟启动」：把事情拆成几个一两分钟的小动作，你陪 TA 一步一步做。
 - TA 明确让你把一件事记到轨迹上，或者你刚问过「要不要留在轨迹上」、TA 说「好 / 留吧」→ 直接 edit_plan(add, kind=moment) 存下，
   不要再提议一次。改、删轨迹上的瞬间也用 edit_plan。
 - 用户在**这一句**里讲到自己刚做的、和愿望有关的一件具体的事（做了什么、当时什么感受）→ propose_moment，提议把它留在轨迹上。
@@ -177,6 +179,9 @@ TOOLS = [
     {"type": "function", "function": {
         "name": "search_chats", "description": "在你们以前的全部聊天记录里按关键词找。上下文里只有最近三天的原话，更早的细节用它查",
         "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "关键词，比如「面试」「Mia」"}}, "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "kick_history", "description": "查《两分钟启动记忆》：TA 用「两分钟启动」开始一件事的经历（想做什么、卡在哪、怎么调整、做了几步）。只有 TA 勾了「让小光记住」的才有",
+        "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "关键词，比如「练琴」「起床」；空着就是最近几次"}}}}},
     {"type": "function", "function": {
         "name": "edit_task", "description": "管理已有的定时任务：关掉、重新打开、删掉，或者改时间 / 名字 / 内容",
         "parameters": {"type": "object", "properties": {
@@ -305,7 +310,7 @@ TOOLS = [
             "boundaries": {"type": "array", "items": {"type": "string"}, "description": "TA 不希望你碰的话题（整份替换）"}}}}},
 ]
 
-TOOL_MOOD = {"look_up": "focused", "app_guide": "searching", "edit_good_news": "satisfied", "edit_task": "done", "update_settings": "shy", "edit_plan": "satisfied", "update_notebook": "recall", "search_chats": "recall", "schedule_task": "satisfied", "cancel_task": "done", "list_tasks": "focused", "adjust_habit": "satisfied", "propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
+TOOL_MOOD = {"look_up": "focused", "app_guide": "searching", "edit_good_news": "satisfied", "edit_task": "done", "update_settings": "shy", "edit_plan": "satisfied", "update_notebook": "recall", "search_chats": "recall", "kick_history": "recall", "schedule_task": "satisfied", "cancel_task": "done", "list_tasks": "focused", "adjust_habit": "satisfied", "propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
              "add_step": "satisfied", "remember": "recall", "start_scene": "curious",
              "get_growth": "focused", "knowledge_search": "searching", "set_care_style": "shy"}
 
@@ -751,6 +756,10 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
     if name == "search_chats":
         hits = search_chats(store, str(args.get("query") or ""))
         return {"ok": True, "hits": hits, "note": "没找到就照实说不记得了，别编" if not hits else ""}
+    if name == "kick_history":
+        hits = kickstart.history(store, str(args.get("query") or ""), k=4)
+        return {"ok": True, "entries": [{"date": h["day"], "record": h["text"]} for h in hits],
+                "note": "" if hits else "没有存下的记录：只有 TA 在两分钟启动结束时勾了「让小光记住这次体验」才会留下。照实说，别编"}
     if name == "list_tasks":
         return {"ok": True, "tasks": [{"title": t["title"], "when": t["when"], "on": t["enabled"]} for t in tasks.list_for(store.uid)]}
     if name == "edit_task":

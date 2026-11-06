@@ -1,0 +1,92 @@
+/* 两分钟启动：沿用「一课」的骨架（.lesson），这里只有它自己的几块 */
+.kick-body { display: grid; gap: 14px; }
+.kick.waiting .kick-body { opacity: .5; pointer-events: none; transition: opacity .3s; }
+
+/* 写下想做的事、选模式 */
+.kick-task { font-size: 17px; border-radius: 18px; padding: 14px 16px; resize: none; line-height: 1.5; }
+.kick-modes { display: flex; gap: 10px; flex-wrap: wrap; }
+.kick-mode { height: 38px; padding: 0 16px; border-radius: 99px; border: 2px solid var(--line-2); background: var(--surface); font-size: 14px; font-weight: 800; color: var(--text-2); transition: all .18s var(--ease); }
+.kick-mode:hover { color: var(--text); }
+.kick-mode.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.kick-hint { min-height: 18px; margin: -6px 0 0 4px; font-size: 13px; font-weight: 700; color: var(--text-3); }
+.kick-hint:empty { display: none; }
+/* 从小步开始：蜕变计划里待做的小步，一行一个，长标题省略 */
+.kick-picks { display: grid; gap: 8px; margin-top: 2px; }
+.kick-picks > span { margin-left: 4px; font-size: 12.5px; font-weight: 800; color: var(--text-3); }
+.kick-pick { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 10px 14px; border-radius: 14px; text-align: left;
+  border: 1.5px solid var(--line-2); background: var(--surface); font-size: 14.5px; font-weight: 700; color: var(--text); transition: border-color .15s, background .15s; }
+.kick-pick span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kick-pick .ic-svg { flex: none; width: 16px; height: 16px; color: var(--c-orange); }
+.kick-pick:hover, .kick-pick.on { border-color: var(--accent); }
+.kick-pick.on { background: var(--accent-soft); }
+.kick-resume { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 16px; text-align: left; background: var(--accent-soft); color: var(--accent); font-weight: 800; }
+.kick-resume > span { flex: 1; min-width: 0; }
+.kick-resume small { display: block; font-size: 12px; opacity: .8; }
+
+/* 拆更准的三个问题 */
+.kick-q { display: grid; gap: 8px; }
+.kick-q > b { font-size: 15px; }
+.kick-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.kick-opts .chip { justify-content: center; height: auto; min-height: 42px; padding: 7px 12px; border-radius: 14px; white-space: normal; text-align: center; line-height: 1.35; }
+.kick-q .field { padding: 10px 13px; border-radius: 14px; font-size: 14.5px; }
+
+/* 现在这一步 */
+.kick-card { display: grid; gap: 8px; justify-items: start; padding: 20px 20px 18px; border-radius: 22px; background: var(--surface); border: 2px solid var(--accent); animation: opt-in .5s var(--spring); }
+.kick-card b { font-size: 24px; line-height: 1.3; }
+.kick-card p { margin: 0; font-size: 15.5px; line-height: 1.6; color: var(--text-2); }
+.kick-next, .kick-from { display: flex; align-items: center; gap: 6px; margin: 0 0 0 4px; font-size: 13px; font-weight: 700; color: var(--text-3); }
+.kick-from .ic-svg { width: 14px; height: 14px; }
+
+/* 底栏：主按钮占满一行，下面两个并排 */
+.kick-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: min(560px, 100%); margin: 0 auto; padding: 16px 24px 20px; }
+.kick-foot .wide { grid-column: 1 / -1; }
+.kick-foot .btn-ghost { height: 46px; }
+
+/* 你已经开始了 */
+.kick-done { display: grid; gap: 12px; justify-items: center; text-align: center; padding: 10px 0; }
+.kick-done h2 { margin: 0; font-size: 30px; letter-spacing: .02em; animation: opt-in .6s var(--spring); }
+.kick-done p { margin: 0; color: var(--text-2); font-weight: 700; }
+.kick-done p b { color: var(--accent); font-size: 20px; }
+.kick-remember { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 12px 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); font-weight: 800; cursor: pointer; }
+.kick-remember input { width: 20px; height: 20px; accent-color: var(--accent); }
+
+/* 调整路线 / 遇到困难的弹层：盖在全屏的「一课」（z-index 250）上面 */
+.kick-scrim { z-index: 260; }
+.kick-panel { z-index: 270; }
+.kick-sheet { display: grid; gap: 12px; }
+.kick-sheet.waiting { opacity: .6; pointer-events: none; }
+.k-now { display: grid; gap: 3px; padding: 12px 14px; border-radius: 14px; background: var(--surface-2); }
+.k-now small { font-size: 12px; font-weight: 800; color: var(--accent); }
+.k-now span { font-size: 13.5px; color: var(--text-2); }
+.k-log { display: grid; gap: 6px; max-height: 180px; overflow-y: auto; }
+.k-log p { margin: 0; max-width: 85%; padding: 7px 11px; border-radius: 13px; font-size: 13.5px; line-height: 1.5; }
+.k-log .me { justify-self: end; background: var(--accent-soft); }
+.k-log .xg { justify-self: start; background: var(--surface-2); color: var(--text-2); }
+.k-quick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.k-quick button { min-height: 46px; padding: 8px 12px; border-radius: 14px; border: 1.5px solid var(--line-2); background: var(--surface);
+  font-size: 14.5px; font-weight: 800; color: var(--text); line-height: 1.35; transition: border-color .15s, background .15s, transform .12s; }
+.k-quick button:hover { border-color: var(--accent); }
+.k-quick button:active { transform: translateY(1px); background: var(--accent-soft); }
+.k-alt { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: -2px; }
+.k-alt .btn { justify-content: center; height: 40px; font-size: 13.5px; }
+.k-alt .ic-svg { width: 15px; height: 15px; }
+.k-send { display: flex; gap: 8px; align-items: flex-end; }
+.k-send textarea { flex: 1; resize: none; border-radius: 14px; padding: 11px 13px; font-size: 15px; }
+.k-go { width: 46px; height: 46px; padding: 0; border-radius: 50%; flex: none; }
+.k-wait { margin: 0; font-size: 13px; color: var(--text-3); }
+
+/* 蜕变计划里每个待做小步旁边的入口：一个小小的播放键 */
+.step-kick { flex: none; width: 34px; height: 34px; color: var(--c-mint); opacity: .75; }
+.step-kick:hover { opacity: 1; }
+.step-kick .ic-svg { width: 16px; height: 16px; }
+
+/* 我的空间 → 记忆：《两分钟启动记忆》 */
+.kick-mems .km { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px dashed var(--line); }
+.kick-mems .km:first-of-type { border-top: 0; }
+.kick-mems .km pre { flex: 1; margin: 0; white-space: pre-wrap; font: inherit; font-size: 13.5px; line-height: 1.65; color: var(--text-2); }
+
+@media (max-width: 700px) {
+  .kick-card b { font-size: 21px; }
+  .kick-foot { padding: 12px 16px 16px; }
+  .kick-done h2 { font-size: 26px; }
+}

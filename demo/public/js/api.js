@@ -47,6 +47,8 @@ export const api = {
   sceneAnswer: (run_id, text) => post("/api/scene/answer", { run_id, text }),
   sceneSave: (run_id, items, extra, talk = false) => post("/api/scene/save", { run_id, items, extra, talk }),
   sceneDiscard: (run_id) => post("/api/scene/discard", { run_id }),
+  kickHome: () => get("/api/kick"),
+  kick: (action, body = {}) => post("/api/kick", { action, ...body }),
   sceneCancel: () => post("/api/scene/cancel"),
   growth: () => get("/api/growth"),
   town: (action, payload = {}) => post("/api/town", { action, ...payload }),

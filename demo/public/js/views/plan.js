@@ -8,6 +8,7 @@ import { flyGain, burstAt, confetti } from "../fx.js";
 import { agentMini, celebrate } from "../ball.js";
 import { CATS, catOf, MOODS, curvePath, backdropSVG, figureSVG, visionSVG, playFx } from "../journey.js";
 import { restBannerHTML, bindRestBanner } from "../rest.js";
+import { openKick } from "../kick.js";
 
 const WEEK = "日一二三四五六";
 const BUCKETS = [1, 2, 3, 7, 14, 30];
@@ -107,6 +108,7 @@ export function renderPlan(root, { fresh = "" } = {}) {
           <div class="steps">${todo.map((s, i) => `<div class="step" style="--i:${i}">
             <button class="check" data-done="${esc(s.id)}" aria-label="完成「${esc(s.title)}」">${icon("check")}</button>
             <div class="step-main"><div class="st">${esc(s.title)}</div>${s.why ? `<div class="sw">${esc(s.why)}</div>` : ""}</div>
+            <button class="icon-btn step-kick" data-kick="${esc(s.id)}" aria-label="两分钟启动「${esc(s.title)}」" title="两分钟启动">${icon("play")}</button>
             <button class="btn btn-quiet btn-sm" data-drop="${esc(s.id)}">先放一放</button></div>`).join("")
             || (steps.some((s) => s.status === "done")
               ? `<div class="j-cleared"><span>${icon("checkc")}这个愿望的小步都做完了。</span><button class="btn btn-sm btn-main" data-think>${icon("sparkles")}和小光想想下一步</button></div>`
@@ -254,6 +256,10 @@ export function renderPlan(root, { fresh = "" } = {}) {
       if (out.xp?.amount || out.xp?.coins > 0) flyGain(b, out.xp); else toast(xpNote(out.xp) || "完成了");
       setTimeout(() => { setData(out); renderPlan(root, { fresh: today }); }, 480);
     } catch (e) { card.classList.remove("checking"); toast(e.message, "err"); }
+  }));
+  root.querySelectorAll("[data-kick]").forEach((b) => b.addEventListener("click", () => {
+    const s = (state.data.steps || []).find((x) => x.id === b.dataset.kick);
+    if (s) openKick({ task: s.title, stepId: s.id });     // 从小步进来：任务填好，小光知道它挂在哪个愿望下
   }));
   root.querySelectorAll("[data-drop]").forEach((b) => b.addEventListener("click", async () => {
     setData(await api.step("drop", { id: b.dataset.drop }));

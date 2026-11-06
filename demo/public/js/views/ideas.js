@@ -4,10 +4,11 @@ import { state, go } from "../store.js";
 import { esc, icon, tile } from "../ui.js";
 import { mountBall } from "../ball.js";
 import { startScene } from "../scene.js";
+import { openKick } from "../kick.js";
 
 const META = {
   relearn: ["compass", "var(--c-violet)"], seven_steps_lite: ["steps", "var(--c-orange)"],
-  meditation: ["wind", "var(--c-sky)"], gratitude: ["heart", "var(--c-pink)"],
+  kickstart: ["play", "var(--c-mint)"], meditation: ["wind", "var(--c-sky)"], gratitude: ["heart", "var(--c-pink)"],
 };
 const GROUPS = [["聊聊", "答几个小问题，小光更懂你"], ["日常", "几分钟就能做完"]];
 
@@ -58,7 +59,8 @@ export function renderIdeas(root) {
   mountBall(root.querySelector(".ft-ball"), { size: 96 });
   root.querySelectorAll("[data-idea]").forEach((b) => b.addEventListener("click", () => {
     const idea = ideas.find((i) => i.id === b.dataset.idea);
-    if (idea) startScene(idea.scene);
+    if (!idea) return;
+    if (idea.kind === "kick") openKick(); else startScene(idea.scene);
   }));
   root.querySelectorAll("[data-art]").forEach((b) => b.addEventListener("click", () => go("article", { id: b.dataset.art })));
   root.querySelector("[data-go]")?.addEventListener("click", () => go("academy"));

@@ -58,6 +58,7 @@ function memoryTab(body, root) {
   const guesses = mems.filter((m) => m.status === "guess");
   const active = mems.filter((m) => m.status === "active");
   const revs = state.data.revisions || [];
+  const kicks = state.data.kick_memories || [];
   body.innerHTML = `
     ${guesses.length ? `<div class="sec-title">小光猜的，需要你点头<span class="more">点「对」才会用它理解你</span></div>
       <div class="mem-grid" style="margin-bottom:24px">${guesses.map((m) => `<div class="mem guess">
@@ -80,7 +81,20 @@ function memoryTab(body, root) {
       ${revs.map((r) => `<div class="rev"><span class="muted">${esc(r.at.slice(5, 16).replace("T", " "))}</span>
         <div><s>${esc(r.old_text || "")}</s>${r.new_text ? ` → <b>${esc(r.new_text)}</b>` : " <b>（已删除）</b>"}
         <small>${esc(r.reason?.startsWith("digest") ? "夜里整理" : REASON[r.reason] || r.reason)}${r.evidence ? `：「${esc(r.evidence)}」` : ""}</small></div></div>`).join("")}
+    </details>` : ""}
+    ${kicks.length ? `<details class="fold card kick-mems" style="margin-top:14px"><summary>${icon("play")}两分钟启动记忆 <span class="muted">· ${kicks.length} 次，你勾了「让小光记住」的</span></summary>
+      ${kicks.map((k) => `<div class="km"><pre>${esc(k.text)}</pre><button class="icon-btn" title="删掉这条" data-kick-forget="${esc(k.id)}">${icon("trash")}</button></div>`).join("")}
     </details>` : ""}`;
+
+  body.querySelectorAll("[data-kick-forget]").forEach((b) => b.addEventListener("click", async () => {
+    if (!(await confirmSheet("删掉这次的启动记忆？", "会真正删除，小光以后查不到这一次了。夜里整理时已经记进「小光记得的」的，在上面单独删。", "删掉", "trash"))) return;
+    try {
+      const out = await api.kick("forget", { id: b.dataset.kickForget });
+      if (out.state) setData(out.state);
+      toast("删掉了");
+      renderSpace(root);
+    } catch (e) { toast(e.message, "err"); }
+  }));
 
   body.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", async () => {
     const { act, id } = b.dataset;

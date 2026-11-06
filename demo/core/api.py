@@ -1,10 +1,10 @@
 """Pieces shared by server.py and routes.py."""
 from __future__ import annotations
 
-from . import academy, cheer, growth, journey, scenes, scheduler, tasks, town
+from . import academy, cheer, growth, journey, kickstart, scenes, scheduler, tasks, town
 from .store import Store
 
-VERSION = "3.5.2"
+VERSION = "3.6.0"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
@@ -15,6 +15,9 @@ IDEAS = [
     {"id": "seven_steps_lite", "title": "聊聊你的愿望", "scene": "seven_steps_lite", "minutes": 2,
      "group": "聊聊", "prompt": "陪我聊聊我最近想实现的愿望。",
      "desc": "我们一起聊聊，你最近想实现的愿望吧～"},
+    {"id": "kickstart", "title": "两分钟启动", "scene": "", "kind": "kick", "minutes": 2,
+     "group": "日常", "prompt": "有件事想做，但一直开始不了。",
+     "desc": "把任务变得不靠意志也能做。"},
     {"id": "meditation", "title": "冥想体验：遇见更好的自己", "scene": "meditation", "minutes": 3,
      "group": "日常", "prompt": "陪我放松几分钟，想象一下期待的生活。",
      "desc": "花几分钟放松一下，想象你期待的生活。"},
@@ -81,5 +84,6 @@ def bootstrap(st: Store) -> dict:
         "scene_counts": {r[0]: r[1] for r in st.c.execute(
             "SELECT scene, COUNT(*) FROM scene_run WHERE status='done' GROUP BY scene")},
         "revisions": st.revisions(20),
+        "kick_memories": kickstart.entries(st, 30),   # 《两分钟启动记忆》：我的空间 → 记忆 里能看、能删
         "proactive": dict(zip(("ok", "reason"), scheduler.should_reach_out(p, scheduler.waiting_unseen(st, p)))),
     }

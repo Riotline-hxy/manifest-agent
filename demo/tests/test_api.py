@@ -50,7 +50,7 @@ class FakeLLM:
             yield ev
         yield ("done", {"finish_reason": "stop", "usage": None})
 
-    def complete(self, messages, model=None, timeout=40):
+    def complete(self, messages, model=None, timeout=40, reasoning="low"):
         self.seen_json.append(messages)
         return self.json_out
 
@@ -484,7 +484,7 @@ class ApiTest(unittest.TestCase):
     def test_removed_ideas_are_gone(self):
         c, uid = self.onboarded("removed")
         _, boot = c.req("GET", "/api/bootstrap")
-        self.assertEqual([i["id"] for i in boot["ideas"]], ["relearn", "seven_steps_lite", "meditation", "gratitude"])
+        self.assertEqual([i["id"] for i in boot["ideas"]], ["relearn", "seven_steps_lite", "kickstart", "meditation", "gratitude"])
         self.assertNotIn("clarify", [s["id"] for s in boot["scenes"]])
         self.assertEqual(c.req("POST", "/api/scene/start", {"scene": "clarify"})[0], 404)
         with Store(uid) as st:     # 上线前做到一半的「说清想要的」：再答就结束，不报错
@@ -532,6 +532,123 @@ class ApiTest(unittest.TestCase):
         c.req("POST", "/api/scene/discard", {"run_id": rid})
         with Store(uid) as st:
             self.assertEqual(st.get_scene(rid)["answers"], [])
+
+    # ---- 两分钟启动 -------------------------------------------------------------
+    def _kick(self, c, action, **body):
+        s, d = c.req("POST", "/api/kick", {"action": action, **body})
+        self.assertEqual(s, 200, d)
+        return d
+
+    def test_kickstart_route_adjust_and_forget_by_default(self):
+        c, uid = self.onboarded("kick_low")
+        self.fake.json_out = {"say": "被子先掀开一角就行。", "cheer": "起来了，今天已经赢了一半。", "steps": [
+            {"title": "先坐起来", "tip": "慢慢撑起身体，靠在床头。", "minutes": 1},
+            {"title": "双脚踩地", "tip": "把脚放到地上，感受地板的凉。", "minutes": 1},
+            {"title": "喝一口温水", "tip": "拿起旁边的水，小口喝下。", "minutes": 1}]}
+        run = self._kick(c, "start", task="想起床", mode="low")["run"]
+        self.assertEqual((run["mode"], run["total"], run["cur"], run["questions"]), ("low", 3, 0, []))
+        sent = self.fake.seen_json[-1]
+        self.assertIn("两分钟启动", sent[0]["content"])                          # 独立的提示词，不是聊天的人设
+        self.assertIn("想起床", sent[1]["content"])
+        self.assertIn("能量很低", sent[1]["content"])
+        run = self._kick(c, "done", run_id=run["id"])["run"]
+        run = self._kick(c, "done", run_id=run["id"])["run"]
+        self.assertEqual((run["cur"], run["done"]), (2, 2))
+        # 调整路线：只改现在这一步和后面的，做完的不动
+        self.fake.json_out = {"say": "没有温水也没关系。", "steps": [
+            {"title": "倒杯凉白开", "tip": "去厨房倒小半杯。", "minutes": 2}, {"title": "做三次深呼吸", "tip": "吸四拍，呼四拍。", "minutes": 1}]}
+        out = self._kick(c, "adjust", run_id=run["id"], text="没有温水")
+        run = out["run"]
+        self.assertEqual(out["say"], "没有温水也没关系。")
+        self.assertEqual([s["title"] for s in run["route"]], ["先坐起来", "双脚踩地", "倒杯凉白开", "做三次深呼吸"])
+        self.assertEqual([s["state"] for s in run["route"]][:2], ["done", "done"])
+        prompt = self.fake.seen_json[-1][1]["content"]
+        self.assertIn("✓ 先坐起来", prompt)
+        self.assertIn("→ 喝一口温水", prompt)
+        self.assertIn("没有温水", prompt)
+        # 遇到困难：第二轮还记得第一轮说过的话
+        self.fake.json_out = {"say": "那就只拿起杯子。", "steps": [{"title": "只拿起杯子", "tip": "拿起来就算。", "minutes": 1}]}
+        run = self._kick(c, "stuck", run_id=run["id"], text="不想动")["run"]
+        self.assertIn("「没有温水」", self.fake.seen_json[-1][1]["content"])
+        self.assertEqual([x["text"] for x in run["log"]], ["没有温水", "不想动"])
+        out = self._kick(c, "done", run_id=run["id"])
+        self.assertTrue(out["run"]["finished"])
+        self.assertEqual(out["xp"]["amount"], 12)                                 # 走完一条路线，算一次练习
+        # 结束时没勾「记住」：不写记忆，这一次的细节也清掉
+        out = self._kick(c, "finish", run_id=run["id"], remember=False)
+        self.assertFalse(out["saved"])
+        self.assertEqual(out["state"]["kick_memories"], [])
+        with Store(uid) as st:
+            row = dict(st.c.execute("SELECT * FROM kick_run WHERE id=?", (run["id"],)).fetchone())
+        self.assertEqual((row["status"], row["log"], row["answers"]), ("closed", "[]", "{}"))
+        self.assertNotIn("倒杯凉白开", row["route"])
+        _, home = c.req("GET", "/api/kick")
+        self.assertIsNone(home["active"])
+
+    def test_kickstart_precise_remember_and_recall(self):
+        c, uid = self.onboarded("kick_precise")
+        self.fake.json_out = {"now": ["还没开始", "写了个开头", "大纲有了", "资料还没找"], "want": ["写完第一段", "列个大纲", "找两份资料", "定个标题"],
+                              "block": ["怕写不好", "不知道写什么", "太累了", "总刷手机"]}
+        run = self._kick(c, "start", task="开始写周报", mode="precise")["run"]
+        self.assertEqual(run["total"], 0)
+        self.assertEqual([q["q"] for q in run["questions"]], ["你现在做到哪了？", "你现在最想推进的是什么？", "你现在最大的阻碍是什么？"])
+        self.assertEqual(run["questions"][2]["options"][0], "怕写不好")
+        self.fake.json_out = {"say": "从你写了的那个开头接着来。", "steps": [
+            {"title": "打开周报文档", "tip": "就打开，先不写。", "minutes": 1}, {"title": "写一句最简单的", "tip": "比如「本周做了三件事」。", "minutes": 2},
+            {"title": "列三个关键词", "tip": "", "minutes": 1}]}
+        run = self._kick(c, "answer", run_id=run["id"], answers={"now": "写了个开头", "want": "写完第一段", "block": "怕写不好"})["run"]
+        self.assertIn("怕写不好", self.fake.seen_json[-1][1]["content"])
+        self.assertIn("最大阻碍", self.fake.seen_json[-1][1]["content"])
+        run = self._kick(c, "done", run_id=run["id"])["run"]
+        run = self._kick(c, "skip", run_id=run["id"])["run"]                    # 先跳过这一步：不用问模型
+        self.assertEqual(run["route"][1]["state"], "skipped")
+        run = self._kick(c, "done", run_id=run["id"])["run"]
+        self.assertTrue(run["finished"])
+        self.fake.json_out = {"say": "接着来。", "steps": [{"title": "再写三句", "tip": "", "minutes": 3}]}
+        run = self._kick(c, "more", run_id=run["id"])["run"]                    # 继续做这件事：同一次会话接着加
+        self.assertEqual((run["total"], run["cur"], run["finished"]), (4, 3, False))
+        self.assertIn("✓ 打开周报文档", self.fake.seen_json[-1][1]["content"])
+        run = self._kick(c, "done", run_id=run["id"])["run"]
+        out = self._kick(c, "finish", run_id=run["id"], remember=True)
+        self.assertTrue(out["saved"])
+        [k] = out["state"]["kick_memories"]
+        for part in ("开始写周报（拆更准）", "最大的阻碍：怕写不好", "一开始的路线：打开周报文档 → 写一句最简单的 → 列三个关键词",
+                     "跳过了「写一句最简单的」", "实际做了：打开周报文档、列三个关键词、再写三句（3/4 步）"):
+            self.assertIn(part, k["text"])
+        # 夜里整理能读到它（连同 TA 的原话），聊天里按需查
+        from core import agent, digest
+        with Store(uid) as st:
+            mat = digest.material(st, k["day"])
+            self.assertEqual(len(mat["kicks"]), 1)
+            self.assertIn("怕写不好", mat["user_lines"])
+            hit = agent.run_tool(st, "kick_history", {"query": "周报"})
+            miss = agent.run_tool(st, "kick_history", {"query": "练琴"})
+        self.assertEqual(len(hit["entries"]), 1)
+        self.assertEqual((miss["entries"], bool(miss["note"])), ([], True))
+        # 我的空间里能删
+        out = self._kick(c, "forget", id=k["id"])
+        self.assertEqual(out["state"]["kick_memories"], [])
+
+    def test_kickstart_from_plan_step_and_model_failure(self):
+        c, uid = self.onboarded("kick_fail")
+        _, d = c.req("POST", "/api/step", {"action": "add", "title": "整理桌面"})
+        step = next(s for s in d["steps"] if s["title"] == "整理桌面")
+        self.fake.json_out = None                                                  # 模型不在：给一条最朴素的路，别卡住
+        out = self._kick(c, "start", task="整理桌面", step_id=step["id"])
+        run = out["run"]
+        self.assertFalse(out["by_model"])
+        self.assertEqual(run["total"], 3)
+        self.assertEqual(run["ctx"]["step"], "整理桌面")
+        self.assertIn("来自蜕变计划", self.fake.seen_json[-1][1]["content"])
+        s, d = c.req("POST", "/api/kick", {"action": "adjust", "run_id": run["id"], "text": "太难了"})
+        self.assertEqual((s, d["error"]), (400, "刚才没想好，换个说法再试一次？"))
+        _, home = c.req("GET", "/api/kick")
+        self.assertEqual(home["active"]["id"], run["id"])                         # 刷新页面也能接着做
+        self._kick(c, "close", run_id=run["id"])
+        _, home = c.req("GET", "/api/kick")
+        self.assertIsNone(home["active"])
+        self.assertEqual(c.req("POST", "/api/kick", {"action": "done", "run_id": run["id"]})[0], 404)
+        self.assertEqual(c.req("POST", "/api/kick", {"action": "start", "task": "  "})[0], 400)
 
     def test_audio_supports_range_requests(self):
         import pathlib

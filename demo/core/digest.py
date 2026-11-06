@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from . import llm
+from . import kickstart, llm
 from .memory import KINDS
 from .store import Store
 from .util import clip, day_key, now
@@ -43,6 +43,9 @@ PROMPT = """你在为「显化陪伴」应用做每天一次的记忆整理。�
    在上一版的基础上，把今天值得长期记住的内容合并进去，输出完整的新版本（≤1200 字），分这几块写，每块几行短句：
    最近的生活 / 在意的人 / 正在努力的事 / 心情和状态 / 相处时的偏好 / 时间线（带日期的重要事件，按时间排）。
    只写材料里出现过的事实；推测要标「（猜）」；过时的内容可以删掉或合并。今天没有值得写进去的，就原样返回上一版。
+9. 「两分钟启动记忆」是 TA 勾选让你记住的启动经历（想做什么、卡在哪、怎么调整、做了几步）。
+   从里面找值得长期记住的：常见的阻碍、对 TA 管用的启动方式、行为上的规律，写进记忆或笔记本；
+   只出现一次的经历最多记成带日期的事件，不要直接当成稳定的偏好或性格；已经记过的不要重复。
 
 只输出 JSON：
 {"summary":"...","highlights":["..."],"notebook":"（完整的新笔记本）","ops":[{"op":"ADD|UPDATE|DELETE","id":"(UPDATE/DELETE 必填)","text":"...","kind":"identity|intent|preference|boundary|insight|event|good_news","source":"said|guess","evidence":"(改动保护记忆时必填：用户原话)"}]}"""
@@ -71,12 +74,15 @@ def material(st: Store, day: str) -> dict:
         "SELECT m.text, m.feeling, w.title FROM moment m JOIN wish w ON w.id=m.wish_id WHERE m.day=?", (day,))]
     for m in moments:   # 用户亲手写下的瞬间，也是 TA 的原话
         user_lines.append(m["text"] + (" " + m["feeling"] if m["feeling"] else ""))
+    kicks = kickstart.on_day(st, day)
+    for k in kicks:     # 两分钟启动里 TA 自己说的话（调整原因、三问的回答）
+        user_lines += k["said"]
     return {"day": day, "convo": convo, "user_lines": user_lines, "long_pastes": long_pastes,
-            "records": recs, "done": done, "added": added, "scenes": scenes, "moments": moments}
+            "records": recs, "done": done, "added": added, "scenes": scenes, "moments": moments, "kicks": kicks}
 
 
 def has_material(mat: dict) -> bool:
-    return bool(mat["convo"] or mat["records"] or mat["done"] or mat["scenes"] or mat.get("moments"))
+    return bool(mat["convo"] or mat["records"] or mat["done"] or mat["scenes"] or mat.get("moments") or mat.get("kicks"))
 
 
 def fallback_summary(mat: dict) -> tuple[str, list[str]]:
@@ -95,6 +101,8 @@ def fallback_summary(mat: dict) -> tuple[str, list[str]]:
         parts.append(f"做了 {len(mat['scenes'])} 次练习")
     if mat.get("moments"):
         parts.append(f"在轨迹上留下 {len(mat['moments'])} 个瞬间")
+    if mat.get("kicks"):
+        parts.append(f"用两分钟启动开始了 {len(mat['kicks'])} 件事")
     summary = ("今天" + "，".join(parts) + "。") if parts else "今天很安静。"
     hl = [clip(r["text"], 20) for r in good[:2]] + [clip(s["title"], 20) for s in mat["done"][:1]]
     return summary, hl[:3]
@@ -124,6 +132,8 @@ def run(st: Store, day: str | None = None, use_model: bool = True) -> dict:
     if mat.get("moments"):
         lines += ["", "## 成长轨迹上的瞬间（用户亲手写的）"] + [f"- [{m['title']}] {m['text']}" + (f"（感受：{m['feeling']}）" if m["feeling"] else "")
                                                      for m in mat["moments"]]
+    if mat.get("kicks"):
+        lines += ["", "## 两分钟启动记忆（TA 勾选让你记住的启动经历）"] + [k["text"] for k in mat["kicks"]]
     lines += ["", "## 已有记忆", mem_txt]
     old_nb = (st.profile().get("notebook") or {}).get("text") or ""
     lines += ["", "## 笔记本（上一版）", old_nb or "（还没有，今天开始写）"]

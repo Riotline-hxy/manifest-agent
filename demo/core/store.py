@@ -17,6 +17,8 @@ Tables
   xp(id, day, source, amount, ref, note)                  经验账本（growth.py）
   coin(id, day, kind, amount, ref, note)                  金币账本：收入为正、花费为负（growth.py）
   town_item(id, kind, x, y, rot, placed, note, story, …)  小镇里的建筑和仓库（town.py）
+  kick_run(id, task, mode, route, cur, log, status, …)    两分钟启动的一次会话（kickstart.py）
+  kick_memory(id, run_id, day, task, mode, text, data)     《两分钟启动记忆》：用户勾了「让小光记住」才写
 """
 from __future__ import annotations
 
@@ -170,6 +172,12 @@ class Store:
             CREATE TABLE IF NOT EXISTS memory_rev(
               id TEXT PRIMARY KEY, memory_id TEXT, old_text TEXT, new_text TEXT,
               reason TEXT, evidence TEXT, at TEXT);
+            CREATE TABLE IF NOT EXISTS kick_run(
+              id TEXT PRIMARY KEY, task TEXT, mode TEXT, ctx TEXT, answers TEXT, qs TEXT, route TEXT, first_route TEXT,
+              cur INTEGER DEFAULT 0, log TEXT, say TEXT, cheer TEXT, status TEXT, awarded INTEGER DEFAULT 0,
+              created_at TEXT, updated_at TEXT);
+            CREATE TABLE IF NOT EXISTS kick_memory(
+              id TEXT PRIMARY KEY, run_id TEXT, day TEXT, task TEXT, mode TEXT, text TEXT, data TEXT, created_at TEXT);
             """
         )
         cols = {r["name"] for r in self.c.execute("PRAGMA table_info(step)")}

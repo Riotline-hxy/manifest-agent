@@ -42,6 +42,7 @@ COIN_EVENTS = {
     "rec": ("record", 4),        # 小确幸 / 内心戏
     "moment": ("record", 5),     # 轨迹上的瞬间
     "scene": ("practice", 10),   # 做完一次练习
+    "kick": ("practice", 10),    # 两分钟启动走完一条路线（也算一次练习）
 }
 COIN_CAP = {"action": 40, "milestone": 60, "record": 12, "practice": 20}   # 每类每天最多
 COIN_LABEL = {"action": "行动", "milestone": "里程碑", "record": "记录", "practice": "练习"}
@@ -180,6 +181,8 @@ def _facts(st, day: str) -> dict:
         if r["source"] == "practice" and r["ref"].startswith("scene:"):
             s = st.c.execute("SELECT scene FROM scene_run WHERE id=?", (r["ref"][6:],)).fetchone()
             scenes.append(s[0] if s else "")
+        elif r["source"] == "practice" and r["ref"].startswith("kick:"):
+            scenes.append("kickstart")
     like = day + "%"
     return {
         "act": len(act), "wishes": len(wishes - {""}),
