@@ -2122,5 +2122,34 @@ class ApiTest(unittest.TestCase):
         self.assertFalse(self._tool_events(ev, "edit_plan"))      # 已经是这样了：不出「没成功」的卡片
 
 
+class MemoryTest(unittest.TestCase):
+    """记忆读写（2026-11-07）：写之前查重（mem0 的 ADD / UPDATE / NOOP），要点一直放在提示里（Letta 的 core block）。"""
+
+    def setUp(self):
+        from core import agent
+        self.agent = agent
+        self.st = Store("u_" + os.urandom(8).hex())
+        self.st.add_memory("不吃香菜", "preference", "chat:explicit")
+        self.st.add_memory("喜欢吃寿司", "preference", "onboarding")
+
+    def test_remember_does_not_duplicate(self):
+        r = self.agent.run_tool(self.st, "remember", {"text": "不吃香菜", "kind": "preference"}, "你记一下，我不吃香菜")
+        self.assertTrue(r["ok"])
+        self.assertEqual(sum(1 for m in self.st.memories() if "香菜" in m["text"]), 1)
+
+    def test_correct_keeps_revision(self):
+        r = self.agent.run_tool(self.st, "correct_memory", {"about": "寿司", "new_text": "以前喜欢寿司，现在吃腻了", "quote": "不喜欢寿司了"},
+                                "我现在不喜欢寿司了")
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["old"], "喜欢吃寿司")
+        self.assertTrue(self.st.c.execute("SELECT 1 FROM memory_rev WHERE old_text='喜欢吃寿司'").fetchone())
+
+    def test_pinned_in_prompt_and_search_fallback(self):
+        prompt = self.agent.system_prompt(self.st, [])
+        self.assertIn("不吃香菜", prompt)
+        self.assertEqual(self.st.search("晚饭吃什么"), [])
+        self.assertTrue(self.st.search("晚饭吃什么", fallback=True))
+
+
 if __name__ == "__main__":
     unittest.main()

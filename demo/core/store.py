@@ -29,7 +29,7 @@ import threading
 from contextlib import contextmanager
 
 from . import metrics
-from .util import DATA, clip, day_key, dumps, fts_doc, fts_query, iso, loads, new_id, now, parse_iso
+from .util import DATA, clip, day_key, dumps, fts_doc, fts_query, iso, loads, new_id, now, parse_iso, tokens
 
 UID_RE = re.compile(r"^u_[0-9a-f]{16}$")
 
@@ -294,12 +294,12 @@ class Store:
             rows = self.c.execute("SELECT * FROM memory WHERE status!='archived' ORDER BY created_at DESC LIMIT ?", (limit,))
         return [dict(r) for r in rows]
 
-    def search(self, query: str, k: int = 6, include_guess: bool = False) -> list[dict]:
+    def search(self, query: str, k: int = 6, include_guess: bool = False, fallback: bool = False) -> list[dict]:
         """Hybrid retrieval: FTS5 BM25 relevance × recency decay × memory-kind weight.
 
         Without embeddings (the relay has no /v1/embeddings) this is a
         lexical retriever, which handles the short, personal facts we store
-        well. Falls back to recent memories when nothing matches lexically.
+        well. fallback=True: when nothing matches lexically, return the most recent ones (used for the per-turn context).
         """
         q = fts_query(query)
         cand: dict[str, float] = {}
@@ -322,9 +322,46 @@ class Store:
             out.append(m)
         out.sort(key=lambda m: m["score"], reverse=True)
         out = out[:k]
+        if not out and fallback:   # 一个词都没对上：退回最近的几条，免得小光对 TA 一无所知
+            out = [m for m in self.memories(statuses=ok, limit=k)]
         if out:
             with self.lock:
                 self.c.executemany("UPDATE memory SET hits=hits+1 WHERE id=?", [(m["id"],) for m in out])
+        return out
+
+    def similar(self, text: str, k: int = 5, statuses: tuple = ("active", "guess")) -> list[dict]:
+        """和一句话最像的几条记忆（字的两两组合重合度，Dice 系数 0–1）。
+        写记忆前查重（mem0 的 ADD / UPDATE / NOOP）、更正记忆时找是哪一条，都用它。"""
+        a = set(tokens(text))
+        if not a:
+            return []
+        q = ",".join("?" * len(statuses))
+        out = []
+        for r in self.c.execute(f"SELECT * FROM memory WHERE status IN ({q})", statuses):
+            b = set(tokens(r["text"]))
+            if b:
+                m = dict(r)
+                m["sim"] = round(2 * len(a & b) / (len(a) + len(b)), 3)
+                out.append(m)
+        out.sort(key=lambda m: m["sim"], reverse=True)
+        return [m for m in out[:k] if m["sim"] > 0]
+
+    PINNED_KINDS = ("boundary", "identity", "preference", "intent")
+    PROTECTED_SOURCES = ("chat:explicit", "confirmed", "onboarding", "scene:relearn", "scene:seven_steps_lite")
+
+    def pinned(self, max_chars: int = 700) -> list[dict]:
+        """一直放在小光眼前的要点（Letta 的 core memory block）：边界、身份、偏好、想要的，
+        TA 亲口让记的、确认过的排前面，新的排前面；总字数有上限，再多的靠每轮检索。"""
+        q = ",".join("?" * len(self.PINNED_KINDS))
+        rows = [dict(r) for r in self.c.execute(
+            f"SELECT * FROM memory WHERE status='active' AND kind IN ({q}) ORDER BY updated_at DESC", self.PINNED_KINDS)]
+        rows.sort(key=lambda m: (m["kind"] != "boundary", m["source"] not in self.PROTECTED_SOURCES))
+        out, used = [], 0
+        for m in rows:
+            if used + len(m["text"]) > max_chars:
+                continue
+            used += len(m["text"])
+            out.append(m)
         return out
 
     # ---- plan steps ---------------------------------------------------------

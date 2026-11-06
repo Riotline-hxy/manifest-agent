@@ -6,6 +6,7 @@ import { esc, richText, fmtDay, fmtTime, toast, icon, tile, sheet, h } from "../
 import { mountBall, setAgentMood, agentMini, MOOD_TEXT, celebrate, clearAgentHold, settleAgent, feelOf } from "../ball.js";
 import { flyGain, burstAt } from "../fx.js";
 import { startScene } from "../scene.js";
+import { openKick } from "../kick.js";
 import { openLazy, adjustSheet, isResting } from "../rest.js";
 import { askNotify } from "../tasks.js";
 
@@ -344,7 +345,7 @@ export function renderChat(root) {
           turn.tools.push({ name, args, result });
           const e = liveEls();
           if (e) e.col.insertBefore(toolCard(name, args, result), e.when);
-          if (name === "start_scene" && result?.ok) turn.sceneToStart = result.scene;
+          if (name === "start_scene" && result?.ok) { turn.sceneToStart = result.scene; turn.kickTask = result.task || ""; }
           if ((name === "complete_step" || name === "log_good_news") && result?.ok !== false) celebrate();
           sc();
         },
@@ -366,7 +367,8 @@ export function renderChat(root) {
         if (e && last?.role === "assistant" && Date.parse(last.created_at) >= sentAt && last.content && last.content.length > turn.acc.length) e.txt.innerHTML = richText(last.content);
       } catch {}
       if (live === turn) live = null;    // 之后重画对话页就直接用服务器上的记录了
-      if (turn.sceneToStart && state.route === "chat") setTimeout(() => startScene(turn.sceneToStart), 900);
+      if (turn.sceneToStart && state.route === "chat") setTimeout(() => turn.sceneToStart === "kickstart"
+        ? openKick({ task: turn.kickTask }) : startScene(turn.sceneToStart), 900);
       setTimeout(() => settleAgent(feelOf(text, turn.tools)), 1600);   // 按这句话的意思停留一个表情，约 1 分钟后回到待机
       sc();
       if (liveEls() || document.contains(ta)) ta.focus();

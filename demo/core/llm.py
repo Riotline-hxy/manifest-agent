@@ -82,7 +82,7 @@ def _note_usage(usage, kind: str) -> None:
             metrics.bump_user(uid, k, n)
 
 
-def _body(messages, tools=None, model=None, reasoning=None, stream=True, temperature=None, json_mode=False):
+def _body(messages, tools=None, model=None, reasoning=None, stream=True, temperature=None, json_mode=False, tool_choice=None):
     cfg = config()
     body = {"model": model or cfg["model"], "messages": messages, "stream": stream}
     r = reasoning if reasoning is not None else cfg.get("reasoning")
@@ -90,7 +90,7 @@ def _body(messages, tools=None, model=None, reasoning=None, stream=True, tempera
         body["reasoning_effort"] = r
     if tools:
         body["tools"] = tools
-        body["tool_choice"] = "auto"
+        body["tool_choice"] = {"type": "function", "function": {"name": tool_choice}} if tool_choice else "auto"
     if temperature is not None:
         body["temperature"] = temperature
     if json_mode:
@@ -107,9 +107,10 @@ def _lines(resp):
         raise LLMError(f"stream interrupted: {type(e).__name__}") from None
 
 
-def stream_chat(messages, tools=None, model=None, reasoning=None, timeout=None):
+def stream_chat(messages, tools=None, model=None, reasoning=None, timeout=None, tool_choice=None):
+    """tool_choice：工具名，要求这一轮必须先调它（router 判断 TA 明确要做这件事时用）。"""
     cfg = config()
-    resp = _request(_body(messages, tools, model, reasoning, True), True, timeout or cfg.get("timeout", 60))
+    resp = _request(_body(messages, tools, model, reasoning, True, tool_choice=tool_choice), True, timeout or cfg.get("timeout", 60))
     calls: dict[int, dict] = {}
     finish, usage = None, None
     with resp:

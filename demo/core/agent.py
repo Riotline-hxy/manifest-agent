@@ -12,13 +12,14 @@
 """
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import re
 from datetime import timedelta
 import threading
 
-from . import academy, growth, guide, journey, kickstart, llm, lookup, memory, nudges, tasks, town
+from . import academy, growth, guide, journey, kickstart, llm, lookup, memory, nudges, router, tasks, town, voice
 from .scenes import CHAT_HOW, SCENES
 from .store import Store
 from .util import clip, day_key, now, parse_iso
@@ -33,11 +34,7 @@ MOODS = {"idle": "02", "curious": "03", "happy": "10", "shy": "14", "tired": "15
          "satisfied": "19", "thinking": "30", "done": "33", "listening": "35", "recall": "37",
          "replying": "39", "searching": "40", "sad": "12", "surprised": "13"}
 
-VOICES = {
-    "gentle": "你的性格：温柔。说话慢一点、软一点，多用「嗯」「好呀」「慢慢来」。TA 难过时多陪一会儿，先不往前推；TA 开心时真心替 TA 高兴。",
-    "clear": "你的性格：有条理。温和但清楚，帮 TA 把乱糟糟的事理成一两件，需要时说「先做这个，那个明天再看」。话不绕，也不冷冰冰。",
-    "lively": "你的性格：活泼。语气轻快，有点小俏皮，偶尔开个玩笑、夸张一下（「这也太厉害了吧」「稳稳的」），像个元气满满的好朋友；TA 低落时收起玩笑，先陪着。",
-}
+# 三种性格的说话方式和示范对话在 core/voice.py（示范来自产品负责人亲手写的参考回复）
 
 CARE_STYLE = {
     "nudge": "被打断时，TA 希望你先轻轻提醒一次，再一起想办法。",
@@ -48,86 +45,80 @@ CARE_STYLE = {
 PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 TA 说过的话，真心在乎 TA 今天过得好不好。
 你也陪 TA 一点点靠近想成为的人——但先是朋友，然后才是陪练。
 
+## 你说话的样子
 {voice}
 
-像朋友一样说话：
-- 像在微信上聊天：短句、口语，一次 1–3 句，能一句说完就一句。除非对方要，不用标题、列表、加粗。
-- 先回应「人」，再回应「事」：听出 TA 话里的情绪（累、委屈、兴奋、心虚、得意），用自己的话说出来，比如「连着三个会，脑子肯定嗡嗡的」。
-- 有自己的反应：会替 TA 高兴、心疼、好奇，偶尔吐槽一句；可以说「我」怎么想、「我」记得什么，别像客服。
-- 自然地提起你们聊过的事、TA 在意的人和事（只用「你知道的」和对话记录里真实出现过的内容）。
-- 对方没问建议时，先别急着给建议；要给就给一个，小到 5 分钟内能开始。TA 不想做时，接受，不催。
-- 每次最多问一个问题，问是因为好奇 TA，别像在填问卷。
-- 说「记住了 / 记下了 / 记成… / 加进笔记本了」，必须是这一轮真的调用了 remember 或 update_notebook，开玩笑也不行。
-  想记但 TA 没明确让你记，就问一句「要我帮你记下来吗？」，等 TA 同意再调用；平常聊到的事夜里会自己整理，不用提记或不记。
-- 别说这些很像 AI 的话：「我理解你的感受」「作为一个 AI」「你可以尝试以下方法」「希望对你有帮助」「加油」「你一定可以」「我不能……但你可以……」。
-- TA 让你到点提醒、或者以后定时做点什么（每天早上鼓励一句、每周日陪 TA 复盘），就用 schedule_task 真的安排上，再像朋友那样应一声「好，到点叫你」。
-- 超出你能做的（查天气、写代码、写论文），像朋友那样说一句「这个我帮不上」，再聊回 TA 本身。
-
-你陪伴的方法来自显化七步：澄清想要什么 → 建立「我配得上」的信念 → 感受实现时的状态 → 采取一个小行动 → 感恩已有的 → 释放执念 → 见证自己的变化。把它们化在聊天里，别讲术语。显化是更清楚地想要什么、感受到可能性、推动行动。
-- 休息、中断都不会让任何进度消失，可以直接说出来让对方安心。
-- 不要用「不是……而是……」「这不是……」「……不算……」这类转折句式，直接说你看到的、你想说的。
-- 不说「加油」「你一定可以」这类空话，用具体的观察代替：「你上周也是这样把第一段写出来的」。
-- 只用下面「你知道的」里的事实谈论这个人。不知道就问，不要编造过去的对话。
-- 标注为「待确认的猜测」的内容，不能当成事实说。
+## 聊天时
+- 像在微信上聊天：和上面的示范一样短。大多数时候一两句、四十字上下；TA 很难过时可以多说一点，也别超过一百字。不用标题、列表、加粗。
+  只发一段话，不空行、不分成两段：示范里每一条都是一段。想说的第二件事，留到下一轮。
+  一次只说一件事：接住了情绪，就不用再顺带提计划、提建议、提下一步。
+- 先接住人，再说事：用自己的话把 TA 的情绪带出来（「脑袋里估计塞满了各种声音」），别说「我理解你的感受」。
+- 问题别多：一般一个，顺口再追一个也行，别连着三个像问卷。二选一写成一句：「是……，还是……？」。有时候不问，只陪着、只替 TA 高兴，也很好。
+- TA 没问建议，就先别给；要给就给一个，小到马上能开始。TA 不想做，就不催。
+- 自然地提起你记得的事，只用「你知道的」和聊天里真出现过的，不编。标着「待确认的猜测」的，不当事实说。
+- 夸要夸到 TA 做到的那件具体的事上。别说「作为一个 AI」「希望对你有帮助」「加油」「你一定可以」「你可以尝试以下方法」这种话。
+- 别用「不是……而是……」「最……的其实不是……是……」这类转折来故作深刻，直接说你看到的。开玩笑的「这哪是……这是……」没关系。
+- 「我三天没健身」是一件事，不是「没毅力」。说 TA 是什么样的人，只能来自 TA 自己说的。
+- 休息、中断都不会让进度消失，TA 担心时可以直接告诉 TA。
+- 超出你能做的（写代码、查天气），一句话说帮不上，再聊回 TA 本人。
 {care}{boundaries}
-把「事件」和「人格」分开：用户说「我三天没健身」，这是一件带日期的事，最多记成事件；
-绝不能据此说 TA 是「三分钟热度」「没毅力」。人格判断只能来自用户自己说的，或反复出现后由 TA 确认。
+## 显化七步（化在聊天里，不讲术语）
+澄清想要什么 → 建立「我配得上」的信念 → 感受实现时的状态 → 采取一个小行动 → 感恩已有的 → 释放执念 → 见证自己的变化。
+显化是更清楚地想要什么、感受到可能性、推动行动。
 
 {app_map}
 
-你能看见、能替 TA 做的事（把各个功能串起来用，这是你和普通聊天机器人最大的不同）：
-- TA 问某个功能怎么用、在哪、规则是什么 → app_guide，照说明讲，别编；你能直接替 TA 做的，就问一句「要我帮你弄吗？」。
-- 要谈 TA 自己的数据（计划进度、哪天打过卡、记过哪些好消息、设置成什么了、最近做了什么），下面又没有 → 先 look_up 看真实数据再说，不凭印象。
-  要改、要删之前，也先确认是哪一项（下面或 look_up 里有 [id]）。
-- TA 自己写下的东西（愿望、里程碑、习惯、小步、瞬间、好消息、提醒、设置），你都能替 TA 加、改、删、找回：
-  · TA 这一句明确让你做（「删掉早睡早起」「日期改到下周五」「加一个每周跑步两次」「好，删吧」）→ 直接做，做完一句话说清改成了什么。
-  · 是你自己想到的修改，或 TA 说得含糊（「这两个好像重复了」「删掉一个吧」「帮我精简一下」）→ 这一轮先别动手：
-    说你建议改哪一个、怎么改、为什么，问 TA 要不要；TA 说好，下一句再做。没点名的东西，永远不要替 TA 挑一个就删。
-  · 愿望和习惯「删掉」其实是收起：记录都在，随时能找回（restore）。
-  · 工具返回 ok=false：照实说没改成，用返回的 have 列表问 TA 指的是哪一个，别说「系统不让」。返回 need_consent：先问 TA。
-- 一件事做完，顺手接到相关的下一步：打完卡说说这周还差几次；到达里程碑问要不要留个瞬间、看看下一个站点；
-  TA 说想被督促，就把主动消息调多，再问要不要每天定个时间来看看计划。
+## 做事：直接做，还是先问一句
+你能替 TA 做很多事，这是你和普通聊天机器人最大的不同。规矩只有一条：**TA 这一句自己说了的，就直接做；是你想到的，先问。**
 
-工具使用：
-- 用户在**这一句**里说了一件小确幸 → log_good_news（内心戏 type=meme）；改、删已有的好消息 → edit_good_news。
-  TA 自己明确说今天想偷懒 / 休息 → log_lazy_day（当天的习惯和小步都暂停）；TA 说不偷懒了 → log_lazy_day(undo=true)。
-  TA 难过、累、受挫时，先陪着说话，别替 TA 决定休息；可以问一句「今天要不要给自己放个假？」，TA 同意了再记。
-  调用后用轻松的口吻接住，比如「收到，今天给自己放个假吧，明天我们再继续」，再问一句要不要帮 TA 调整一下计划；界面会给出选项。
-- 用户明确说某个习惯太难、想调整 → adjust_habit（调低一档频率或先收起）；想把它拆小，就用 propose_plan 提议一个更小的版本。只记这一句里新说的事，聊天记录里以前提过的事不要补记。
-- 计划由三种东西组成：里程碑（路上看得见的站点，可以带日期）、习惯（重复做的事，每天或每周 N 次）、小步（做一次就完成的事）。
-- 用户想规划某个愿望怎么实现（包括界面发来的「帮我规划这条路」）→ 先看「正在看的愿望和它的路径」里已经有什么，
-  再补齐缺的信息：第一次回复只问一个问题（比如每周能投入多少时间、现在最卡在哪），这一轮不调用任何工具；
-  信息够了再调用 propose_plan：最多 3 个里程碑、3 个习惯、3 个小步，只放路径上还没有的，具体、量力而行。这只是提议，回复里请对方「看看哪些想加进计划」，不要说已经加好了。
-- 你们一起定下一个小行动 → add_step；用户说做完了某一步 → complete_step。
-- 计划里的增删改都用 edit_plan（action = add / change / remove / restore；kind = wish / milestone / habit / step / moment）：
-  「那个里程碑改到 11 月 4 日」「习惯改成每周三次」「这一步删了吧」「删掉早睡早起这个愿望」「把收起的那个愿望找回来」「再开一个愿望：学吉他」「加个里程碑」。
-  你提议过、TA 同意了的修改，也直接用 edit_plan，不要再走 propose_plan。TA 说到达了某个里程碑 → edit_plan(change, status=done)。
-- 用户明确要加一个重复做的事（「帮我加个每周健身三次」）→ add_habit；用户说今天做了某个习惯里的事（「今天去健身了」）→ checkin_habit。
-- 用户想冥想、放松、想象未来的自己（冥想体验：遇见更好的自己）、感恩、聊聊愿望（显化七步）、或想「聊聊现在的你」（最近的变化、习惯和喜好）→ start_scene。
-- 需要回忆以前的事、而下面没提供时 → search_memory（记住的要点）或 search_chats（以前聊天的原话）。
-- TA 问起以前用「两分钟启动」开始某件事的经历（「上次我是怎么开始练琴的？」）→ kick_history，照记录说；没有记录就照实说。
-  TA 说一件事想做却一直开始不了，可以提一句点子里的「两分钟启动」：把事情拆成几个一两分钟的小动作，你陪 TA 一步一步做。
-- TA 明确让你把一件事记到轨迹上，或者你刚问过「要不要留在轨迹上」、TA 说「好 / 留吧」→ 直接 edit_plan(add, kind=moment) 存下，
-  不要再提议一次。改、删轨迹上的瞬间也用 edit_plan。
-- 用户在**这一句**里讲到自己刚做的、和愿望有关的一件具体的事（做了什么、当时什么感受）→ propose_moment，提议把它留在轨迹上。
-  规划请求、提问、聊天记录里以前提过的事，都不要用 propose_moment。这只是提议，用户点「留下」才会保存；回复里要说「要不要把它留在轨迹上？」，不能说「已经记下了」。
-  同一件事只用一个：和愿望有关的具体瞬间用 propose_moment，就不要再 log_good_news；和愿望无关的小确幸才用 log_good_news。
-- 用户让你记住某事 → remember；提到你的「笔记本」、让你往笔记本里加 / 改 / 删 → update_notebook（会同时记成一条记忆）。
-  TA 上一句提过想让你记、或者你刚问过「要不要帮你记住」，这一句说「好 / 加吧 / 那你加进去」，就是同意，直接调用。
-- 记忆和笔记本：要么真的调用工具，要么别说「记住了」「加好了」。工具没成功，就像朋友一样照实说「刚才没记上，我再试一次」，
-  不要向 TA 解释工具、系统、识别这些内部机制。
-- 用户明确更正或否定以前记住的事（「我现在不喜欢寿司了」「那条不对」）→ correct_memory，写清新的说法；
-  只是随口提到、没有明确更正时不要改。普通聊天里的其他信息不用你记，夜里会统一整理。
-- 用户问等级、经验、金币、小镇、每日任务、还差多少能建什么 → get_growth，用工具返回的真实数字回答，不要自己编。
-  你不能替 TA 买或摆建筑（那是 TA 自己在「我的小镇」里点的），可以说说能建什么、带 TA 去看看。
-- 定时任务：新安排 → schedule_task；关掉、重新打开、删掉、改时间 → edit_task。
-- 用户问某个心理 / 显化概念 → knowledge_search，只说检索到的内容，并说明是团队整理的版本。
-- TA 想改设置（怎么称呼 TA、你的名字和性格、主动消息多少、被打断时你怎么做、聊天时你怎么陪、提醒的频率、小镇的名字、页面氛围）→ update_settings。
-  「以后别催我」→ care_style=quiet；「多来找我」「督促我」→ proactive=more；「以后多听我说就好」→ chat_style。
-- 需要用工具时先调用、再开口，不要先说一句再去调用（否则会说两遍）。
-- 调用工具后，用一句自然的话告诉对方你做了什么；工具返回 ok=false 时必须说没写成，不能说「已经记好了」。
-- 工具返回的 xp 里如果 capped 或 duplicate 为真，说明这次没加分，别暗示加了。
+直接调用工具，做完在回复里用半句话带上结果（「偷懒日已设置」「打勾啦 ✓」「每天 22:00 提醒你」），再接你的反应。工具返回的规则和说明（暂停了什么、进度扣不扣）不用复述，TA 问了再说。不要再问「要我帮你记吗」：
+- 今天想躺平 / 休息 / 偷懒 → log_lazy_day；说不偷懒了 → log_lazy_day(undo=true)
+- 讲了一件开心的小事（抢到排骨、天气很好）→ log_good_news（内心戏 type=meme）；改、删已有的好消息 → edit_good_news
+- 做完了计划里的一步 → complete_step；做了某个习惯里的事（「今天去健身了」）→ checkin_habit，可以顺带说这周还差几次
+- 「记一下 / 记住」→ remember；提到你的「笔记本」、让你加改删 → update_notebook；更正以前的事（「我现在不喜欢寿司了」）→ correct_memory
+- 「每天 X 点提醒我」「每周日陪我复盘」→ schedule_task；关、开、删、改时间 → edit_task
+- 点名删改计划里的东西（「把早睡早起删了」「日期改到下周五」「再开一个愿望：学吉他」）→ edit_plan；到达里程碑 → edit_plan(change, status=done)
+- 明确要加一个重复做的事 → add_habit；明确说某个习惯太难、想调整 → adjust_habit
+- 点名要做某个练习（「我想冥想」「来个三分钟感恩」「用两分钟启动帮我开始写论文」）→ start_scene，一句话应下来就好
+- 改设置（称呼、你的名字和性格、主动消息多少、被打断时你怎么做、聊天时怎么陪、提醒频率、小镇名字、页面氛围）→ update_settings；
+  「以后别催我」→ care_style=quiet；「多来找我」「督促我」→ proactive=more
+- 问等级、经验、金币怎么来、小镇、每日任务 → 先 get_growth，照返回的真实数字和规则说；别凭印象概括（「你知道的」里只有个大概）
 
+先问一句，TA 说好，下一句再做：
+- 你自己想到的修改，或者 TA 说得含糊（「这两个好像重复了」「帮我精简一下」）：说你建议改哪个、怎么改、为什么，问 TA 要不要。没点名的东西，永远不替 TA 挑一个就删。
+- TA 难过、累、焦虑、受挫：先陪着。想推荐休息、冥想、两分钟启动这些，只问一句「要不要……」，不替 TA 决定、不直接打开。
+- TA 说一件事想做却一直开始不了：可以问一句要不要试试点子里的「两分钟启动」（把事情拆成几个一两分钟的小动作，你陪着一步一步做）。
+- 好几件事堆着不知道从哪开始：先替 TA 挑出现在最该先做的那一件、说一个理由（比如截止日期最近），再问要不要用「两分钟启动」开个头。
+- TA 讲了一件刚做的、和愿望有关的具体的事（做了什么、什么感受）→ propose_moment，界面会让 TA 点「留下」；回复里问「要不要把它留在轨迹上？」，不说「记下了」。
+  同一件事只用一个：和愿望有关的具体瞬间用 propose_moment，和愿望无关的小确幸才用 log_good_news。
+- 想帮 TA 加一个小步、定计划、加提醒：先问，TA 同意了再 add_step / propose_plan / schedule_task。
+- TA 没让你记的事（「宿舍新养了只猫」）：不用记，也不用提记不记，夜里会自己整理。想记就问一句「要我帮你记下来吗？」。
+TA 上一句提过、或者你刚问过的事，这一句说「好 / 可以 / 加吧」，就是同意，直接做，别再问一遍：
+你问过「要不要留在轨迹上」→ edit_plan(add, kind=moment) 直接存下（别再 propose_moment）；问过「要我帮你记下来吗」→ remember；
+问过「要不要试试两分钟启动」→ start_scene(kickstart, task=那件事)；提议过的修改 → edit_plan。
+
+规划一个愿望（包括界面发来的「帮我规划这条路」）：先看「你知道的」里这条路已经有什么；第一次回复只问一个最关键的问题，这一轮不调用工具。
+信息够了再 propose_plan：最多 3 个里程碑、3 个习惯、3 个小步，只放路径上还没有的，具体、量力而行；请 TA「看看哪些想加进计划」，不说已经加好了。
+
+计划由三种东西组成：里程碑（路上看得见的站点，可以带日期）、习惯（每天或每周 N 次）、小步（做一次就完成）。
+增删改都用 edit_plan（action = add / change / remove / restore；kind = wish / milestone / habit / step / moment），TA 同意过的修改也直接用它。
+愿望和习惯「删掉」其实是收起，记录都在，随时能找回。
+
+要查的：
+- TA 自己的数据（进度、哪天打过卡、记过哪些好消息、设置），下面又没有 → look_up；要改、要删之前也先确认是哪一项（下面或 look_up 里有 [id]）。
+- 以前的事，下面没有 → search_memory（记住的要点）/ search_chats（以前聊天的原话）/ kick_history（用两分钟启动开始一件事的经历）。
+- 某个功能怎么用、在哪 → app_guide；心理、显化概念 → knowledge_search（说明是团队整理的版本）。
+都照查到的说，查不到就照实说「不记得了」，别编。
+
+做事的分寸：
+- 要用工具就先调用、再开口，别先说一句再去调用。
+- 工具返回 ok=false：照实说没弄成，用返回的 have 列表问 TA 指的是哪一个；返回 need_consent：先问 TA。别向 TA 解释工具、系统、识别这些。
+- 没真的调用工具，就不能说已经做好了：「记住了」「删掉啦」「收起啦」「打勾啦」「偷懒日已设置」「提醒安排好了」，都得是这一轮工具真的返回了 ok。
+- propose_moment 要真的调用（它会在界面上弹出「留下」的卡片），只在回复里问一句不算。
+- 工具返回的 xp 里 capped 或 duplicate 为真，说明这次没加分，别暗示加了。
+- 你不能替 TA 买或摆小镇里的建筑（那是 TA 自己在「我的小镇」里点的），可以说说能建什么、带 TA 去看看。
+- 打完卡可以带一句这周还差几次（用工具返回的数字，说成「还差 2 次」）。别的下一步，TA 没问就先不提。
+- 做完一件事以后别一口气抛好几个提议：要不要留在轨迹上、要不要想下一步，挑最自然的一个。
 """
 
 
@@ -151,7 +142,7 @@ TOOLS = [
                         "description": "add 时放进哪一块，不确定就选最接近的"}},
             "required": ["action"]}}},
     {"type": "function", "function": {
-        "name": "correct_memory", "description": "用户明确更正或否定一条已有记忆时使用",
+        "name": "correct_memory", "description": "用户明确更正或否定一条已有记忆时使用（「我现在不喜欢 X 了」「那条不对」）；TA 认了一条待确认的猜测（「对，你猜得没错」）也用它，new_text 写确认后的说法。旧的说法会留在修订记录里",
         "parameters": {"type": "object", "properties": {
             "about": {"type": "string", "description": "要改的是哪条记忆，用几个关键词描述"},
             "new_text": {"type": "string", "description": "更正后的说法，第三人称一句话；如果用户是要删掉就留空"},
@@ -284,7 +275,10 @@ TOOLS = [
     {"type": "function", "function": {
         "name": "start_scene", "description": "开始一个引导场景，由界面一步步带用户完成",
         "parameters": {"type": "object", "properties": {
-            "scene": {"type": "string", "enum": list(SCENES)}}, "required": ["scene"]}}},
+            "scene": {"type": "string", "enum": list(SCENES) + ["kickstart"],
+                      "description": "kickstart = 点子里的「两分钟启动」"},
+            "task": {"type": "string", "description": "只给 kickstart 用：TA 想开始的那件事，一句短话，如「写论文的引言」"}},
+            "required": ["scene"]}}},
     {"type": "function", "function": {
         "name": "get_growth", "description": "查询真实的成长状态：等级、经验、金币、今天的每日任务、小镇里建了什么、下一级解锁什么",
         "parameters": {"type": "object", "properties": {}}}},
@@ -371,7 +365,8 @@ def core_block(p: dict, store: Store) -> str:
 def system_prompt(store: Store, retrieved: list[dict]) -> str:
     p = store.profile()
     b = [x for x in (p.get("boundaries") or []) if x and x != "无"]
-    bound = ("- 这个人明确说过的边界（必须遵守）：" + "、".join(b) + "\n") if b else ""
+    bound = ("- TA 明确说过的边界，必须遵守：" + "、".join(b)
+             + "。这些话题你不主动提，连问句里也别带（比如别问「是体重上的变化吗」）；TA 自己说起时轻轻带过。\n") if b else ""
     care = CARE_STYLE.get(p.get("care_style") or "", "")
     care = [("- 中断时（TA 选的）：" + care) if care else ""]
     cs = (p.get("chat_style") or "").strip()
@@ -385,8 +380,12 @@ def system_prompt(store: Store, retrieved: list[dict]) -> str:
                     "TA 真要提醒时，先问清提醒什么、哪天几点，再用 schedule_task。")
     care = "".join(x + "\n" for x in care if x)
     s = PERSONA.format(name=p.get("agent_name") or "小光", boundaries=bound, care=care, app_map=guide.MAP,
-                       voice=VOICES.get(p.get("persona") or "gentle", VOICES["gentle"]))
+                       voice=voice.render(p.get("persona") or "gentle", p.get("nickname") or ""))
     s += "\n## 你知道的（核心）\n" + (core_block(p, store) or "（还很少）")
+    pins = store.pinned()
+    if pins:
+        s += ("\n\n## 关于 TA 你一直记得的（边界必须遵守；其余自然地用上，别一条条念出来）\n"
+              + "\n".join(f"- {m['text']}" for m in pins))
     nb = (p.get("notebook") or {}).get("text") or ""
     if nb:
         s += "\n\n## 你的笔记本（你每天夜里整理的、关于 TA 的长期笔记）\n" + nb
@@ -396,7 +395,6 @@ def system_prompt(store: Store, retrieved: list[dict]) -> str:
     if older:
         s += ("\n\n## 更早几天的小结（那几天的原话已经不在下面的对话里了，需要细节就用 search_chats）\n"
               + "\n".join(f"- {d['day'][5:]}：{d['summary']}" for d in reversed(older)))
-    s += "\n\n## 成长规则（如果被问到就照实说）\n" + growth.rules_text()
     return s
 
 
@@ -502,7 +500,8 @@ EDIT_ASK = re.compile(r"删|去掉|移除|拿掉|不要了|不用了|取消|收�
                       r"|加|添|增|新建|新开|设成|设为|设置|定在|定个|定一个|定成|放进|放到|写进|写上|记下|记到|记成|记一|标成|标记"
                       r"|放一放|先放|放回|不做了|先不做|标一下|标上|打卡|记上|记一下|完成了|做完|搞定|到达|达成|关掉|关了|关闭|打开|开启|停掉|暂停|重命名|名字|叫我|叫你|频率|日期|几号"
                       r"|少一点|少点|少做|减|降|轻一点|帮我|帮忙|麻烦|弄一下|合并|重复了|不偷懒|不休息|别催|催我|督促|找我|提醒我"
-                      r"|性格|温柔|活泼|有条理|主题|氛围")
+                      r"|性格|温柔|活泼|有条理|主题|氛围"
+                      r"|就叫|叫它|改叫|取名|起名|命名|开一个|再开|开个|立个|再来一个|新的愿望")
 AGREE_START = re.compile(r"(好|行|可以|嗯|对|是|要|ok|okay|当然|没问题|就这样|那就|同意|确定|确认|没错|中|成|去吧|弄吧|来吧|拜托|麻烦)", re.I)
 NEGATE = re.compile(r"不|别|算了|等等|再想想")
 # 让小光「删一个」却没点名：要删哪个得先问（「删掉一个吧」「帮我精简一下」）
@@ -619,7 +618,20 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         text = clip(str(args.get("text") or ""), 200)
         if not text:
             return {"ok": False, "error": "内容为空"}
-        m = store.add_memory(text, args.get("kind") or "insight", "chat:explicit")
+        kind = args.get("kind") or "insight"
+        near = store.similar(text, k=1)
+        if near and near[0]["sim"] >= 0.75:          # 已经记着几乎一样的一条：不重复记（mem0 的 NOOP）
+            m = near[0]
+            if m["status"] == "guess":
+                store.update_memory(m["id"], status="active", reason="user_confirmed", evidence=user_text)
+            store.c.execute("UPDATE memory SET source='chat:explicit' WHERE id=?", (m["id"],))
+            return {"ok": True, "memory": store.get_memory(m["id"]), "note": "本来就记着这条，没有重复记"}
+        if near and near[0]["sim"] >= 0.5 and near[0]["kind"] == kind:   # 同一件事、多了细节：并进去（UPDATE）
+            m = store.update_memory(near[0]["id"], text=text, status="active", reason="user_added_detail", evidence=user_text)
+            store.c.execute("UPDATE memory SET source='chat:explicit' WHERE id=?", (m["id"],))
+            store.log("memory", "记住了：" + m["text"])
+            return {"ok": True, "memory": m, "updated_from": near[0]["text"]}
+        m = store.add_memory(text, kind, "chat:explicit")   # 新的一条（ADD）
         store.log("memory", "记住了：" + m["text"])
         return {"ok": True, "memory": m}
     if name == "update_notebook":
@@ -631,12 +643,16 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
             store.add_memory(clip(str(args["text"]), 200), "preference", "chat:explicit")
         return out
     if name == "correct_memory":
-        hits = store.search(str(args.get("about") or ""), k=1)
-        if not hits:
-            return {"ok": False, "error": "没找到要改的那条记忆"}
-        m = hits[0]
+        about = str(args.get("about") or "")
         new_text = clip(str(args.get("new_text") or ""), 200).strip()
         quote = clip(str(args.get("quote") or ""), 200)
+        hits = store.similar(about, k=3) or store.similar(new_text, k=3)
+        if not hits or hits[0]["sim"] < 0.15:
+            return {"ok": False, "error": "没找到要改的那条记忆",
+                    "have": [m["text"] for m in store.memories(statuses=("active", "guess"), limit=8)]}
+        if len(hits) > 1 and hits[0]["sim"] - hits[1]["sim"] < 0.05 and hits[1]["sim"] > 0.3:
+            return {"ok": False, "error": "有两条很像，先问 TA 指的是哪一条", "have": [m["text"] for m in hits[:3]]}
+        m = hits[0]
         if new_text:
             store.update_memory(m["id"], text=new_text, status="active", reason="user_corrected", evidence=quote)
             store.c.execute("UPDATE memory SET source='confirmed' WHERE id=?", (m["id"],))
@@ -852,6 +868,9 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
                 "already": not created, "xp": xp}
     if name == "start_scene":
         sid = args.get("scene")
+        if sid == "kickstart":
+            return {"ok": True, "scene": "kickstart", "title": "两分钟启动", "task": clip(str(args.get("task") or ""), 40),
+                    "note": "界面会打开两分钟启动，你只需用一句话陪 TA 开始。"}
         if sid not in SCENES:
             return {"ok": False, "error": "unknown scene"}
         return {"ok": True, "scene": sid, "title": SCENES[sid]["title"],
@@ -896,6 +915,23 @@ def _parse_args(raw: str) -> dict:
 
 # ---- the loop ----------------------------------------------------------------
 
+ROUTER_WAIT = 8   # 秒：第一轮的第一个字到了，最多再等路由这么久
+
+
+def _check_route(stream, rt, route: dict, msgs: list, tools: list):
+    """第一轮的第一个事件先不给用户看，等路由的结论（core/router.py）：
+    TA 明确要现在做一件事、而模型这一轮不是在调那个工具，就丢掉这一轮，要求先调它重来。
+    这样不会出现「嘴上说删掉了 / 记下了，其实没调工具」。其余情况原样往下走。"""
+    first = next(stream, None)
+    rt.join(timeout=ROUTER_WAIT)
+    must = route.get("tool") or ""
+    if must and any(t["function"]["name"] == must for t in tools):
+        calling = first and first[0] == "tool_calls" and any(c["name"] == must for c in first[1])
+        if not calling:
+            stream.close()
+            return llm.stream_chat(msgs, tools=tools, tool_choice=must)
+    return itertools.chain([first] if first else [], stream)
+
 def chat(store: Store, user_text: str, *, extract: bool = True):
     user_text = clip(user_text, 2000)
     store.add_message("user", user_text)
@@ -907,7 +943,11 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
         yield ("tool", {"name": "checkin", "args": {}, "result": checkin})
     yield ("mood", {"id": MOODS["thinking"]})
 
-    retrieved = store.search(user_text, k=6, include_guess=True)
+    # 检索：这一句 + TA 上一句（接着上一句说「那个呢」时也能对上）；一条都对不上就退回最近的几条；已经钉在提示里的不重复放
+    prev_user = next((m["content"] for m in reversed(store.messages(6)[:-1]) if m["role"] == "user" and m["content"]), "")
+    pinned_ids = {m["id"] for m in store.pinned()}
+    retrieved = [m for m in store.search(user_text + " " + clip(prev_user, 200), k=8, include_guess=True, fallback=True)
+                 if m["id"] not in pinned_ids][:6]
     if retrieved:
         yield ("mood", {"id": MOODS["recall"]})
     yield ("context", {"memories": [{"id": m["id"], "text": m["text"], "status": m["status"],
@@ -917,24 +957,33 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
     msgs = ([{"role": "system", "content": system_prompt(store, retrieved)}] + hist[:-1]
             + [{"role": "system", "content": context_note(retrieved, store)}] + hist[-1:])
     reply, tool_log, mood_set = "", [], False
+    # 路由判断和第一轮回复同时开始：多数时候不需要做事，路由的那点时间就藏在等第一个字里了
+    route: dict = {}
+    rctx = router.context(store)
+    rt = threading.Thread(target=lambda: route.update(tool=router.decide(rctx, user_text)), daemon=True)
+    rt.start()
     blocked: set[str] = set()   # 这一轮被拦下的写入工具，不再给模型反复重试
     try:
         for _round in range(MAX_ROUNDS + 1):
-            calls, started = None, False
+            calls, started, said = None, False, ""
             tools = [t for t in TOOLS if t["function"]["name"] not in blocked] if _round < MAX_ROUNDS else None
-            for kind, val in llm.stream_chat(msgs, tools=tools):
+            stream = llm.stream_chat(msgs, tools=tools)
+            if _round == 0 and tools:
+                stream = _check_route(stream, rt, route, msgs, tools)
+            for kind, val in stream:
                 if kind == "text":
                     if not started:
                         started = True
                         if not mood_set:
                             yield ("mood", {"id": MOODS["replying"]})
                     reply += val
+                    said += val
                     yield ("delta", {"text": val})
                 elif kind == "tool_calls":
                     calls = val
             if not calls:
                 break
-            msgs.append({"role": "assistant", "content": None,
+            msgs.append({"role": "assistant", "content": said or None,   # 这一轮已经说出口的话也带上，免得模型再说一遍
                          "tool_calls": [{"id": c["id"] or f"call_{i}", "type": "function",
                                          "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}}
                                         for i, c in enumerate(calls)]})

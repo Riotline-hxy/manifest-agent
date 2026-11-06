@@ -16,6 +16,7 @@ import time
 from . import digest, llm, nudges, tasks, webpush
 from .store import Store, UID_RE
 from .util import DATA, clip, day_key, hours_since, iso, now
+from .voice import STYLE
 
 IDLE_HOURS = {"more": 12, "normal": 24, "less": 60}
 QUIET = (23, 8)
@@ -98,7 +99,7 @@ def compose(store: Store) -> dict:
     mems = store.memories(statuses=("active",), limit=8)
     out = llm.complete_json([
         {"role": "system", "content": (
-            f"你是「{p.get('agent_name') or '小光'}」，显化陪伴 agent，要主动给用户发一条消息。"
+            f"你是「{p.get('agent_name') or '小光'}」，这个人的朋友，要主动给 TA 发一条消息。{STYLE.get(p.get('persona') or 'gentle', STYLE['gentle'])}"
             "要求：一到两句，口语，像朋友发的消息；引用一个具体的记忆细节；最多一个问题；"
             "不说教、不鸡血、不催；不要用「不是……而是……」这类转折句式。只输出 JSON：{\"text\":\"...\"}")},
         {"role": "user", "content": (
@@ -155,11 +156,11 @@ def compose_task(st: Store, t: dict) -> str:
     base = REMIND.get(persona, REMIND["gentle"]).format(title=t["title"], message=t["message"] or "").strip()
     if t["kind"] != "ai":
         return base
-    from .agent import VOICES, core_block   # 避免循环引用
+    from .agent import core_block   # 避免循环引用
     recent = [m for m in st.messages(8) if m["content"]][-6:]
     out = llm.complete_json([
         {"role": "system", "content": (
-            f"你是「{p.get('agent_name') or '小光'}」，这个人的朋友。{VOICES.get(persona, VOICES['gentle'])}\n"
+            f"你是「{p.get('agent_name') or '小光'}」，这个人的朋友。{STYLE.get(persona, STYLE['gentle'])}\n"
             "现在是 TA 让你定时做的一件事，到点了。按要求给 TA 发一条消息：1–3 句，口语，像朋友发微信；"
             "只用下面给出的真实信息，不编造；不说教、不鸡血；不要用「不是……而是……」句式。只输出 JSON：{\"text\":\"...\"}")},
         {"role": "user", "content": (f"例行任务：{t['title']}\n要求：{t['message'] or t['title']}\n\n关于 TA：\n{core_block(p, st)}\n\n"
