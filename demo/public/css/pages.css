@@ -434,3 +434,31 @@ details summary::-webkit-details-marker { display: none; }
   .nb-page { padding: 20px 18px 18px 46px; }
   .nb-page.inner { padding-left: 0; }
 }
+
+/* 笔记本 · 一周一页：右边一张「这周的小事」便签；这一周没写时，碎片像夹在本子里的小纸条 */
+.nb-grid { display: grid; grid-template-columns: minmax(0, 1fr) 176px; gap: 24px; align-items: start; }
+.nb-grid.solo { grid-template-columns: minmax(0, 1fr); }
+.nb-quote.alt { transform: rotate(1deg); margin-left: 18px; }
+.nb-quote.alt::before { background: color-mix(in srgb, var(--c-pink) 45%, transparent); transform: translateX(-50%) rotate(-4deg); }
+.nb-bits { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; padding: 14px 14px 16px; border-radius: 4px; transform: rotate(1.4deg);
+  background: color-mix(in srgb, var(--c-mint) 16%, var(--solid)); box-shadow: 0 6px 18px rgba(0,0,0,.12); }
+.nb-bits b { font-size: 12px; font-weight: 900; color: var(--text-3); letter-spacing: .04em; margin-bottom: 2px; }
+.nb-bits span { position: relative; padding-left: 14px; font-size: 13.5px; font-weight: 700; line-height: 1.5; }
+.nb-bits span::before { content: ""; position: absolute; left: 1px; top: .62em; width: 6px; height: 6px; border-radius: 50%; background: var(--c-mint); }
+.nb-page.draft { border-style: dashed; }
+.nb-act { display: flex; justify-content: flex-end; margin-top: 14px; }
+.nb-now { padding: 20px 24px; border-style: dashed; margin-bottom: 4px; }
+.nb-now .nb-date { margin-bottom: 14px; flex-wrap: wrap; }
+.nb-scraps { display: flex; flex-wrap: wrap; gap: 10px; }
+.scrap { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; padding: 8px 12px; border-radius: 4px; font-size: 13.5px; font-weight: 700; line-height: 1.45;
+  background: var(--surface-2); box-shadow: 0 3px 10px rgba(0,0,0,.08); transform: rotate(calc((var(--i) - 2.5) * .5deg));
+  animation: rise .45s var(--spring) backwards; animation-delay: calc(var(--i) * 50ms); }
+.scrap .ic-svg { flex: none; width: 14px; height: 14px; color: var(--accent); }
+.nb-quiet { margin: 0; font-size: 13.5px; color: var(--text-2); line-height: 1.7; }
+.nb-old .d { width: 104px; }
+@media (max-width: 640px) {
+  .nb-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .nb-bits { transform: rotate(-.8deg); }
+  .nb-now { padding: 18px 16px; }
+  .nb-old .d { width: 74px; font-size: 12px; }
+}

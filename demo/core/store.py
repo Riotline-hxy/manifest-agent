@@ -53,6 +53,7 @@ DEFAULT_PROFILE = {
     "digest_on": True,      # 例行任务「夜里整理记忆」的开关
     "notebook": {},         # 小光的笔记本：夜里整理时更新的、关于 TA 的长期笔记 {text, updated_at}
     "portrait": {},         # 「小光眼中的你」一句话 {text, by: digest|user, updated_at}
+    "last_week_page": "",   # 笔记本：最近一次试着写定稿的那一周（周一的日期）
     "finds": [],            # 小光的发现：小光翻笔记本时注意到的事 [{id, text, evidence[], at}]（core/finds.py）
     "insight_fb": {},       # 小光的发现：TA 点的「像我」yes /「不太像」no，按发现 id
     "last_digest_day": "", "current_wish": "", "cheer": {},
@@ -152,6 +153,8 @@ class Store:
             CREATE TABLE IF NOT EXISTS digest(
               day TEXT PRIMARY KEY, summary TEXT, highlights TEXT, stats TEXT, ops TEXT,
               by_model INTEGER DEFAULT 0, created_at TEXT);
+            CREATE TABLE IF NOT EXISTS week_page(
+              week TEXT PRIMARY KEY, page TEXT, final INTEGER DEFAULT 1, created_at TEXT);
             CREATE TABLE IF NOT EXISTS wish(
               id TEXT PRIMARY KEY, title TEXT, category TEXT, now_text TEXT, vision_text TEXT, scene TEXT,
               started TEXT, archived INTEGER DEFAULT 0, sort INTEGER DEFAULT 0, created_at TEXT);
@@ -305,6 +308,20 @@ class Store:
             self.c.execute("INSERT OR REPLACE INTO digest(day, summary, highlights, stats, ops, by_model, created_at, page) "
                            "VALUES(?,?,?,?,?,?,?,?)", (day, summary, dumps(highlights), dumps(stats), dumps(ops),
                                                        1 if by_model else 0, iso(), dumps(page) if page else ""))
+
+    # ---- 小光的笔记本：一周一页（core/weekly.py）--------------------------------
+    def week_pages(self, limit: int = 16) -> list[dict]:
+        return [{"week": r["week"], "page": loads(r["page"], {}) or {}, "final": bool(r["final"]), "at": r["created_at"]}
+                for r in self.c.execute("SELECT * FROM week_page ORDER BY week DESC LIMIT ?", (limit,))]
+
+    def week_page(self, week: str) -> dict | None:
+        r = self.c.execute("SELECT * FROM week_page WHERE week=?", (week,)).fetchone()
+        return {"week": r["week"], "page": loads(r["page"], {}) or {}, "final": bool(r["final"]), "at": r["created_at"]} if r else None
+
+    def save_week(self, week: str, page: dict, final: bool = True) -> None:
+        with self.lock:
+            self.c.execute("INSERT OR REPLACE INTO week_page(week, page, final, created_at) VALUES(?,?,?,?)",
+                           (week, dumps(page), 1 if final else 0, iso()))
 
     def memories(self, status: str | None = None, limit: int = 200, statuses: tuple | None = None) -> list[dict]:
         if statuses:

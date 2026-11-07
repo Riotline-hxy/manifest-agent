@@ -749,6 +749,14 @@ def digest_now(h, u, b, q):
         return 200, {"digest": out, **bootstrap(st)}
 
 
+def week_draft(h, u, b, q):
+    """「先把这周写下来」：小光用这周到现在的事写一版草稿，周日夜里再重写成定稿。"""
+    from core import weekly
+    with Store(u["id"]) as st:
+        page = weekly.write(st, weekly.week_key(), final=False)
+        return 200, {"page": page, **bootstrap(st)}
+
+
 def notebook(h, u, b, q):
     """用户可以直接改小光的笔记本；改过的版本夜里整理时会在它的基础上继续写。"""
     text = clip(str(b.get("text") or "").strip(), 1600)
@@ -935,6 +943,7 @@ ROUTES = {
     ("POST", "/api/insight"): (insight_api, True),
     ("POST", "/api/task"): (task_api, True),
     ("POST", "/api/notebook"): (notebook, True),
+    ("POST", "/api/notebook/week"): (week_draft, True),
     ("GET", "/api/pulse"): (pulse, True),
     ("GET", "/api/wish/review"): (wish_review, True),
     ("POST", "/api/wish/reflect"): (wish_reflect, True),

@@ -68,6 +68,7 @@ export const api = {
   rest: (undo = false) => post("/api/record", { type: "rest", undo }),
   task: (action, payload = {}) => post("/api/task", { action, ...payload }),
   notebook: (text) => post("/api/notebook", { text }),
+  weekDraft: () => post("/api/notebook/week"),
   portrait: (text) => post("/api/portrait", { text }),
   discovery: (id, fb) => post("/api/insight", { id, fb }),   // 小光的发现：像我 / 不太像（别和下面愿望的 insight 重名）
   wishReview: (id, days) => get(`/api/wish/review?id=${encodeURIComponent(id)}&days=${days}`),

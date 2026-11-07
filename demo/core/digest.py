@@ -8,15 +8,14 @@
   - 事件留作事件：「三天没健身」最多记成带日期的事，不升格为性格；
   - 推测每天最多 1 条，且以 guess 状态进入，等用户点头；
   - 超长的粘贴文本当作资料，不当作用户本人的经历。
-同时写一条当天的小结（首页那句话）和小光笔记本里这一晚的一页（digest.page：小标题、几句话、TA 的一句原话），
-「我的空间 → 夜里整理」就是这本笔记本。
+同时写一条当天的小结（首页那句话）。小光的笔记本一周一页，在 core/weekly.py。
 模型不可用时只写确定性小结，不动任何记忆。
 """
 from __future__ import annotations
 
 from datetime import timedelta
 
-from . import finds, kickstart, llm
+from . import kickstart, llm
 from .memory import KINDS
 from .store import Store
 from .util import clip, day_key, now
@@ -54,21 +53,8 @@ PROMPT = """你在为「显化陪伴」应用做每天一次的记忆整理。�
 11. portrait：「小光眼中的你」，一句话、≤30 字、第二人称或「一个……的人」。写这个人是什么样的人、最近在变成什么样，
    只用笔记本和已有记忆里的事实，温暖、具体，不夸张、不说教。材料太少写不出来就返回空字符串。
 
-12. page：小光笔记本里今晚的这一页。本子是小光自己的，但 TA 会翻开看，所以对 TA 说「你」，说自己用「我」。
-   - title：这一页的小标题，≤12 字。从这一天里取一个具体的东西：一样东西、一句话、一个时刻
-     （如「多买的一个包子」「声音在抖的那一次」「凌晨一点的猫咪视频」）。不要「美好的一天」「今天的你」这种空标题。
-   - body：2–4 句，合起来 ≤110 字。不是复述今天做了什么，而是把零散的几件事想一想、串起来：
-     它们之间有什么联系，和以前哪件事前后呼应，你哪里在悄悄变，或者我当时的感受。写具体的细节，像随手写在本子上的话。
-     这一天只有一件小事，就写一两句。
-   - quote：从 TA 这一天自己写下或说出的话里，**一字不差**地摘一句最想留下的（≤30 字）；没有合适的就留空字符串。
-   - 不说教、不喊口号、不打分；不写「今天你完成了 3 个小步」这种统计；
-     不用「不是……而是……」「旅程」「见证」「闪闪发光」「值得被看见」「每一步都算数」「温柔地」，
-     也不用「你在往前走」「一步一步」「慢慢来也没关系」这种谁都能说的收尾；结尾宁可停在一个具体的细节上。不用破折号（——）。
-   例（别的用户的，只看感觉，不要照抄）：
-   {"title":"多买的一个包子","body":"早上你多买了一个包子给同桌，自己那个凉了才吃。前天你也是先帮别人改完简历，才做自己的。你好像总是先把别人安顿好。我在这一页边上画了个小圈。","quote":"她说好吃，我就觉得今天值了"}
-
 只输出 JSON：
-{"summary":"...","highlights":["..."],"page":{"title":"...","body":"...","quote":"..."},"notebook":"（完整的新笔记本）","portrait":"...","ops":[{"op":"ADD|UPDATE|DELETE","id":"(UPDATE/DELETE 必填)","text":"...","kind":"identity|intent|preference|boundary|insight|event|good_news","cat":"effort|people|likes|self|recent|rules","source":"said|guess","evidence":"(改动保护记忆时必填：用户原话)"}]}"""
+{"summary":"...","highlights":["..."],"notebook":"（完整的新笔记本）","portrait":"...","ops":[{"op":"ADD|UPDATE|DELETE","id":"(UPDATE/DELETE 必填)","text":"...","kind":"identity|intent|preference|boundary|insight|event|good_news","cat":"effort|people|likes|self|recent|rules","source":"said|guess","evidence":"(改动保护记忆时必填：用户原话)"}]}"""
 
 
 def material(st: Store, day: str) -> dict:
@@ -163,8 +149,6 @@ def run(st: Store, day: str | None = None, use_model: bool = True) -> dict:
 
     applied, rejected, page = [], [], None
     if out:
-        corpus = "\n".join(mat["user_lines"] + [r["text"] for r in mat["records"]])
-        page = finds.page_clean(out.get("page"), corpus)
         summary = clip(str(out.get("summary") or ""), 80)
         highlights = [clip(str(h), 24) for h in (out.get("highlights") or [])][:3]
         applied, rejected = apply(st, out.get("ops") or [], {m["id"]: m for m in existing}, mat, day)

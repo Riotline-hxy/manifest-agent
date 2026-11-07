@@ -10,7 +10,7 @@ from datetime import timedelta
 
 from . import growth, journey
 from .store import Store
-from .util import clip, iso, now
+from .util import clip, iso, now, parse_iso
 
 # 小光的外貌：形状.颜色.质感（和 public/js/jelly.js 里的 LOOK_SHAPES / THEMES / MATERIALS 保持一致）
 LOOK_SHAPES = {"cloud", "mochi", "cat", "star", "cube", "flower"}
@@ -282,10 +282,23 @@ def seed_guest(store: Store) -> None:
          {"title": "自然醒的早上", "quote": "早上居然自然醒了",
           "body": "你一直说早上很难进入状态，今天却自然醒了，还顺手读完一篇英文文稿。两周前跟读播客，你读了三分钟，声音很小。现在读完一整篇，你都没觉得这值得说一说。"}),
     ]
-    for d, summary, hl, stats, ops, page in digests:
-        store.save_digest(at(d, 3)[:10], summary, hl, stats, ops, True, page)
+    for d, summary, hl, stats, ops, _ in digests:
+        store.save_digest(at(d, 3)[:10], summary, hl, stats, ops, True)
         store.c.execute("UPDATE digest SET created_at=? WHERE day=?", (at(d + 1, 3, 10), at(d, 3)[:10]))
     store.set_profile({"last_digest_day": at(13, 3)[:10]})
+    # 小光的笔记本：一周一页（core/weekly.py）。后一周如果就是这一周，存成草稿
+    from . import weekly
+    wa, wb = weekly.week_key(parse_iso(at(4, 12))), weekly.week_key(parse_iso(at(11, 12)))
+    store.save_week(wa, {"title": "录音里的陌生声音", "quotes": ["说完心跳很快，但没有人笑", "原来我可以"],
+                         "bits": ["少糖的奶茶", "课上开口一次", "和 Mia 聊了十分钟", "30 秒自我介绍"],
+                         "body": "这周你第一次在课上说了自己的想法，声音在抖，但没有人笑。后来你录了自我介绍，听了三遍才敢删掉重录。"
+                                 "可也是这周，你和 Mia 用英语聊了十分钟，比想的顺。别人耳朵里的你，好像比你自己听到的要好一点。"}, True)
+    store.save_week(wb, {"title": "先开口的那个人", "quotes": ["有点紧张，但说完发现大家都在认真听", "面试官笑了一下，我没那么紧张了"],
+                         "bits": ["Mia 的那句话", "楼下的猫让摸了", "读完一篇英文文稿", "自然醒的早上"],
+                         "body": "这周 Mia 说你口音比上次自然，你在旁边写：被看见的感觉很好。几天后的小组讨论里，你第一次主动提问。"
+                                 "面试前你对着镜子练开场，面试官笑了一下，你只写了「没那么紧张了」。你总把做到的说小一点，那我就替你多记一笔。"},
+                    wb != weekly.week_key())
+    store.set_profile({"last_week_page": wb if wb != weekly.week_key() else wa})
     store.set_profile({"portrait": {"text": "一个总是想好了才开口的人，这两周开始先开口了。", "by": "digest", "updated_at": at(13, 3)}})
     # 小光的发现：小光翻笔记本时注意到的（core/finds.py 写的结构）
     store.set_profile({"finds_at": at(13, 4), "finds": [

@@ -1,4 +1,4 @@
-// 我的空间：档案 · 了解你（小光眼中的你、「小光记得的」入口、小光的发现）· 夜里整理（小光的笔记本，一晚一页）· 时间线 · 设置。
+// 我的空间：档案 · 了解你（小光眼中的你、「小光记得的」入口、小光的发现）· 夜里整理（小光的笔记本，一周一页）· 时间线 · 设置。
 // 「聊聊现在的你」不封在这里，它是点子里的体验；这里只看结果（记忆、设置里的陪伴偏好），随时改。
 import { api } from "../api.js";
 import { state, setData, go } from "../store.js";
@@ -282,82 +282,91 @@ function allSheet(root) {
   }));
 }
 
-// ---- 夜里整理 = 小光的笔记本：每晚一页（小标题、几句话、TA 的一句原话）。最新一页摊开，往前的按目录翻 -----------
-// 记忆的增删改不是这里的主角：每页底下一行小字，点开才看。
+// ---- 夜里整理 = 小光的笔记本：一周一页 -----------------------------------------------------------
+// 最上面是「这一周」：没写时是这周到现在的碎片（可以让小光先写一版草稿），写了就是草稿页；
+// 下面最新的一页摊开，再往前的按目录翻。记忆的增删改不是主角：每页底下一行小字，点开才看。
 
-const WEEK = "日一二三四五六";
+const SCRAP_ICON = { good: "star", find: "sparkles", step: "check", moment: "heart" };
 
-function pageOf(x) {
-  const pg = x.page || {};
-  if (pg.body) return pg;
-  return { title: (x.highlights || [])[0] || "这一天", body: x.summary || "", quote: "" };
+function d0(s) { return new Date(s.slice(0, 10) + "T12:00:00"); }
+
+function weekRange(week) {
+  const a = d0(week), b = new Date(a.getTime() + 6 * 864e5);
+  return `${a.getMonth() + 1}月${a.getDate()}日 – ${b.getMonth() === a.getMonth() ? "" : `${b.getMonth() + 1}月`}${b.getDate()}日`;
 }
 
-function dayLine(day) {
-  const d = new Date(day + "T12:00:00");
-  return `${d.getMonth() + 1}月${d.getDate()}日 · 周${WEEK[d.getDay()]}`;
-}
-
-function nthDay(day) {
-  const c = state.data.profile?.created_at;
+function nthWeek(week) {
+  const c = state.data.notebook_weeks?.created;
   if (!c) return "";
-  const n = Math.round((new Date(day + "T12:00:00") - new Date(c.slice(0, 10) + "T12:00:00")) / 864e5) + 1;
-  return n >= 1 ? `认识第 ${n} 天` : "";
+  const cm = d0(c);
+  cm.setDate(cm.getDate() - ((cm.getDay() + 6) % 7));
+  const n = Math.round((d0(week) - cm) / (7 * 864e5)) + 1;
+  return n >= 1 ? `认识的第 ${n} 周` : "";
 }
 
-function memLine(x) {
-  const ops = x.ops || [];
+function weekMem(week) {
+  const end = new Date(d0(week).getTime() + 6 * 864e5).toISOString().slice(0, 10);
+  const ops = (state.data.digests || []).filter((x) => x.day >= week && x.day <= end).flatMap((x) => x.ops || []);
   if (!ops.length) return "";
-  const catOf = {};
-  (state.data.about || []).forEach((c) => c.items.forEach((i) => { catOf[i.text] = c.name; }));
-  return `<details class="nb-mem"><summary>${icon("heart")}这一晚，小光还记住了 ${ops.length} 件关于你的事</summary>
+  return `<details class="nb-mem"><summary>${icon("heart")}这一周，小光还记住了 ${ops.length} 件关于你的事</summary>
     ${ops.map((o) => `<div class="chg"><span class="k">${o.op === "ADD" ? (o.status === "guess" ? "猜了一件" : "记住") : o.op === "UPDATE" ? "改了" : "忘掉"}</span>
-      <span class="tx">${o.op === "UPDATE" ? `<s>${esc(o.old)}</s> → ` : ""}${esc(o.text || o.old)}</span>${catOf[o.text] ? `<span class="to">${esc(catOf[o.text])}</span>` : ""}</div>`).join("")}</details>`;
+      <span class="tx">${o.op === "UPDATE" ? `<s>${esc(o.old)}</s> → ` : ""}${esc(o.text || o.old)}</span></div>`).join("")}</details>`;
 }
 
-function pageHTML(x) {
-  const pg = pageOf(x);
-  return `<div class="nb-date"><b>${esc(dayLine(x.day))}</b><span>${esc(nthDay(x.day))}</span></div>
-    <h3 class="nb-title">${esc(pg.title)}</h3>
-    <p class="nb-body">${esc(pg.body)}</p>
-    ${pg.quote ? `<div class="nb-quote"><span>${esc(pg.quote)}</span><small>你那天写的</small></div>` : ""}
-    ${memLine(x)}`;
+function weekHTML(w, label) {
+  const pg = w.page || {};
+  const bits = pg.bits || [];
+  return `<div class="nb-date"><b>${esc(weekRange(w.week))}</b><span>${esc(label || nthWeek(w.week))}</span></div>
+    <h3 class="nb-title">${esc(pg.title || "这一周")}</h3>
+    <div class="nb-grid ${bits.length ? "" : "solo"}">
+      <div class="nb-left"><p class="nb-body">${esc(pg.body || "")}</p>
+        ${(pg.quotes || []).map((q, i) => `<div class="nb-quote ${i ? "alt" : ""}"><span>${esc(q)}</span><small>你这周写的</small></div>`).join("")}</div>
+      ${bits.length ? `<aside class="nb-bits"><b>这周的小事</b>${bits.map((b) => `<span>${esc(b)}</span>`).join("")}</aside>` : ""}
+    </div>
+    ${weekMem(w.week)}`;
 }
 
 function digestTab(body, root) {
-  const list = state.data.digests || [];
-  const [first, ...older] = list;
+  const nw = state.data.notebook_weeks || { pages: [], scraps: [] };
+  const [first, ...older] = nw.pages || [];
+  const scraps = nw.scraps || [];
+  const cur = nw.current;
+  const thisWeek = nw.draft
+    ? `<article class="nb-page card draft">${weekHTML(nw.draft, "这一周 · 写到一半，周日夜里还会改")}
+        <div class="nb-act"><button class="btn btn-sm btn-ghost" data-run>${icon("edit")}按这周到现在，再写一版</button></div></article>`
+    : `<section class="nb-now card">
+        <div class="nb-date"><b>这一周 · ${esc(cur ? weekRange(cur) : "")}</b><span>周日夜里，小光会把它写成一页</span></div>
+        ${scraps.length ? `<div class="nb-scraps">${scraps.map((x, i) => `<span class="scrap" style="--i:${i}">${icon(SCRAP_ICON[x.kind] || "star")}${esc(x.text)}</span>`).join("")}</div>
+          <div class="nb-act"><button class="btn btn-sm btn-main" data-run>${icon("moon")}先把这周写下来</button></div>`
+        : `<p class="nb-quiet">这周还很安静。记下一件小事、做完一个小步，都会先夹在这里。</p>`}
+      </section>`;
   body.innerHTML = `
     <section class="night card">
       <div class="night-ball"></div>
       <div class="night-copy">
         <h2>小光的笔记本</h2>
-        <p>每天夜里，小光会把这一天零零散散的事想一想，写成一页。</p>
-        <button class="btn btn-main" data-run>${icon("moon")}现在写今天这一页</button>
+        <p>一周一页。每个周日夜里，小光会把这一周零零散散的事想一想，写下来。</p>
       </div>
     </section>
-    ${first ? `<article class="nb-page card">${pageHTML(first)}</article>`
-      : `<article class="nb-page card empty"><div class="nb-date"><b>第一页</b></div>
-        <p class="nb-body muted">还是空白的。今晚小光会写下第一页。</p></article>`}
+    ${thisWeek}
+    ${first ? `<div class="sec-title" style="margin-top:26px">上一页</div>
+      <article class="nb-page card">${weekHTML(first)}</article>` : ""}
     ${older.length ? `<div class="sec-title" style="margin-top:26px">往前翻<span class="more">${older.length} 页</span></div>
-      <div class="nb-index card">${older.map((x) => {
-        const pg = pageOf(x);
-        return `<details class="nb-old"><summary><span class="d">${esc(dayLine(x.day).split(" · ")[0])}</span>
-          <span class="t"><b>${esc(pg.title)}</b><small>${esc(pg.body)}</small></span><span class="row-go">${icon("arrow")}</span></summary>
-          <div class="nb-page inner">${pageHTML(x)}</div></details>`;
-      }).join("")}</div>` : ""}`;
+      <div class="nb-index card">${older.map((w) => `<details class="nb-old"><summary><span class="d">${esc(weekRange(w.week))}</span>
+          <span class="t"><b>${esc(w.page?.title || "这一周")}</b><small>${esc(w.page?.body || "")}</small></span><span class="row-go">${icon("arrow")}</span></summary>
+          <div class="nb-page inner">${weekHTML(w)}</div></details>`).join("")}</div>` : ""}`;
   const ball = mountBall(body.querySelector(".night-ball"), { size: 92, emotion: "00", agent: false });
-  body.querySelector("[data-run]").addEventListener("click", async (e) => {
+  body.querySelector("[data-run]")?.addEventListener("click", async (e) => {
     const b = e.currentTarget;
     b.classList.add("off");
     ball.set("recall"); ball.pulse("spin");
+    toast("小光在想这一周……");
     try {
-      const out = await api.digest();
+      const out = await api.weekDraft();
       setData(out);
-      const dg = out.digest;
-      if (dg.skipped) { toast("今天还没有可以写的事"); ball.set("sleep"); }
-      else { ball.set("done"); burstAt(b, 36); toast(dg.page?.title ? `写好了：「${dg.page.title}」` : "写好了"); }
-      setTimeout(() => renderSpace(root), 900);
+      if (!out.page) { toast("这周的事还太少，再过几天吧"); ball.set("sleep"); }
+      else { ball.set("done"); burstAt(b, 36); toast(`写好了：「${out.page.title}」`); }
+      setTimeout(() => renderSpace(root), 700);
     } catch (err) { toast(err.message, "err"); ball.set("error"); b.classList.remove("off"); }
   });
 }
