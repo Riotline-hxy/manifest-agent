@@ -1,8 +1,8 @@
 {
-  "provider": "modelflare",
-  "baseUrl": "https://modelflare.dev/v1",
-  "model": "gpt-6.1-sol",
-  "reasoning": "low",
-  "apiKeyEnv": "MODELFLARE_API_KEY",
-  "notes": "OpenAI-compatible; use for 显伴 demo chat; do not raise thinking for speed"
+  "provider": "deepseek",
+  "baseUrl": "https://api.deepseek.com",
+  "model": "deepseek-flash",
+  "reasoning": "none",
+  "apiKeyEnv": "DEEPSEEK_API_KEY",
+  "notes": "DeepSeek official API, OpenAI-compatible; deepseek-flash = DeepSeek-V4.1-Flash. reasoning none = thinking off, fastest first token (0.8s vs ~1.9s at low, 2026-11-07 bench); keep it off for 小光 chat"
 }

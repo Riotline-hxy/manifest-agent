@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小光果冻 · 质感和形状</title>
+<style>
+  :root{--bg:#f3f6f6;--ink:#1b2a2d;--mute:#83959a;--card:#fff;--chip:#f2f7f7;--stage:radial-gradient(circle at 50% 58%,#fff 0,#f4f8f8 78%)}
+  body.night{--bg:#14151c;--ink:#ebedf3;--mute:#8a8f9e;--card:#1d1f28;--chip:#272a35;--stage:radial-gradient(circle at 50% 58%,#272a38 0,#181a22 78%)}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);transition:background .4s,color .4s;
+    font-family:"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1200px;margin:0 auto;padding:36px 28px 64px}
+  header h1{margin:0;font-size:22px;font-weight:600;letter-spacing:.5px}
+  header p{margin:6px 0 0;color:var(--mute);font-size:14px}
+  .bar{position:sticky;top:10px;z-index:2;display:flex;flex-wrap:wrap;gap:14px 22px;align-items:center;margin:22px 0 18px;background:var(--card);border-radius:22px;padding:14px 18px;
+    box-shadow:0 12px 30px -24px rgba(0,0,0,.35);transition:background .4s}
+  .bar h3{margin:0 8px 0 0;font-size:12px;font-weight:600;color:var(--mute);letter-spacing:1px}
+  .grp{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+  button{font:inherit;border:0;cursor:pointer}
+  .chip{padding:6px 11px;border-radius:10px;background:var(--chip);color:var(--ink);font-size:13px;transition:background .25s,color .25s}
+  .chip.on{background:var(--ink);color:var(--bg)}
+  .chip.new::after{content:"新";margin-left:4px;font-size:10px;color:#e0742f}
+  .chip.on.new::after{color:#ffc89a}
+  .sw{width:24px;height:24px;border-radius:50%;position:relative;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
+  .sw.on::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--ink)}
+  .act{padding:8px 16px;border-radius:12px;background:#4cb9c3;color:#fff;font-size:14px;font-weight:600}
+  .act:active{transform:scale(.97)}
+  h2{font-size:17px;font-weight:600;margin:40px 0 4px}
+  h2:first-of-type{margin-top:8px}
+  .sub{color:var(--mute);font-size:13px;margin:0 0 14px}
+  h4{font-size:13px;color:var(--mute);font-weight:600;letter-spacing:1px;margin:22px 0 10px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .grid.four{grid-template-columns:repeat(4,1fr);gap:14px}
+  .card{background:var(--card);border-radius:26px;padding:10px 10px 18px;transition:background .4s}
+  .card svg{width:100%;aspect-ratio:1;display:block;border-radius:20px;background:var(--stage)}
+  .card.pick{cursor:pointer}
+  .n{display:flex;align-items:baseline;gap:8px;margin:12px 8px 4px}
+  .n b{font-size:16px}
+  .n i{font-style:normal;font-size:12px;color:var(--mute);background:var(--chip);border-radius:999px;padding:1px 9px}
+  .idea{margin:0 8px 10px;font-size:14px;line-height:1.65}
+  .four .idea{font-size:13px;margin-bottom:0}
+  dl{margin:0 8px;display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px;color:var(--mute);line-height:1.55}
+  dt{color:var(--ink);font-weight:600}
+  dd{margin:0}
+  .swap{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .pair{background:var(--card);border-radius:26px;padding:10px 10px 18px;transition:background .4s}
+  .pair .two{display:grid;grid-template-columns:1fr 1fr;gap:8px;position:relative}
+  .pair .two::after{content:"→";position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);color:var(--mute);font-size:18px}
+  .pair svg{width:100%;aspect-ratio:1;display:block;border-radius:18px;background:var(--stage)}
+  .pair .old{opacity:.55}
+  .pair .lab{display:grid;grid-template-columns:1fr 1fr;text-align:center;font-size:13px;color:var(--mute);margin:6px 0 8px}
+  .pair .lab b{color:var(--ink)}
+  .pair p{margin:0 8px;font-size:13px;line-height:1.65;color:var(--mute)}
+  .pair p b{color:var(--ink);font-weight:600}
+  .gone{display:grid;grid-template-columns:200px 1fr;gap:16px;align-items:center;background:var(--card);border-radius:26px;padding:10px 20px 10px 10px;transition:background .4s}
+  .gone svg{width:100%;aspect-ratio:1;display:block;border-radius:18px;background:var(--stage);opacity:.55}
+  .gone p{margin:4px 0 0;font-size:14px;line-height:1.65;color:var(--mute)}
+  @media (max-width:1000px){.grid,.swap{grid-template-columns:1fr 1fr}.grid.four{grid-template-columns:repeat(3,1fr)}}
+  @media (max-width:640px){.grid,.swap,.grid.four{grid-template-columns:1fr}.gone{grid-template-columns:120px 1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>小光果冻 · 质感和形状</h1>
+    <p>还是现在这只果冻。每种质感、每个形状都藏一个小心思，可爱放在前面。</p>
+  </header>
+
+  <div class="bar">
+    <div class="grp"><h3>形状</h3><span id="shapes" class="grp"></span></div>
+    <div class="grp"><h3>颜色</h3><span id="colors" class="grp"></span></div>
+    <div class="grp">
+      <button class="act" id="done">做完一件事</button>
+      <button class="chip" id="eyeStar">眼里有光</button>
+      <button class="chip" id="night">夜里</button>
+    </div>
+  </div>
+
+  <h2>质感</h2>
+  <p class="sub">形状和颜色在上面换，五只一起变。</p>
+  <div class="grid" id="mats"></div>
+
+  <h2>形状</h2>
+  <p class="sub">意思说得通的留下；说不通的，改一改或者删掉。点一下可以放到上面的质感里看。</p>
+  <h4>留着 · 8 个</h4>
+  <div class="grid four" id="keep"></div>
+  <h4>建议改 · 3 个</h4>
+  <div class="swap" id="swap"></div>
+  <h4>建议删 · 1 个</h4>
+  <div id="gone"></div>
+</div>
+
+<script type="module">
+// 引擎和网页 App 共用：demo/public/js/jelly.js（这里的新质感和新形状只在设计稿里用，App 的外貌设置里还没有）
+import { Jelly, SHAPES, SHAPE_DRAFTS, THEMES, track } from '../../demo/public/js/jelly.js';
+
+const $ = id => document.getElementById(id);
+const MATS = [
+  { m: 'jelly', n: '整块果冻', tag: '现在',
+    idea: '软软的，捏一下会弹回来，接得住你的小情绪。',
+    q: '透明、有弹性，干净', d: '身体跟着呼吸轻轻起伏' },
+  { m: 'light', n: '心里有光', tag: '新',
+    idea: '名字叫小光，光就在它身体里。你做成一件事，它会亮一下。',
+    q: '果冻里裹着一团暖光', d: '光跟着呼吸一明一暗' },
+  { m: 'stars', n: '装着星星', tag: '新',
+    idea: '它记住的关于你的事，都变成身体里的一颗小星星。聊得越久，星星越多。',
+    q: '果冻里漂着几颗小星星', d: '星星慢慢漂，时不时闪一下', stars: 4 },
+  { m: 'liquid', n: '今天的水位', tag: '在晃晃水上改',
+    idea: '下面那层水是今天的进度。做完一小步涨一点，涨满了，今天就走完了。',
+    q: '上面果冻，下面一层水，水面不会漫过嘴巴', d: '水面跟着呼吸轻轻晃', level: .45 },
+  { m: 'glow', n: '夜光', tag: '新',
+    idea: '白天你做的小事它都存着，天黑了，自己亮起来陪你。',
+    q: '边缘透出一圈柔光', d: '光晕一涨一落，夜里更明显' },
+];
+const KEEP = [
+  { s: 'hex', idea: '蜂巢里的一格。小步一格一格地攒，攒多了就是一整片。', tag: '最初的样子' },
+  { s: 'cloud', idea: '白日梦都飘在云上，小光陪你把它带到地上来。', tag: '现在的默认' },
+  { s: 'star', idea: '许愿的时候，人都会抬头找星星。' },
+  { s: 'drop', idea: '水滴石穿。一滴不起眼，天天滴，石头也会穿。' },
+  { s: 'mochi', idea: '糯米黏人，它就黏着你。捏扁了，也会慢慢圆回来。' },
+  { s: 'cat', idea: '像猫一样陪着你。不吵你，你一回头，它就在。' },
+  { s: 'heart', idea: '你说过的心事，它都放在心上。' },
+  { s: 'flower', idea: '愿望像一颗种子，照顾着照顾着，就开花了。' },
+];
+const SWAP = [
+  { from: 'onigiri', to: 'hill', was: '饭团只是好吃，和小光扯不上关系。', now: '想去的地方是一座小山，一小步一小步就上去了。' },
+  { from: 'pudding', to: 'house', was: '布丁和果冻是一类东西，说不出别的意思。', now: '你做成的事都在小镇里盖成房子。这是第一栋，小光住在这儿。' },
+  { from: 'gummy', to: 'pillow', was: '软糖和糯米团太像了。', now: '偷懒的日子也可以靠着它歇一会儿，不用每一天都拼尽全力。' },
+];
+const GONE = { s: 'cube', why: '和糯米团、枕头长得太像，「甜一点」也说不出和小光有什么关系。删掉之后一共 11 个形状。' };
+const nameOf = s => (SHAPES[s] || SHAPE_DRAFTS[s]).n;
+
+let look = { shape: 'cloud', theme: 'origin' };
+const matCards = [], all = [];
+const make = (svg, o) => { const j = track(new Jelly(svg, { alive: true, expr: 'idle', theme: look.theme, ...o })); all.push(j); return j; };
+
+for (const M of MATS) {
+  const c = document.createElement('div'); c.className = 'card';
+  c.innerHTML = `<svg></svg><div class="n"><b>${M.n}</b><i>${M.tag}</i></div>
+    <p class="idea">${M.idea}</p><dl><dt>质</dt><dd>${M.q}</dd><dt>动</dt><dd>${M.d}</dd></dl>`;
+  $('mats').appendChild(c);
+  const j = make(c.querySelector('svg'), { shape: look.shape, material: M.m });
+  if (M.stars !== undefined) j.setStars(M.stars);
+  if (M.level !== undefined) j.setLevel(M.level);
+  matCards.push(j);
+}
+const pickShape = s => { setLook(s, null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+for (const K of KEEP) {
+  const c = document.createElement('div'); c.className = 'card pick';
+  c.innerHTML = `<svg></svg><div class="n"><b>${nameOf(K.s)}</b>${K.tag ? `<i>${K.tag}</i>` : ''}</div><p class="idea">${K.idea}</p>`;
+  $('keep').appendChild(c); make(c.querySelector('svg'), { shape: K.s }); c.onclick = () => pickShape(K.s);
+}
+for (const W of SWAP) {
+  const c = document.createElement('div'); c.className = 'pair';
+  c.innerHTML = `<div class="two"><svg class="old"></svg><svg class="new"></svg></div>
+    <div class="lab"><span>${nameOf(W.from)}</span><b>${nameOf(W.to)}</b></div>
+    <p><b>原来</b> ${W.was}</p><p><b>改成</b> ${W.now}</p>`;
+  $('swap').appendChild(c);
+  make(c.querySelector('.old'), { shape: W.from });
+  make(c.querySelector('.new'), { shape: W.to });
+  c.querySelector('.new').style.cursor = 'pointer'; c.querySelector('.new').onclick = () => pickShape(W.to);
+}
+{
+  const c = document.createElement('div'); c.className = 'gone';
+  c.innerHTML = `<svg></svg><div><b>${nameOf(GONE.s)}</b><p>${GONE.why}</p></div>`;
+  $('gone').appendChild(c); make(c.querySelector('svg'), { shape: GONE.s });
+}
+
+function setLook(shape, theme) {
+  if (shape) look.shape = shape; if (theme) look.theme = theme;
+  if (shape) matCards.forEach((j, i) => setTimeout(() => j.setShape(shape), i * 60));
+  if (theme) all.forEach((j, i) => setTimeout(() => j.setTheme(theme), Math.min(i, 12) * 40));
+  document.querySelectorAll('[data-s]').forEach(b => b.classList.toggle('on', b.dataset.s === look.shape));
+  document.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === look.theme));
+}
+// 上面只列建议的 11 个形状
+[...KEEP.map(k => k.s), ...SWAP.map(w => w.to)].forEach(s => {
+  const b = document.createElement('button'); b.className = 'chip' + (SHAPE_DRAFTS[s] ? ' new' : ''); b.dataset.s = s; b.textContent = nameOf(s);
+  b.onclick = () => setLook(s, null); $('shapes').appendChild(b);
+});
+Object.keys(THEMES).forEach(k => {
+  const T = THEMES[k], b = document.createElement('button'); b.className = 'sw'; b.dataset.t = k; b.title = T.n;
+  b.style.background = `radial-gradient(circle at 35% 30%, ${T.f0}, ${T.f1} 55%, ${T.f2})`;
+  b.onclick = () => setLook(null, k); $('colors').appendChild(b);
+});
+setLook(look.shape, look.theme);
+
+let doneTimer = 0;
+$('done').onclick = () => {
+  clearTimeout(doneTimer);
+  matCards.forEach(j => { j.set('happy', { calm: true }); j.glowUp(); });
+  doneTimer = setTimeout(() => matCards.forEach(j => j.set('idle', { calm: true })), 1800);
+};
+$('eyeStar').onclick = e => {
+  Jelly.eyeStar = !Jelly.eyeStar; e.target.classList.toggle('on', Jelly.eyeStar);
+  all.forEach(j => { j.cache = {}; j.wake(); });
+};
+$('eyeStar').classList.toggle('on', Jelly.eyeStar);   // 现在默认就是眼里有光
+$('night').onclick = e => e.target.classList.toggle('on', document.body.classList.toggle('night'));
+</script>
+</body>
+</html>

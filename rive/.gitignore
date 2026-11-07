@@ -1,0 +1,8 @@
+# 生成出来的东西不进仓库：gen/ 里的脚本都能重新生成（见 pets/README.md）
+pets/projects/
+pets/projects-preview/
+pets/review/riv/
+pets/review/vendor/
+pets/build-frames/
+pets/xiaoya-pets-handover.html
+xiaoguang-orb/build/

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>小光的统一展示系统 · 三个方案</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0d3528; --solid: #174a39; --surface: rgba(255,255,255,.055); --surface-2: rgba(255,255,255,.09); --surface-3: rgba(255,255,255,.14);
+    --line: rgba(255,255,255,.09); --line-2: rgba(255,255,255,.17);
+    --text: #f4f1e6; --text-2: rgba(244,241,230,.74); --text-3: rgba(244,241,230,.5); --text-4: rgba(244,241,230,.32);
+    --accent: #f7cb4d; --accent-ink: #3b2a00; --good: #4fd1a5; --danger: #ff7a6b;
+    --c-orange: #ffad4d; --c-pink: #ff8fb1; --c-sky: #6cb8ff; --c-violet: #a99bff; --c-mint: #4fd1a5; --c-lemon: #f2c34b; --c-coral: #ff8a65;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0a2a20; color: var(--text); font: 500 14px/1.6 "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
+  header { max-width: 1480px; margin: 0 auto; padding: 36px 28px 8px; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  .lead { color: var(--text-2); max-width: 880px; margin: 0; }
+  .rules { max-width: 1480px; margin: 18px auto 0; padding: 0 28px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .rule { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; }
+  .rule b { display: block; font-size: 13.5px; margin-bottom: 2px; }
+  .rule span { font-size: 12.5px; color: var(--text-2); }
+  .cols { max-width: 1480px; margin: 22px auto 40px; padding: 0 28px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+  .cols > section { min-width: 0; }
+  .col-h { margin: 0 0 10px; }
+  .col-h .tag { display: inline-block; font-size: 11.5px; font-weight: 900; padding: 2px 9px; border-radius: 8px; background: var(--surface-3); color: var(--text-2); }
+  .col-h .tag.rec { background: var(--accent); color: var(--accent-ink); }
+  .col-h h2 { font-size: 17px; margin: 6px 0 2px; }
+  .col-h p { margin: 0; font-size: 12.5px; color: var(--text-2); min-height: 60px; }
+  .phone { background: var(--bg); border: 1px solid var(--line-2); border-radius: 26px; padding: 14px 12px 18px; }
+  .phone.old { opacity: .92; }
+  .step-lbl { font-size: 11px; font-weight: 900; color: var(--text-4); letter-spacing: .04em; margin: 16px 2px 6px; }
+  .step-lbl:first-child { margin-top: 2px; }
+  .u { display: flex; justify-content: flex-end; margin: 6px 0; }
+  .u > div { max-width: 82%; background: var(--surface-3); padding: 8px 12px; border-radius: 18px 6px 18px 18px; font-size: 13.5px; }
+  .a { display: flex; gap: 8px; margin: 6px 0; }
+  .av { flex: none; width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff, #cfe9ff 55%, #9ccfff); margin-top: 2px; }
+  .a .colm { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  .bub { background: var(--surface); border: 1px solid var(--line); padding: 8px 12px; border-radius: 6px 18px 18px 18px; font-size: 13.5px; line-height: 1.7; }
+  .tile { flex: none; display: grid; place-items: center; border-radius: 12px; background: color-mix(in srgb, var(--tile) 22%, transparent); color: var(--tile); }
+  .tile svg { width: 58%; height: 58%; }
+  .ic { width: 15px; height: 15px; flex: none; }
+  .btn { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 12px; border-radius: 10px; font: 800 12.5px/1 inherit; border: 0; cursor: pointer; color: var(--text); background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-2); }
+  .btn.main { background: var(--accent); color: var(--accent-ink); box-shadow: 0 3px 0 #b8901f; }
+  .btn.quiet { box-shadow: none; color: var(--text-3); padding: 0 6px; }
+  .muted { color: var(--text-3); }
+  del { color: var(--text-3); text-decoration-thickness: 1.5px; }
+  .arrow { color: var(--text-4); margin: 0 3px; }
+
+  /* 现在：旧的 tool 卡 */
+  .tool { display: flex; gap: 10px; padding: 10px 12px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line-2); }
+  .tool-k { font-size: 11px; font-weight: 900; color: var(--text-3); }
+  .tool-t { font-size: 13.5px; font-weight: 800; line-height: 1.45; }
+  .tool-n { font-size: 12px; color: var(--text-2); }
+  .tool-f { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .xp { align-self: flex-start; font-size: 11px; font-weight: 900; padding: 2px 7px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); }
+  .note-bad { font-size: 11.5px; color: #ffb3a8; margin: 2px 0 0 34px; }
+
+  /* 方案 A：一张卡，三种状态 */
+  .card { display: flex; gap: 10px; align-items: flex-start; padding: 11px 12px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line-2); min-height: 64px; }
+  .card .body { flex: 1; min-width: 0; }
+  .card .k { font-size: 11px; font-weight: 900; color: var(--text-3); display: flex; align-items: center; gap: 4px; }
+  .card .t { font-size: 13.5px; font-weight: 800; line-height: 1.45; }
+  .card .n { font-size: 12px; color: var(--text-2); }
+  .card .f { display: flex; gap: 6px; margin-top: 8px; }
+  .card.suggest { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+  .card.ask { border-style: dashed; }
+  .state { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--good); color: #063; margin-top: 2px; }
+  .state svg { width: 12px; height: 12px; }
+
+  /* 方案 B：签条 + 功能行 */
+  .slip { display: flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); font-size: 12.5px; }
+  .slip .ok { color: var(--good); }
+  .slip .txt { flex: 1; min-width: 0; }
+  .slip .undo { font-size: 11.5px; font-weight: 800; color: var(--text-3); cursor: pointer; }
+  .slip.ask { border-style: dashed; border-color: var(--line-2); }
+  .slip.ask .acts { display: flex; gap: 4px; }
+  .slip.ask .btn { height: 26px; padding: 0 9px; font-size: 12px; }
+  .frow { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); height: 78px; }
+  .frow .main { flex: 1; min-width: 0; }
+  .frow b { display: block; font-size: 13.5px; }
+  .frow span { font-size: 12px; color: var(--text-2); line-height: 1.45; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .frow .go { flex: none; height: 30px; padding: 0 11px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 900; display: grid; place-items: center; }
+
+  /* 方案 C：横滑小卡 + 合并的改动 */
+  .mini-row { display: flex; gap: 8px; overflow: hidden; }
+  .mini { flex: none; width: 128px; height: 132px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line-2); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .mini b { font-size: 13px; line-height: 1.3; }
+  .mini span { font-size: 11.5px; color: var(--text-2); line-height: 1.4; flex: 1; }
+  .mini .btn { height: 26px; justify-content: center; }
+  .batch { border-radius: 16px; background: var(--surface); border: 1px solid var(--line-2); overflow: hidden; }
+  .batch-h { display: flex; align-items: center; gap: 8px; padding: 9px 12px; font-size: 12.5px; font-weight: 800; }
+  .batch-h .muted { margin-left: auto; font-weight: 700; font-size: 11.5px; }
+  .batch-i { display: flex; gap: 8px; align-items: center; padding: 7px 12px; border-top: 1px solid var(--line); font-size: 12.5px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+  .foot { max-width: 1480px; margin: 0 auto 60px; padding: 0 28px; display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; }
+  .box { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px; }
+  .box h3 { margin: 0 0 8px; font-size: 15px; }
+  .box table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .box td, .box th { text-align: left; padding: 6px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+  .box th { color: var(--text-3); font-weight: 800; border-top: 0; }
+  .box ul { margin: 0; padding-left: 18px; color: var(--text-2); font-size: 13px; }
+  .box li { margin: 3px 0; }
+  @media (max-width: 1200px) { .cols, .rules { grid-template-columns: 1fr 1fr; } .foot { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-wind" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M3 8h10a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h7"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path fill="currentColor" d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24"><path fill="currentColor" d="M6 3h1.8v18H6zM8.8 4h10l-2.5 4 2.5 4h-10z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path fill="currentColor" d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path fill="currentColor" d="M15.2 4.3l4.5 4.5L9 19.5 4 20l.5-5zM17 2.5l1.3-1.3a1 1 0 0 1 1.4 0l3.1 3.1a1 1 0 0 1 0 1.4L21.5 7z"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path fill="currentColor" d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></symbol>
+</svg>
+
+<header>
+  <h1>小光的统一展示系统 · 三个方案</h1>
+  <p class="lead">四列都用同一段对话：TA 说焦虑 → 小光推荐冥想；TA 改一个小步；TA 说了一件小确幸；TA 讲了一个和愿望有关的瞬间。第一列是现在的样子，后三列是三个方案。不论选哪个，下面四条规矩都一样。</p>
+</header>
+
+<div class="rules">
+  <div class="rule"><b>只有三种东西会出现在聊天里</b><span>推荐（去试一个功能）、回执（我做了一件事）、待你确认（我提议，你点头才算）。</span></div>
+  <div class="rule"><b>所有功能入口一个尺寸</b><span>冥想、两分钟启动、感恩、学堂文章……同一个格子：图标 + 名字 + 一句介绍 + 一个按钮。</span></div>
+  <div class="rule"><b>改动统一写法</b><span>动词 + 是哪一项，有改前改后就写「<del>旧</del> → 新」。小步、里程碑、习惯、好消息都一样。</span></div>
+  <div class="rule"><b>只读的事不出卡片</b><span>「看了看计划」「翻了翻记忆」「查了说明书」不再单独占一张卡，最多在气泡下面一行灰字。</span></div>
+</div>
+
+<div class="cols">
+
+  <!-- 现在 -->
+  <section>
+    <div class="col-h"><span class="tag">现在</span><h2>现在的样子</h2>
+      <p>推荐只是一句话，没有入口；改动卡片的底部按钮每种不一样；查资料也占一张卡。</p></div>
+    <div class="phone old">
+      <div class="step-lbl">① 推荐冥想</div>
+      <div class="u"><div>最近有点焦虑，说不清为什么</div></div>
+      <div class="a"><div class="av"></div><div class="colm"><div class="bub">说不清的焦虑最磨人了🥺 要不要试试冥想，放松一下？</div></div></div>
+      <div class="note-bad">只有文字，TA 得自己去点子页找</div>
+      <div class="step-lbl">② 改小步</div>
+      <div class="u"><div>把小组提问那一步改成课上提问</div></div>
+      <div class="a"><div class="av"></div><div class="colm">
+        <div class="tool"><span class="tile" style="--tile:var(--c-violet);width:34px;height:34px"><svg><use href="#i-spark"/></svg></span><div><div class="tool-k">看了看</div><div class="tool-t">你的小步</div></div></div>
+        <div class="tool"><span class="tile" style="--tile:var(--c-orange);width:34px;height:34px"><svg><use href="#i-flag"/></svg></span><div><div class="tool-k">改了计划</div><div class="tool-t">「在课上主动提一个问题」</div><div class="tool-n">名字改成「在课上主动提一个问题」</div><div class="tool-f"><span class="btn">去蜕变计划看看</span></div></div></div>
+        <div class="bub">改好啦 ✓</div></div></div>
+      <div class="note-bad">两张卡，看不出原来叫什么</div>
+      <div class="step-lbl">③ 小确幸</div>
+      <div class="u"><div>抢到了最后一份糖醋排骨！</div></div>
+      <div class="a"><div class="av"></div><div class="colm">
+        <div class="tool"><span class="tile" style="--tile:var(--c-lemon);width:34px;height:34px"><svg><use href="#i-star"/></svg></span><div style="flex:1"><div class="tool-k">收下小确幸</div><div class="tool-t">抢到了最后一份糖醋排骨</div><div class="tool-n">第 12 颗星</div></div><span class="xp">+6 经验</span></div>
+        <div class="bub">这是被糖醋排骨选中了吧哈哈哈！</div></div></div>
+      <div class="step-lbl">④ 留在轨迹上</div>
+      <div class="u"><div>刚才第一个用英语发言了，好爽</div></div>
+      <div class="a"><div class="av"></div><div class="colm">
+        <div class="tool"><span class="tile" style="--tile:var(--c-violet);width:34px;height:34px"><svg><use href="#i-spark"/></svg></span><div><div class="tool-k">要留在轨迹上吗</div><div class="tool-t">第一个用英语发言了</div><div class="tool-n">还没保存，你决定</div><div class="tool-f"><span class="btn main">留下</span><span class="btn">改一改</span><span class="btn quiet">不用了</span></div></div></div>
+        <div class="bub">要不要把它留在轨迹上？</div></div></div>
+    </div>
+  </section>
+
+  <!-- 方案 A -->
+  <section>
+    <div class="col-h"><span class="tag">方案 A</span><h2>一张卡走天下</h2>
+      <p>所有东西都是同一个卡片框，同样大小。只靠三处细节区分：推荐有金色描边和按钮，回执左上角一个绿勾，待确认是虚线框加两个按钮。</p></div>
+    <div class="phone">
+      <div class="step-lbl">① 推荐冥想</div>
+      <div class="u"><div>最近有点焦虑，说不清为什么</div></div>
+      <div class="a"><div class="av"></div><div class="colm"><div class="bub">说不清的焦虑最磨人了🥺 想试试的话，这个可以陪你慢慢放松下来。</div>
+        <div class="card suggest"><span class="tile" style="--tile:var(--c-sky);width:40px;height:40px"><svg><use href="#i-wind"/></svg></span>
+          <div class="body"><div class="k">点子 · 约 3 分钟</div><div class="t">冥想体验：遇见更好的自己</div><div class="n">先放松，再想象一年后的自己</div>
+            <div class="f"><span class="btn main">开始</span><span class="btn quiet">先不用</span></div></div></div></div></div>
+      <div class="step-lbl">② 改小步</div>
+      <div class="u"><div>把小组提问那一步改成课上提问</div></div>
+      <div class="a"><div class="av"></div><div class="colm">
+        <div class="card"><span class="state"><svg><use href="#i-check"/></svg></span>
+          <div class="body"><div class="k">改了小步</div><div class="t"><del>在小组里主动提一个问题</del><span class="arrow">→</span>在课上主动提一个问题</div></div><span class="btn quiet">撤销</span></div>
+        <div class="bub">改好啦，课上那一下更有挑战性哦。</div></div></div>
+      <div class="step-lbl">③ 小确幸</div>
+      <div class="u"><div>抢到了最后一份糖醋排骨！</div></div>
+      <div class="a"><div class="av"></div><div class="colm">
+        <div class="card"><span class="state"><svg><use href="#i-check"/></svg></span>
+          <div class="body"><div class="k">记进好消息 · 小确幸</div><div class="t">抢到了最后一份糖醋排骨</div></div><span class="xp">+6</span></div>
+        <div class="bub">这是被糖醋排骨选中了吧哈哈哈！</div></div></div>
+      <div class="step-lbl">④ 留在轨迹上</div>
+      <div class="u"><div>刚才第一个用英语发言了，好爽</div></div>
+      <div class="a"><div class="av"></div><div class="colm"><div class="bub">第一个开口！手心冒汗也说完了🔥</div>
+        <div class="card ask"><span class="tile" style="--tile:var(--c-violet);width:40px;height:40px"><svg><use href="#i-spark"/></svg></span>
+          <div class="body"><div class="k">留在「敢开口说英语」的轨迹上？</div><div class="t">第一个用英语发言了，说完好爽</div>
+            <div class="f"><span class="btn main">留下</span><span class="btn quiet">不用了</span></div></div></div></div></div>
+    </div>
+  </section>
+
+  <!-- 方案 B -->
+  <section>
+    <div class="col-h"><span class="tag rec">方案 B · 推荐</span><h2>签条 + 功能行</h2>
+      <p>做过的事变成气泡下面的一条细签条（一行字）；推荐功能用和点子页一模一样的「功能行」，高度固定。最轻，聊天还是聊天。</p></div>
+    <div class="phone">
+      <div class="step-lbl">① 推荐冥想</div>
+      <div class="u"><div>最近有点焦虑，说不清为什么</div></div>
+      <div class="a"><div class="av"></div><div class="colm"><div class="bub">说不清的焦虑最磨人了🥺 想试试的话，这个可以陪你慢慢放松下来。</div>
+        <div class="frow"><span class="tile" style="--tile:var(--c-sky);width:40px;height:40px"><svg><use href="#i-wind"/></svg></span>
+          <div class="main"><b>冥想体验</b><span>先放松，再想象一年后的自己 · 3 分钟</span></div><span class="go">开始</span></div></div></div>
+      <div class="step-lbl">① 换一个功能，格子完全一样</div>
+      <div class="a"><div class="av" style="visibility:hidden"></div><div class="colm">
+        <div class="frow"><span class="tile" style="--tile:var(--c-mint);width:40px;height:40px"><svg><use href="#i-play"/></svg></span>
+          <div class="main"><b>两分钟启动</b><span>把开不了头的事拆成一两分钟的小动作 · 2 分钟</span></div><span class="go">开始</span></div></div></div>
+      <div class="step-lbl">② 改小步</div>
+      <div class="u"><div>把小组提问那一步改成课上提问</div></div>
+      <div class="a"><div class="av"></div><div class="colm"><div class="bub">改好啦，课上那一下更有挑战性哦。</div>
+        <div class="slip"><svg class="ic ok"><use href="#i-pen"/></svg><span class="txt">小步 <del>小组里提问</del><span class="arrow">→</span>课上提问</span><span class="undo">撤销</span></div></div></div>
+      <div class="step-lbl">③ 小确幸</div>
+      <div class="u"><div>抢到了最后一份糖醋排骨！</div></div>
+      <div class="a"><div class="av"></div><div class="colm"><div class="bub">这是被糖醋排骨选中了吧哈哈哈！</div>
+        <div class="slip"><svg class="ic" style="color:var(--c-lemon)"><use href="#i-star"/></svg><span class="txt">记进好消息：抢到最后一份糖醋排骨</span><span class="muted" style="font-size:11.5px;font-weight:800">+6</span></div></div></div>
+      <div class="step-lbl">④ 留在轨迹上</div>
+      <div class="u"><div>刚才第一个用英语发言了，好爽</div></div>
+      <div class="a"><div class="av"></div><div class="colm"><div class="bub">第一个开口！手心冒汗也说完了🔥</div>
+        <div class="slip ask"><svg class="ic" style="color:var(--c-violet)"><use href="#i-spark"/></svg><span class="txt">留在轨迹上？</span><span class="acts"><span class="btn main">留下</span><span class="btn quiet">不用</span></span></div></div></div>
+    </div>
+  </section>
+
+  <!-- 方案 C -->
+  <section>
+    <div class="col-h"><span class="tag">方案 C</span><h2>横滑小卡 + 改动合并</h2>
+      <p>推荐时可以一次给两三个同尺寸的小方卡横着排，TA 挑一个；一轮里的改动合成一张「这次改了 N 处」，点开逐条看、逐条撤销。</p></div>
+    <div class="phone">
+      <div class="step-lbl">① 推荐冥想</div>
+      <div class="u"><div>最近有点焦虑，说不清为什么</div></div>
+      <div class="a"><div class="av"></div><div class="colm"><div class="bub">说不清的焦虑最磨人了🥺 想动一动的话，挑一个？</div>
+        <div class="mini-row">
+          <div class="mini"><span class="tile" style="--tile:var(--c-sky);width:32px;height:32px"><svg><use href="#i-wind"/></svg></span><b>冥想体验</b><span>先放松，再想象一年后的自己</span><span class="btn main">开始</span></div>
+          <div class="mini"><span class="tile" style="--tile:var(--c-pink);width:32px;height:32px"><svg><use href="#i-heart"/></svg></span><b>三分钟感恩</b><span>写下三件今天的小好事</span><span class="btn main">开始</span></div>
+        </div></div></div>
+      <div class="step-lbl">② 改小步（一轮里改了两处）</div>
+      <div class="u"><div>小组提问改成课上提问，里程碑往后挪一周</div></div>
+      <div class="a"><div class="av"></div><div class="colm"><div class="bub">都改好啦～</div>
+        <div class="batch"><div class="batch-h"><svg class="ic" style="color:var(--good)"><use href="#i-check"/></svg>这次改了 2 处<span class="muted">全部撤销</span></div>
+          <div class="batch-i"><span class="dot" style="background:var(--c-mint)"></span><span style="flex:1">小步 <del>小组里提问</del><span class="arrow">→</span>课上提问</span></div>
+          <div class="batch-i"><span class="dot" style="background:var(--c-orange)"></span><span style="flex:1">里程碑日期 <del>12月1日</del><span class="arrow">→</span>12月8日</span></div></div></div></div>
+      <div class="step-lbl">③ 小确幸</div>
+      <div class="u"><div>抢到了最后一份糖醋排骨！</div></div>
+      <div class="a"><div class="av"></div><div class="colm"><div class="bub">这是被糖醋排骨选中了吧哈哈哈！</div>
+        <div class="batch"><div class="batch-h"><svg class="ic" style="color:var(--c-lemon)"><use href="#i-star"/></svg>记进好消息：抢到最后一份糖醋排骨<span class="muted">+6</span></div></div></div></div>
+      <div class="step-lbl">④ 留在轨迹上</div>
+      <div class="u"><div>刚才第一个用英语发言了，好爽</div></div>
+      <div class="a"><div class="av"></div><div class="colm"><div class="bub">第一个开口！手心冒汗也说完了🔥</div>
+        <div class="batch" style="border-style:dashed"><div class="batch-h"><svg class="ic" style="color:var(--c-violet)"><use href="#i-spark"/></svg>留在轨迹上？</div>
+          <div class="batch-i"><span style="flex:1">第一个用英语发言了，说完好爽</span><span class="btn main" style="height:26px">留下</span><span class="btn quiet">不用</span></div></div></div></div>
+    </div>
+  </section>
+</div>
+
+<div class="foot">
+  <div class="box">
+    <h3>三个方案对比</h3>
+    <table>
+      <tr><th></th><th>A 一张卡走天下</th><th>B 签条 + 功能行</th><th>C 横滑小卡 + 改动合并</th></tr>
+      <tr><td>推荐功能</td><td>卡片，介绍和按钮都在</td><td>和点子页同款的一行，最熟悉</td><td>2–3 个小方卡让 TA 挑</td></tr>
+      <tr><td>改了东西</td><td>一张卡</td><td>一行签条</td><td>多处合成一张，可展开</td></tr>
+      <tr><td>占的地方</td><td>大</td><td><b>最小</b></td><td>中</td></tr>
+      <tr><td>多处改动时</td><td>一处一张卡，会堆</td><td>一处一行，三行以内还清爽</td><td><b>最清楚</b></td></tr>
+      <tr><td>和「简约」的契合</td><td>一般</td><td><b>最好</b></td><td>较好</td></tr>
+      <tr><td>工作量</td><td>小（改现有卡片）</td><td>中</td><td>大（要做合并和横滑）</td></tr>
+    </table>
+  </div>
+  <div class="box">
+    <h3>不管选哪个，背后都要做的</h3>
+    <ul>
+      <li>加一个「推荐功能」的工具：小光想推荐时调用它，界面才知道要出入口；入口内容（名字、介绍、时长、颜色）从同一份功能清单生成，所以每个功能一样大。</li>
+      <li>小光说「要不要试试冥想」以后不再自动跳转，由 TA 点「开始」；TA 自己说「我想冥想」时，仍然直接打开。</li>
+      <li>改动的工具统一返回「改了哪一项、改前、改后」，界面统一画成 <del>旧</del> → 新。</li>
+      <li>撤销：小步、里程碑、习惯、好消息的改动，短时间内可以一键撤回（选 B 或 C 时建议做）。</li>
+      <li>「看了看」「翻了翻」这类只读的动作不再出卡片。</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,471 @@
+"""管理后台：只读的用户情况与运行统计。
+
+登录：服务器 .env 里的 MANIFEST_ADMIN_KEY。登录后发一个 12 小时有效的签名 cookie
+（xg_admin），不进用户账号体系；换掉 key 就让所有后台登录失效。没配 key 时后台整个关闭。
+
+看得到：账号、建档时选的方向、各类数量、按天的活跃与消息数、操作记录（activity）、经验和金币的每一笔。
+看不到：对话原文、记忆原文、密码。统计时读用户库一律只读打开。
+能改的：
+  - 删除用户（账号、会话、数据文件夹、例行任务、用量计数，全部删掉，不能恢复）；
+  - 给某个用户加 / 减经验和金币（必须写原因；用户的成长账本里会出现一行「后台调整」，data/admin_log.jsonl 另记一份）；
+  - 小镇里每样东西的价格、解锁等级、上下架（存在 data/town_config.json，所有人立刻生效，见 core/town.py）。
+"""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import os
+import platform
+import shutil
+import sqlite3
+import sys
+import threading
+import time
+from datetime import timedelta
+
+import json
+
+from . import auth, growth, llm, metrics, tasks, town, webpush
+from .api import VERSION
+from .util import DATA, clip, day_key, iso, loads, new_id, now, parse_iso
+
+COOKIE = "xg_admin"
+TOKEN_HOURS = 12
+BACKGROUND = "kind NOT IN ('proactive', 'task') AND NOT (kind = 'memory' AND text LIKE '整理了%')"
+PROFILE_KEYS = ("agent_name", "intent_primary", "intent_why", "persona", "theme", "care_style", "proactive", "onboarded")
+STARTED = time.time()
+
+
+
+# ---- auth -------------------------------------------------------------------
+
+def key() -> str:
+    return os.environ.get("MANIFEST_ADMIN_KEY") or ""
+
+
+def check_key(given: str) -> bool:
+    k = key()
+    return bool(k) and hmac.compare_digest(str(given or "").encode(), k.encode())
+
+
+def _sig(exp: int) -> str:
+    return hmac.new(key().encode(), f"admin:{exp}".encode(), hashlib.sha256).hexdigest()
+
+
+def make_token() -> str:
+    exp = int(time.time()) + TOKEN_HOURS * 3600
+    return f"{exp}.{_sig(exp)}"
+
+
+def check_token(tok: str | None) -> bool:
+    if not key() or not tok or "." not in tok:
+        return False
+    exp, sig = tok.split(".", 1)
+    return exp.isdigit() and int(exp) > time.time() and hmac.compare_digest(sig, _sig(int(exp)))
+
+
+# ---- per-user scan ----------------------------------------------------------
+
+def _ro(path):
+    c = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=5)
+    c.row_factory = sqlite3.Row
+    return c
+
+
+def _dir_bytes(d) -> int:
+    try:
+        return sum(f.stat().st_size for f in d.iterdir() if f.is_file())
+    except OSError:
+        return 0
+
+
+def _scan(user: dict) -> dict:
+    row = {"id": user["id"], "username": user["username"], "kind": user["kind"], "created_at": user["created_at"],
+           "profile": {}, "msgs": 0, "msg_days": {}, "active_days": [], "last_active": "", "steps": 0, "steps_done": 0,
+           "good": 0, "memories": 0, "habits": 0, "xp": 0, "level": 1, "bytes": 0}
+    d = DATA / "u" / user["id"]
+    f = d / "mind.db"
+    if not f.is_file():
+        return row
+    row["bytes"] = _dir_bytes(d)
+    try:
+        c = _ro(f)
+    except sqlite3.Error:
+        return row
+    try:
+        q = lambda sql, *a: c.execute(sql, a).fetchone()[0]
+        prof = {r["k"]: loads(r["v"], r["v"]) for r in c.execute("SELECT k, v FROM profile")}
+        row["profile"] = {k: prof.get(k) for k in PROFILE_KEYS}
+        days = {r[0]: r[1] for r in c.execute(
+            "SELECT substr(created_at, 1, 10), COUNT(*) FROM msg WHERE role = 'user' GROUP BY 1")}
+        act = {r[0] for r in c.execute(f"SELECT DISTINCT substr(at, 1, 10) FROM activity WHERE {BACKGROUND}")}
+        row["msg_days"] = days
+        row["msgs"] = sum(days.values())
+        row["active_days"] = sorted(set(days) | act)
+        row["last_active"] = max(q("SELECT COALESCE(MAX(created_at), '') FROM msg WHERE role = 'user'"),
+                                 q(f"SELECT COALESCE(MAX(at), '') FROM activity WHERE {BACKGROUND}"))
+        row["steps"] = q("SELECT COUNT(*) FROM step")
+        row["steps_done"] = q("SELECT COUNT(*) FROM step WHERE status = 'done'")
+        row["good"] = q("SELECT COUNT(*) FROM record WHERE type = 'good'")
+        row["memories"] = q("SELECT COUNT(*) FROM memory WHERE status = 'active'")
+        row["habits"] = q("SELECT COUNT(*) FROM habit WHERE archived = 0")
+        row["xp"] = q("SELECT COALESCE(SUM(amount), 0) FROM xp")
+        row["level"] = growth.level_of(row["xp"], int(prof.get("level_floor") or 1))["lv"]
+        row["coins"] = q("SELECT COALESCE(SUM(amount), 0) FROM coin")
+    except sqlite3.Error:
+        pass
+    finally:
+        c.close()
+    return row
+
+
+def _rows() -> list[dict]:
+    """每次现扫（100 个用户在服务器上约 0.15 秒）：缓存会让删除确认里的数量和实际对不上。"""
+    users = [dict(r) for r in auth.db().execute("SELECT id, username, kind, created_at FROM users")]
+    return [_scan(u) for u in users]
+
+
+TOKEN_KEYS = ("llm_calls", "llm_tokens", "llm_tokens_in", "llm_tokens_out", "llm_tokens_cached", "llm_tokens_chat", "llm_tokens_bg")
+
+
+def _tok(t: dict | None) -> dict:
+    t = t or {}
+    return {k.replace("llm_", ""): t.get(k, 0) for k in TOKEN_KEYS}
+
+
+def _public(r: dict) -> dict:
+    return {k: v for k, v in r.items() if k not in ("msg_days", "active_days")} | {"days_active": len(r["active_days"])}
+
+
+def _label(r: dict) -> str:
+    return r["username"] or f"体验账号 {r['id'][2:8]}"
+
+
+# ---- views ------------------------------------------------------------------
+
+def _days(n: int) -> list[str]:
+    today = now().date()
+    return [(today - timedelta(days=i)).isoformat() for i in range(n - 1, -1, -1)]
+
+
+def _proc_rss_mb() -> float | None:
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return round(int(line.split()[1]) / 1024, 1)
+    except OSError:
+        pass
+    return None
+
+
+def _system(today: dict) -> dict:
+    disk = shutil.disk_usage(DATA)
+    data_bytes = 0
+    for p in DATA.rglob("*"):
+        try:
+            if p.is_file():
+                data_bytes += p.stat().st_size
+        except OSError:
+            pass
+    req = today.get("req", 0)
+    chats = today.get("chat", 0)
+    return {
+        "version": VERSION, "python": platform.python_version(), "platform": sys.platform,
+        "uptime_s": int(time.time() - STARTED), "rss_mb": _proc_rss_mb(),
+        "load": list(os.getloadavg()) if hasattr(os, "getloadavg") else None, "cpus": os.cpu_count(),
+        "data_mb": round(data_bytes / 1048576, 1), "disk_free_gb": round(disk.free / 1073741824, 1),
+        "threads": threading.active_count(), "chat_now": metrics.inflight,
+        "req_today": req, "req_avg_ms": round(today.get("req_ms", 0) / req) if req else None,
+        "req_slow_today": today.get("req_slow", 0),
+        "chat_today": chats, "chat_avg_s": round(today.get("chat_ms", 0) / chats / 1000, 1) if chats else None,
+        "chat_peak_today": today.get("chat_peak", 0),
+        "push_users": len(webpush.counts()), "push_devices": sum(webpush.counts().values()),
+    }
+
+
+def overview(days: int = 30) -> dict:
+    days = max(7, min(int(days or 30), 90))
+    rows = _rows()
+    span = _days(days)
+    first = span[0]
+    m = metrics.since(first)
+    today = day_key()
+    by_day = {d: {"day": d, "new_member": 0, "new_guest": 0, "active": 0, "msgs": 0} for d in span}
+    for r in rows:
+        d = (r["created_at"] or "")[:10]
+        if d in by_day:
+            by_day[d]["new_member" if r["kind"] == "member" else "new_guest"] += 1
+        if r["kind"] != "member":  # 旧的体验账号带 15 天示例数据，算进来会虚高
+            continue
+        for d in r["active_days"]:
+            if d in by_day:
+                by_day[d]["active"] += 1
+        for d, n in r["msg_days"].items():
+            if d in by_day:
+                by_day[d]["msgs"] += n
+    for d in span:
+        mm = m.get(d, {})
+        by_day[d].update(tokens=mm.get("llm_tokens", 0), cached=mm.get("llm_tokens_cached", 0), llm_calls=mm.get("llm_calls", 0), llm_err=mm.get("llm_err", 0),
+                         req=mm.get("req", 0), chat=mm.get("chat", 0))
+
+    members = [r for r in rows if r["kind"] == "member"]
+
+    def active_within(n):
+        cut = _days(n)[0]
+        return sum(1 for r in members if any(d >= cut for d in r["active_days"]))
+
+    funnel_keys = [("trial_start", "开始体验"), ("trial_step", "拿到一小步"), ("trial_signup", "注册并带走"), ("onboard", "完成建档")]
+    totals = {k: sum(m.get(d, {}).get(k, 0) for d in span) for k, _ in funnel_keys}
+    return {
+        "today": today, "days": days,
+        "users": {
+            "total": len(rows), "members": len(members), "guests": len(rows) - len(members),
+            "onboarded": sum(1 for r in members if r["profile"].get("onboarded")),
+            "returning": sum(1 for r in members if len(r["active_days"]) >= 2),
+        },
+        "active": {"today": active_within(1), "week": active_within(7), "month": active_within(30)},
+        "msgs_today": by_day[today]["msgs"],
+        "series": [by_day[d] for d in span],
+        "funnel": [{"k": k, "label": label, "n": totals[k]} for k, label in funnel_keys],
+        "intents": _top([r["profile"].get("intent_primary") for r in members if r["profile"].get("intent_primary")]),
+        "top_tokens": _top_tokens(rows, first),
+        "model": {"calls": sum(by_day[d]["llm_calls"] for d in span), "tokens": sum(by_day[d]["tokens"] for d in span),
+                  "cached": sum(by_day[d]["cached"] for d in span),
+                  "errors": sum(by_day[d]["llm_err"] for d in span)},
+        "system": _system(m.get(today, {})),
+    }
+
+
+def _top(values: list[str], n: int = 8) -> list[dict]:
+    counts: dict[str, int] = {}
+    for v in values:
+        counts[str(v)] = counts.get(str(v), 0) + 1
+    return [{"label": k, "n": c} for k, c in sorted(counts.items(), key=lambda x: -x[1])[:n]]
+
+
+def _top_tokens(rows: list[dict], first: str, n: int = 8) -> list[dict]:
+    names = {r["id"]: _label(r) for r in rows}
+    tot = metrics.user_totals(first)
+    ranked = sorted(((uid, t.get("llm_tokens", 0)) for uid, t in tot.items() if uid in names), key=lambda x: -x[1])
+    return [{"label": names[uid], "id": uid, "n": v} for uid, v in ranked[:n] if v]
+
+
+def users() -> list[dict]:
+    rows = sorted(_rows(), key=lambda r: r["last_active"] or r["created_at"] or "", reverse=True)
+    all_time = metrics.user_totals("")
+    month = metrics.user_totals(_days(30)[0])
+    devices = webpush.counts()
+    return [_public(r) | {"push_devices": devices.get(r["id"], 0),"tokens": all_time.get(r["id"], {}).get("llm_tokens", 0),
+                          "tokens_30d": month.get(r["id"], {}).get("llm_tokens", 0),
+                          "calls_30d": month.get(r["id"], {}).get("llm_calls", 0)} for r in rows]
+
+
+def user(uid: str) -> dict | None:
+    u = auth.get_user(uid)
+    if not u:
+        return None
+    r = _scan(u)
+    span = _days(30)
+    act, f = [], DATA / "u" / uid / "mind.db"
+    if f.is_file():
+        c = _ro(f)
+        try:
+            act = [dict(x) for x in c.execute("SELECT kind, text, at FROM activity ORDER BY at DESC LIMIT 40")]
+        except sqlite3.Error:
+            pass
+        finally:
+            c.close()
+    sessions = auth.db().execute("SELECT COUNT(*) FROM sessions WHERE user_id = ? AND expires_at > ?",
+                                 (uid, now().isoformat(timespec="seconds"))).fetchone()[0]
+    first = parse_iso(r["active_days"][0] + "T00:00:00") if r["active_days"] else None
+    tdays = metrics.user_days(uid, span[0])
+    return {**_public(r), "sessions": sessions, "push_devices": len(webpush.subs(uid)), "first_active": first.date().isoformat() if first else "",
+            "series": [{"day": d, "msgs": r["msg_days"].get(d, 0), "active": d in r["active_days"],
+                        **{f"t_{k}": v for k, v in _tok(tdays.get(d)).items()}} for d in span],
+            "tokens": {"all": _tok(metrics.user_totals("").get(uid)), "d30": _tok(metrics.user_totals(span[0]).get(uid))},
+            "activity": act}
+
+
+# ---- 删除 -------------------------------------------------------------------
+
+def delete_user(uid: str) -> bool:
+    """不可恢复。账号与会话先删，之后的请求立刻登不上；再删数据文件夹和其他痕迹。"""
+    from .store import UID_RE
+    if not UID_RE.match(uid or ""):
+        return False
+    if not auth.delete_user(uid):
+        return False
+    tasks.delete_all(uid)
+    metrics.forget_user(uid)
+    webpush.forget_user(uid)
+    shutil.rmtree(DATA / "u" / uid, ignore_errors=True)
+    print(f"[admin] deleted user {uid}", file=sys.stderr)
+    return True
+
+
+def guest_ids() -> list[str]:
+    return [r["id"] for r in auth.db().execute("SELECT id FROM users WHERE kind = 'guest'")]
+
+
+# ---- 经验和金币：每一笔记录、后台调整 ----
+
+LOG = DATA / "admin_log.jsonl"
+_log_lock = threading.Lock()
+
+
+def _log(entry: dict) -> None:
+    with _log_lock:
+        LOG.parent.mkdir(parents=True, exist_ok=True)
+        with LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"at": iso(), **entry}, ensure_ascii=False) + "\n")
+
+
+def log_entries(uid: str = "", limit: int = 100) -> list[dict]:
+    try:
+        lines = LOG.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    out = []
+    for ln in reversed(lines):
+        try:
+            e = json.loads(ln)
+        except ValueError:
+            continue
+        if not uid or e.get("uid") == uid:
+            out.append(e)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def growth_detail(uid: str) -> dict | None:
+    """一个用户的经验、等级（含保底）、金币、最近 200 笔账、小镇大小、后台给 TA 做过的调整。"""
+    from .store import Store
+    if not auth.get_user(uid):
+        return None
+    with Store(uid) as st:
+        town.ensure(st)   # 还没打开过新版的老账号：先按迁移规则算好，和 TA 自己打开时看到的一样
+        lv = growth.level(st)
+        placed = town.items(st)
+        return {"xp": growth.total_xp(st), "level": lv, "floor": int(st.profile().get("level_floor") or 1),
+                "coins": growth.coins(st), "ledger": growth.ledger(st, 200),
+                "town": {"size": town.size_for(lv["lv"]), "placed": len(placed), "warehouse": len(town.items(st, placed=False))},
+                "adjustments": log_entries(uid, 30)}
+
+
+def adjust(uid: str, xp, coins, reason: str, ip: str = "") -> dict:
+    """给一个用户加 / 减经验和金币。都在一个事务里；金币、经验都不能扣到负数。"""
+    from .store import Store
+    u = auth.get_user(uid)
+    if not u:
+        raise ValueError("没有这个用户")
+    try:
+        xp, coins = int(xp or 0), int(coins or 0)
+    except (TypeError, ValueError):
+        raise ValueError("经验和金币要是整数")
+    reason = clip(str(reason or "").strip(), 60)
+    if not reason:
+        raise ValueError("写一下原因")
+    if not xp and not coins:
+        raise ValueError("经验和金币至少改一样")
+    if abs(xp) > 100000 or abs(coins) > 100000:
+        raise ValueError("一次最多改 100000")
+    with Store(uid) as st:
+        town.ensure(st)
+        with st.tx():
+            if xp < 0 and growth.total_xp(st) + xp < 0:
+                raise ValueError(f"经验不能扣到负数（现在 {growth.total_xp(st)}）")
+            if coins < 0 and growth.coins(st) + coins < 0:
+                raise ValueError(f"金币不能扣到负数（现在 {growth.coins(st)}）")
+            ref, note = new_id("adm"), "后台调整：" + reason
+            if xp:
+                st.c.execute("INSERT INTO xp(id, day, source, amount, ref, note, created_at) VALUES(lower(hex(randomblob(6))),?,?,?,?,?,?)",
+                             (day_key(), "admin", xp, ref, note, iso()))
+                st.set_profile({"xp": growth.total_xp(st)})
+            if coins:
+                growth._coin(st, "admin", coins, ref, note)
+    _log({"type": "adjust", "uid": uid, "user": u["username"] or uid, "xp": xp, "coins": coins, "reason": reason, "ip": ip})
+    print(f"[admin] adjust {uid} xp={xp} coins={coins} ({reason})", file=sys.stderr)
+    return growth_detail(uid)
+
+
+def town_save(patch: dict, ip: str = "") -> dict:
+    out = town.admin_save(patch)
+    _log({"type": "town", "changes": patch, "ip": ip})
+    return out
+
+
+# ---------------------------------------------------------------- 模型 ----
+# 后台切换小光用的模型和思考档。切换前先用新设置真跑一次带工具的对话，跑不通就不切。
+
+_models_cache: dict = {}
+NOT_CHAT = ("image", "video", "t2v", "i2v", "r2v", "seedance", "seedream", "kling", "wan2", "wan3", "happyhorse", "codex", "embed", "tts", "whisper")
+
+
+def _live_models(pid: str) -> list[list[str]]:
+    """服务商 /models 里的对话模型（10 分钟缓存）；读不到就用内置的几个。"""
+    p = llm.PROVIDERS[pid]
+    hit = _models_cache.get(pid)
+    if hit and time.time() - hit[0] < 600:
+        return hit[1]
+    out = [list(m) for m in p["models"]]
+    key = os.environ.get(p["keyEnv"])
+    if key:
+        try:
+            import urllib.request
+            req = urllib.request.Request(p["baseUrl"].rstrip("/") + "/models", headers={"Authorization": "Bearer " + key})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                data = json.loads(r.read()).get("data") or []
+            got = [[m["id"], m.get("name") or m["id"]] for m in data
+                   if isinstance(m, dict) and m.get("id") and not any(x in m["id"].lower() for x in NOT_CHAT)]
+            if got:
+                known = {m[0] for m in got}
+                out = [m for m in out if m[0] in known] + [m for m in got if m[0] not in {x[0] for x in out}]
+        except Exception as e:     # 读不到列表不影响切换，用内置的
+            print("[admin] models list failed:", pid, type(e).__name__)
+    _models_cache[pid] = (time.time(), out)
+    return out
+
+
+def _today_count(k: str) -> int:
+    try:
+        metrics.flush()
+        r = metrics._db().execute("SELECT n FROM counter WHERE day=? AND k=?", (day_key(), k)).fetchone()
+        return int(r[0]) if r else 0
+    except Exception:
+        return 0
+
+
+def llm_state() -> dict:
+    cfg = llm.config()
+    ch = llm.choice()
+    return {
+        "current": {"provider": cfg["provider"], "model": cfg["model"], "effort": cfg["reasoning"],
+                    "by": "后台" if ch else "默认配置", "at": (ch or {}).get("at", "")},
+        "efforts": [{"id": e, "name": llm.EFFORT_LABEL[e]} for e in llm.EFFORTS],
+        "providers": [{"id": pid, "name": p["name"], "has_key": bool(os.environ.get(p["keyEnv"])), "note": p["note"],
+                       "models": [{"id": m[0], "name": m[1]} for m in _live_models(pid)] if os.environ.get(p["keyEnv"]) else []}
+                      for pid, p in llm.PROVIDERS.items()],
+        "today": {k: _today_count(k) for k in ("llm_calls", "llm_fallback", "llm_err")},   # 今天：调用 / 退回不思考 / 失败
+    }
+
+
+def llm_switch(provider: str, model: str, effort: str, ip: str = "") -> dict:
+    if provider not in llm.PROVIDERS:
+        raise ValueError("没有这个服务商")
+    if not os.environ.get(llm.PROVIDERS[provider]["keyEnv"]):
+        raise ValueError(f"服务器上没有 {llm.PROVIDERS[provider]['keyEnv']}，先在 .env 里配好")
+    model = (model or "").strip()
+    if not model or len(model) > 80:
+        raise ValueError("选一个模型")
+    if effort not in llm.EFFORTS:
+        raise ValueError("思考档不对")
+    test = llm.try_settings(provider, model, effort)
+    if not test["ok"]:
+        raise ValueError("试了一次没通，没有切换：" + test["error"])
+    before = llm.config()
+    saved = llm.save_choice(provider, model, effort)
+    _log({"type": "llm", "ip": ip, "from": {"provider": before["provider"], "model": before["model"], "effort": before["reasoning"]},
+          "to": {"provider": provider, "model": model, "effort": effort}, "first_s": test["first_s"], "fell_back": test["fell_back"]})
+    return {"ok": True, "saved": saved, "test": test, **llm_state()}

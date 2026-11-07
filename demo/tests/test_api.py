@@ -1,0 +1,2387 @@
+"""End-to-end API tests against a real server on a temp data dir.
+
+The LLM is replaced by a scripted fake (tests/fake_llm.py) so tests are
+deterministic and free. Run:  python -m unittest discover -s tests -v
+"""
+from __future__ import annotations
+
+import http.client
+import json
+import os
+import shutil
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from http.server import ThreadingHTTPServer
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DEMO = os.path.dirname(HERE)
+TMP = tempfile.mkdtemp(prefix="xb_test_")
+os.environ["MANIFEST_DATA"] = TMP
+os.environ["MANIFEST_SCHEDULER"] = "0"
+os.environ["MODELFLARE_API_KEY"] = "test-key"
+os.environ["MANIFEST_ADMIN_KEY"] = "test-admin"
+sys.path.insert(0, DEMO)
+
+import server  # noqa: E402
+from core import auth, llm, scheduler, tasks, webpush  # noqa: E402
+from core.store import Store  # noqa: E402
+
+ONBOARD = {"agent_name": "阿光", "agent_avatar_id": "stardust", "intent_primary": "健康作息",
+           "intent_why": "白天总是很困", "schedule_hint": "夜猫", "care_style": "analyze",
+           "traits": ["拖延但爆发"], "mbti_hint": "跳过", "boundaries": ["别说教"]}
+
+
+class FakeLLM:
+    """Scripted stand-in for llm.stream_chat / complete_json."""
+
+    def __init__(self):
+        self.turns = []        # list of lists of events per stream_chat call
+        self.json_out = None   # returned by complete_json
+        self.seen = []         # captured messages
+        self.seen_json = []    # captured complete_json messages
+
+    def stream(self, messages, tools=None, model=None, reasoning=None, timeout=None):
+        self.seen.append(messages)
+        script = self.turns.pop(0) if self.turns else [("text", "嗯，我在。")]
+        for ev in script:
+            yield ev
+        yield ("done", {"finish_reason": "stop", "usage": None})
+
+    def complete(self, messages, model=None, timeout=40, reasoning="low"):
+        self.seen_json.append(messages)
+        return self.json_out
+
+
+class Client:
+    def __init__(self, port):
+        self.port, self.cookie = port, None
+
+    def req(self, method, path, body=None, headers=None, raw=False):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        h = {"Content-Type": "application/json"}
+        if self.cookie:
+            h["Cookie"] = self.cookie
+        h.update(headers or {})
+        c.request(method, path, body=json.dumps(body, ensure_ascii=False).encode() if body is not None else None, headers=h)
+        r = c.getresponse()
+        data = r.read().decode("utf-8")
+        sc = r.getheader("Set-Cookie")
+        if sc:
+            self.cookie = sc.split(";")[0] if "Max-Age=0" not in sc else None
+        c.close()
+        if raw:
+            return r.status, data, sc
+        try:
+            return r.status, json.loads(data)
+        except ValueError:
+            return r.status, data
+
+    def sse(self, text):
+        status, data, _ = self.req("POST", "/api/chat", {"text": text}, raw=True)
+        events = []
+        for block in data.split("\n\n"):
+            ev = dict(line.split(": ", 1) for line in block.splitlines() if ": " in line)
+            if "event" in ev:
+                events.append((ev["event"], json.loads(ev.get("data", "{}"))))
+        return status, events
+
+
+class ApiTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.fake = FakeLLM()
+        cls._orig = (llm.stream_chat, llm.complete_json)
+        cls.pushed = []   # (endpoint, headers) sent to the fake push service
+        cls._orig_post = webpush._post
+        webpush._post = lambda ep, headers: (cls.pushed.append((ep, headers)), 410 if "gone" in ep else 201)[1]
+        llm.stream_chat = cls.fake.stream
+        llm.complete_json = cls.fake.complete
+        cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        cls.port = cls.httpd.server_address[1]
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+        llm.stream_chat, llm.complete_json = cls._orig
+        auth.reset_for_tests()
+        tasks.reset_for_tests()
+        webpush._post = cls._orig_post
+        webpush.reset_for_tests()
+        shutil.rmtree(TMP, ignore_errors=True)
+
+    def setUp(self):
+        self.fake.turns, self.fake.json_out, self.fake.seen = [], None, []
+
+    def member(self, name):
+        c = Client(self.port)
+        s, d = c.req("POST", "/api/auth/register", {"username": name, "password": "secret12"})
+        self.assertEqual(s, 201, d)
+        return c, d["user"]["id"]
+
+    def onboarded(self, name):
+        c, uid = self.member(name)
+        s, d = c.req("POST", "/api/onboard", {"answers": ONBOARD})
+        self.assertEqual(s, 200, d)
+        return c, uid
+
+    # ---- auth & isolation ----------------------------------------------------
+    def test_requires_session(self):
+        c = Client(self.port)
+        for path in ("/api/bootstrap", "/api/report", "/api/export"):
+            self.assertEqual(c.req("GET", path)[0], 401, path)
+        self.assertEqual(c.req("POST", "/api/record", {"type": "good", "text": "x"})[0], 401)
+
+    def test_users_cannot_see_each_other(self):
+        a, uid_a = self.onboarded("iso_a")
+        b, uid_b = self.member("iso_b")
+        a.req("POST", "/api/record", {"type": "good", "text": "A 的秘密好消息"})
+        _, db = b.req("GET", "/api/bootstrap")
+        self.assertEqual(db["user"]["id"], uid_b)
+        blob = json.dumps(db, ensure_ascii=False)
+        self.assertNotIn("A 的秘密好消息", blob)
+        self.assertNotIn(uid_a, blob)
+        # client-supplied ids are ignored: there is no parameter that selects a user
+        _, db2 = b.req("GET", f"/api/bootstrap?user_id={uid_a}")
+        self.assertEqual(db2["user"]["id"], uid_b)
+        # memory ids from A cannot be touched by B
+        _, da = a.req("GET", "/api/bootstrap")
+        mid = da["memories"][0]["id"]
+        self.assertEqual(b.req("POST", "/api/memory", {"action": "forget", "id": mid})[0], 404)
+        _, da2 = a.req("GET", "/api/bootstrap")
+        self.assertIn(mid, [m["id"] for m in da2["memories"]])
+        # physically separate files
+        self.assertTrue(os.path.isfile(os.path.join(TMP, "u", uid_a, "mind.db")))
+        self.assertTrue(os.path.isfile(os.path.join(TMP, "u", uid_b, "mind.db")))
+
+    def test_login_logout_and_bad_password(self):
+        c, _ = self.member("Login_Me")
+        self.assertEqual(c.req("POST", "/api/auth/logout", {})[0], 200)
+        self.assertIsNone(c.cookie)
+        self.assertEqual(c.req("GET", "/api/bootstrap")[0], 401)
+        self.assertEqual(c.req("POST", "/api/auth/login", {"username": "login_me", "password": "nope"})[0], 401)
+        self.assertEqual(c.req("POST", "/api/auth/login", {"username": "login_me", "password": "secret12"})[0], 200)
+        self.assertEqual(c.req("GET", "/api/bootstrap")[0], 200)
+
+    def test_duplicate_username_and_validation(self):
+        self.member("dup_user")
+        c = Client(self.port)
+        self.assertEqual(c.req("POST", "/api/auth/register", {"username": "DUP_user", "password": "secret12"})[0], 409)
+        self.assertEqual(c.req("POST", "/api/auth/register", {"username": "x", "password": "secret12"})[0], 400)
+        self.assertEqual(c.req("POST", "/api/auth/register", {"username": "okname", "password": "123"})[0], 400)
+
+    def test_cookie_flags_and_password_hashing(self):
+        c = Client(self.port)
+        _, _, sc = c.req("POST", "/api/auth/register", {"username": "flags", "password": "secret12"}, raw=True)
+        self.assertIn("HttpOnly", sc)
+        self.assertIn("SameSite=Lax", sc)
+        _, _, sc2 = Client(self.port).req("POST", "/api/auth/register", {"username": "flags2", "password": "secret12"},
+                                          headers={"X-Forwarded-Proto": "https"}, raw=True)
+        self.assertIn("Secure", sc2)
+        row = auth.db().execute("SELECT pw_hash FROM users WHERE username='flags'").fetchone()
+        self.assertTrue(row["pw_hash"].startswith("pbkdf2_sha256$"))
+        self.assertNotIn("secret12", row["pw_hash"])
+        tok = c.cookie.split("=", 1)[1]
+        self.assertIsNone(auth.db().execute("SELECT 1 FROM sessions WHERE token_hash=?", (tok,)).fetchone())
+
+    def test_cross_origin_post_rejected(self):
+        c, _ = self.member("csrf")
+        s, _ = c.req("POST", "/api/record", {"type": "good", "text": "x"}, headers={"Origin": "http://evil.example"})
+        self.assertEqual(s, 403)
+        s, _ = c.req("POST", "/api/record", {"type": "good", "text": "x"}, headers={"Origin": f"http://127.0.0.1:{self.port}"})
+        self.assertEqual(s, 200)
+
+    def test_guest_seed_and_claim_keeps_data(self):
+        c = Client(self.port)
+        s, d = c.req("POST", "/api/auth/guest", {})
+        self.assertEqual(s, 201)
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertTrue(boot["profile"]["onboarded"])
+        self.assertGreaterEqual(boot["counts"]["good"], 5)
+        s, d = c.req("POST", "/api/auth/register", {"username": "claimed", "password": "secret12"})
+        self.assertEqual((s, d["user"]["kind"]), (200, "member"))
+        _, boot2 = c.req("GET", "/api/bootstrap")
+        self.assertEqual(boot2["counts"]["good"], boot["counts"]["good"])
+
+    def test_trial_chat_is_public_and_ends_in_a_step(self):
+        c = Client(self.port)
+        hist = [{"role": "assistant", "content": "现在一般几点睡？"}, {"role": "user", "content": "总是刷手机到一两点"}]
+        self.fake.json_out = {"reply": "刷到一两点，第二天肯定很难受吧。是停不下来，还是睡不着？", "step": None}
+        s, d = c.req("POST", "/api/trial/chat", {"goal": "想早点睡", "history": hist})
+        self.assertEqual((s, d["step"], d["round"]), (200, None, 1), d)
+        self.assertIsNone(c.cookie)                   # no account is created
+        # finishing must return a step; the model's meta prefix on tomorrow is stripped
+        self.fake.json_out = {"reply": "今晚先试试这个？", "step": {"title": "11 点把手机放到书桌上", "when": "今晚", "why": "离手就好"},
+                              "remember": ["你常刷手机到一两点"], "tomorrow": "明天我来问你，昨晚放下了吗？", "why_goal": "白天总犯困"}
+        s, d = c.req("POST", "/api/trial/chat", {"goal": "想早点睡", "history": hist, "finish": True})
+        self.assertEqual(d["step"]["title"], "11 点把手机放到书桌上")
+        self.assertEqual(d["tomorrow"], "昨晚放下了吗？")
+        # model down -> scripted fallback still ends in a step
+        self.fake.json_out = None
+        s, d = c.req("POST", "/api/trial/chat", {"goal": "想早点睡", "history": hist, "finish": True})
+        self.assertEqual(s, 200)
+        self.assertTrue(d["step"]["title"] and d["remember"])
+        self.assertEqual(c.req("POST", "/api/trial/chat", {"goal": "", "history": hist})[0], 400)
+        self.assertEqual(c.req("POST", "/api/trial/chat", {"goal": "想早点睡", "history": hist[:1]})[0], 400)
+
+    def test_onboard_carries_the_trial_step(self):
+        c, uid = self.member("carry")
+        carry = {"step": "11 点把手机放到书桌上", "why": "离手就好", "remember": ["你常刷手机到一两点"]}
+        s, d = c.req("POST", "/api/onboard", {"answers": ONBOARD, "carry": carry})
+        self.assertEqual(s, 200, d)
+        self.assertIn("11 点把手机放到书桌上", [x["title"] for x in d["steps"]])
+        self.assertIn("你常刷手机到一两点", [m["text"] for m in d["memories"]])
+        self.assertIn("11 点把手机放到书桌上", d["messages"][-1]["content"])
+
+    def test_admin_is_locked_and_shows_counts_not_content(self):
+        c, uid = self.onboarded("adm_user")
+        self.fake.turns = [[("text", "嗯，我在。")]]
+        c.sse("我的秘密是我怕黑")
+        a = Client(self.port)
+        self.assertEqual(a.req("GET", "/api/admin/overview")[0], 401)
+        self.assertEqual(c.req("GET", "/api/admin/users")[0], 401)       # a user session is not an admin session
+        self.assertEqual(a.req("POST", "/api/admin/login", {"key": "nope"})[0], 401)
+        s, _ = a.req("POST", "/api/admin/login", {"key": "test-admin"})
+        self.assertEqual(s, 200)
+        s, ov = a.req("GET", "/api/admin/overview?days=7")
+        self.assertEqual(s, 200, ov)
+        self.assertGreaterEqual(ov["users"]["members"], 1)
+        self.assertEqual(len(ov["series"]), 7)
+        self.assertGreaterEqual(ov["series"][-1]["msgs"], 1)
+        s, us = a.req("GET", "/api/admin/users")
+        row = next(u for u in us["users"] if u["id"] == uid)
+        self.assertEqual((row["username"], row["msgs"], row["profile"]["intent_primary"]), ("adm_user", 1, "健康作息"))
+        s, one = a.req("GET", f"/api/admin/user?id={uid}")
+        self.assertEqual(s, 200)
+        blob = json.dumps([us, one], ensure_ascii=False)
+        self.assertNotIn("怕黑", blob)                                     # no chat content in the admin API
+        self.assertNotIn("pw_hash", blob)
+        self.assertEqual(a.req("GET", "/api/admin/user?id=u_0000000000000000")[0], 404)
+        a.req("POST", "/api/admin/logout")
+        self.assertEqual(a.req("GET", "/api/admin/users")[0], 401)
+        self.assertEqual(c.req("GET", "/admin", raw=True)[0], 200)
+
+    def test_tokens_are_counted_per_user(self):
+        c, uid = self.onboarded("tok_user")
+        with Store(uid):
+            llm._note_usage({"total_tokens": 100, "prompt_tokens": 90, "completion_tokens": 10,
+                             "prompt_tokens_details": {"cached_tokens": 80}}, "chat")
+            with Store(uid):                       # nested open/close keeps the outer attribution
+                pass
+            llm._note_usage({"total_tokens": 40, "prompt_tokens": 35, "completion_tokens": 5}, "bg")
+        llm._note_usage({"total_tokens": 7}, "bg")  # no current user (e.g. landing demo): site-wide only
+        a = Client(self.port)
+        a.req("POST", "/api/admin/login", {"key": "test-admin"})
+        _, one = a.req("GET", f"/api/admin/user?id={uid}")
+        t = one["tokens"]["d30"]
+        self.assertEqual((t["tokens"], t["calls"], t["tokens_chat"], t["tokens_bg"], t["tokens_cached"]), (140, 2, 100, 40, 80))
+        _, us = a.req("GET", "/api/admin/users")
+        self.assertEqual(next(u for u in us["users"] if u["id"] == uid)["tokens_30d"], 140)
+        _, b = c.req("GET", "/api/bootstrap")
+        self.assertNotIn("llm_tokens", json.dumps(b))                     # users don't see their usage (yet)
+
+    def test_admin_can_delete_a_user_and_guests(self):
+        c, uid = self.onboarded("del_me")
+        with Store(uid):
+            llm._note_usage({"total_tokens": 10}, "chat")
+        tasks.add(uid, "喝水", time="09:00", repeat="daily")
+        a = Client(self.port)
+        a.req("POST", "/api/admin/login", {"key": "test-admin"})
+        self.assertEqual(c.req("POST", "/api/admin/user/delete", {"id": uid, "confirm": "del_me"})[0], 401)  # not as a user
+        self.assertEqual(a.req("POST", "/api/admin/user/delete", {"id": uid, "confirm": "nope"})[0], 400)
+        s, _ = a.req("POST", "/api/admin/user/delete", {"id": uid, "confirm": "del_me"})
+        self.assertEqual(s, 200)
+        self.assertEqual(c.req("GET", "/api/bootstrap")[0], 401)       # logged out at once
+        self.assertFalse(os.path.exists(os.path.join(TMP, "u", uid)))
+        self.assertEqual(tasks.list_for(uid), [])
+        _, us = a.req("GET", "/api/admin/users")
+        self.assertNotIn(uid, [u["id"] for u in us["users"]])
+        self.assertEqual(a.req("GET", f"/api/admin/user?id={uid}")[0], 404)
+        # a new account can take the freed username
+        self.assertEqual(Client(self.port).req("POST", "/api/auth/register", {"username": "del_me", "password": "secret12"})[0], 201)
+
+        g = Client(self.port)
+        g.req("POST", "/api/auth/guest", {"seed": False})
+        _, us = a.req("GET", "/api/admin/users")
+        n = sum(1 for u in us["users"] if u["kind"] == "guest")
+        self.assertEqual(a.req("POST", "/api/admin/guests/delete", {"confirm": "删除"})[0], 400)
+        s, out = a.req("POST", "/api/admin/guests/delete", {"confirm": f"删除 {n} 个体验账号"})
+        self.assertEqual((s, out["deleted"]), (200, n))
+        _, us = a.req("GET", "/api/admin/users")
+        self.assertEqual([u for u in us["users"] if u["kind"] == "guest"], [])
+
+    def wait_pushes(self, n, timeout=3.0):
+        t = time.time()
+        while len(self.pushed) < n and time.time() - t < timeout:
+            time.sleep(0.05)
+        return self.pushed
+
+    def test_push_subscribe_notify_and_cleanup(self):
+        self.pushed.clear()
+        c, uid = self.onboarded("push_user")
+        s, k = c.req("GET", "/api/push/key")
+        self.assertEqual((s, len(k["key"]), k["devices"]), (200, 87, 0))   # 65-byte P-256 point, base64url
+        self.assertEqual(c.req("POST", "/api/push/subscribe", {"subscription": {"endpoint": "http://evil"}})[0], 400)
+        sub = {"endpoint": "https://push.example/abc", "keys": {"p256dh": "x", "auth": "y"}}
+        s, out = c.req("POST", "/api/push/subscribe", {"subscription": sub})
+        self.assertEqual((s, out["devices"]), (200, 1))
+        c.req("POST", "/api/push/subscribe", {"subscription": {"endpoint": "https://push.example/gone"}})
+
+        # a proactive message wakes every device; the service worker then fetches the text
+        self.fake.json_out = {"text": "还在靠近「健康作息」吗？"}
+        c.req("POST", "/api/proactive/now", {})
+        pushed = self.wait_pushes(2)
+        self.assertEqual(sorted(ep for ep, _ in pushed), ["https://push.example/abc", "https://push.example/gone"])
+        ep, hd = pushed[0]
+        self.assertTrue(hd["Authorization"].startswith("vapid t=") and f"k={k['key']}" in hd["Authorization"])
+        self.assertEqual(hd["Content-Length"], "0")                         # no payload goes to the push service
+        s, latest = c.req("GET", "/api/push/latest")
+        self.assertEqual((latest["title"], latest["text"]), ("阿光", "还在靠近「健康作息」吗？"))
+        time.sleep(0.2)
+        self.assertEqual([x["endpoint"] for x in webpush.subs(uid)], ["https://push.example/abc"])  # 410 pruned
+
+        # the same device logging in as someone else moves to that account; logout unbinds it
+        d, uid2 = self.onboarded("push_other")
+        d.req("POST", "/api/push/subscribe", {"subscription": sub})
+        self.assertEqual((webpush.subs(uid), len(webpush.subs(uid2))), ([], 1))
+        d.req("POST", "/api/auth/logout", {"endpoint": sub["endpoint"]})
+        self.assertEqual(webpush.subs(uid2), [])
+
+        # test push + admin delete removes subscriptions
+        c.req("POST", "/api/push/subscribe", {"subscription": sub})
+        n = len(self.pushed)
+        s, out = c.req("POST", "/api/push/test", {})
+        self.assertEqual((s, out["sent"]), (200, 1))
+        self.assertEqual(len(self.pushed), n + 1)
+        a = Client(self.port)
+        a.req("POST", "/api/admin/login", {"key": "test-admin"})
+        self.assertEqual(a.req("GET", f"/api/admin/user?id={uid}")[1]["push_devices"], 1)
+        a.req("POST", "/api/admin/user/delete", {"id": uid, "confirm": "push_user"})
+        self.assertEqual(webpush.subs(uid), [])
+
+    def test_pwa_files_are_served(self):
+        c = Client(self.port)
+        for path, ctype in (("/manifest.webmanifest", "application/manifest+json"), ("/sw.js", "javascript"),
+                            ("/icons/icon-192.png", "image/png"), ("/icons/apple-touch-icon.png", "image/png")):
+            conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+            conn.request("GET", path)
+            r = conn.getresponse()
+            r.read()
+            self.assertEqual(r.status, 200, path)
+            self.assertIn(ctype, r.getheader("Content-Type"), path)
+            conn.close()
+        s, html, _ = c.req("GET", "/", raw=True)
+        self.assertIn('rel="manifest"', html)
+
+    def test_static_path_traversal_blocked(self):
+        c = Client(self.port)
+        self.assertEqual(c.req("GET", "/../server.py", raw=True)[0], 404)
+        self.assertEqual(c.req("GET", "/%2e%2e/server.py", raw=True)[0], 404)
+        s, body, _ = c.req("GET", "/", raw=True)
+        self.assertEqual(s, 200)
+
+    # ---- onboarding / scenes / records ---------------------------------------
+    def test_onboarding_writes_locked_fields(self):
+        c, uid = self.onboarded("onb")
+        _, d = c.req("GET", "/api/bootstrap")
+        p = d["profile"]
+        self.assertEqual((p["agent_name"], p["intent_primary"], p["schedule_hint"]), ("阿光", "健康作息", "夜猫"))
+        self.assertEqual(p["mbti_hint"], "")          # 「跳过」 stores nothing
+        self.assertEqual(p["care_style"], "analyze")  # 中断时的陪伴方式，建档就写进去
+        self.assertTrue(p["onboarded"])
+        kinds = {m["kind"] for m in d["memories"]}
+        self.assertTrue({"intent", "identity", "boundary"} <= kinds)
+        # 三段都能跳过：什么都不填也能进门，用默认值，不建愿望
+        skip = Client(self.port)
+        skip.req("POST", "/api/auth/register", {"username": "onb_skip", "password": "secret12"})
+        s, d = skip.req("POST", "/api/onboard", {"answers": {}})
+        self.assertEqual(s, 200, d)
+        p = d["profile"]
+        self.assertEqual((p["agent_name"], p["agent_avatar_id"], p["persona"], p["care_style"]), ("小光", "cloud.moon.jelly", "gentle", "nudge"))
+        self.assertTrue(p["onboarded"])
+        self.assertEqual(d["journey"]["wishes"], [])
+        self.assertIn("不急着定目标", d["messages"][-1]["content"])
+        s, d = skip.req("POST", "/api/onboard", {"answers": {"persona": "evil", "care_style": "x", "schedule_hint": "半夜", "agent_avatar_id": "x.y.z"}})
+        self.assertEqual((d["profile"]["persona"], d["profile"]["care_style"], d["profile"]["schedule_hint"]), ("gentle", "nudge", ""))
+
+    def test_onboard_first_wish_is_planned_with_xiaoguang(self):
+        c, _ = self.member("onb_plan")
+        hist = [{"role": "assistant", "content": "想早点睡，现在一般几点睡？"}, {"role": "user", "content": "总是刷手机到两点"}]
+        self.fake.json_out = {"reply": "刷到两点，第二天肯定很难受吧。是停不下来，还是睡不着？", "plan": None}
+        s, d = c.req("POST", "/api/onboard/plan", {"goal": "想早点睡", "history": hist, "about": {"persona": "lively", "nickname": "阿夏"}})
+        self.assertEqual((s, d["plan"], d["round"]), (200, None, 1))
+        self.assertIn("阿夏", self.fake.seen_json[-1][0]["content"])           # 刚在「你」里填的称呼带进了提示
+        self.fake.json_out = {"reply": "我帮你拆了一下，看看哪些想放进计划。", "remember": ["你常刷手机到两点"], "why_goal": "白天上课犯困",
+                              "plan": {"title": "早睡早起", "category": "body", "days": 30,
+                                       "milestones": [{"title": "连续 7 天 12 点前睡着", "due_in_days": 21}],
+                                       "habits": [{"title": "23:30 放下手机"}], "steps": [{"title": "今晚手机放书桌上"}, {"title": ""}]}}
+        s, d = c.req("POST", "/api/onboard/plan", {"goal": "想早点睡", "history": hist, "finish": True})
+        self.assertEqual(s, 200, d)
+        self.assertEqual((d["plan"]["title"], d["plan"]["milestones"], d["plan"]["steps"], d["plan"]["due_in_days"]),
+                         ("早睡早起", ["连续 7 天 12 点前睡着"], ["今晚手机放书桌上"], 21))
+        # 「让小光改改」：上一版和用户的意见一起交给模型，这一轮一定给出新的一版
+        rev = hist + [{"role": "assistant", "content": "我拆的是：愿望「早睡早起」，一个月；里程碑「连续 7 天 12 点前睡着」。"},
+                      {"role": "user", "content": "我想 1 点前睡就行"}]
+        self.fake.json_out = {"reply": "好，改成 1 点前。", "plan": {"title": "1 点前睡", "milestones": [{"title": "一周 5 晚 1 点前睡"}], "habits": [], "steps": [{"title": "今晚 0:30 放下手机"}]}}
+        s, d = c.req("POST", "/api/onboard/plan", {"goal": "想早点睡", "history": rev, "revise": True})
+        self.assertEqual((s, d["plan"]["title"]), (200, "1 点前睡"))
+        prompt = self.fake.seen_json[-1]
+        self.assertIn("提了意见", prompt[0]["content"])
+        self.assertEqual(prompt[-1]["content"], "我想 1 点前睡就行")
+        self.assertIn("连续 7 天 12 点前睡着", prompt[-2]["content"])
+        self.fake.json_out = None                                                    # 模型不可用：也照样给出一条路
+        s, d = c.req("POST", "/api/onboard/plan", {"goal": "想早点睡", "history": hist, "finish": True})
+        self.assertTrue(d["plan"]["steps"] and d["plan"]["milestones"] and d["plan"]["habits"])
+        self.assertEqual(c.req("POST", "/api/onboard/plan", {"goal": "", "history": hist})[0], 400)
+        self.assertEqual(Client(self.port).req("POST", "/api/onboard/plan", {"goal": "想早点睡", "history": hist})[0], 401)
+        wish = {**d["plan"], "milestones": d["plan"]["milestones"], "due_in_days": 21}
+        s, d = c.req("POST", "/api/onboard", {"answers": {"wish": wish, "remember": ["你常刷手机到两点"], "intent_why": "白天上课犯困"}})
+        self.assertEqual(s, 200, d)
+        self.assertEqual(len(d["journey"]["wishes"]), 1)
+        self.assertIn("你常刷手机到两点", [m["text"] for m in d["memories"]])
+
+    def test_onboard_sets_up_the_first_wish(self):
+        c, _ = self.member("onb_wish")
+        wish = {"title": "早睡早起", "category": "body", "days": 90, "milestones": ["连续 7 天 12 点前睡"],
+                "steps": ["今晚手机放到床外面", "定一个 23:30 的提醒", "   "], "habits": ["23:30 放下手机"]}
+        s, d = c.req("POST", "/api/onboard", {"answers": {"nickname": "阿夏", "schedule_hint": "夜猫", "traits": ["想得多", "行动派"],
+                                                          "boundaries": ["别说教"], "persona": "lively", "wish": wish}})
+        self.assertEqual(s, 200, d)
+        p = d["profile"]
+        self.assertEqual((p["nickname"], p["intent_primary"], p["persona"]), ("阿夏", "早睡早起", "lively"))
+        [w] = d["journey"]["wishes"]
+        self.assertEqual((w["title"], w["category"]), ("早睡早起", "body"))
+        self.assertEqual([m["title"] for m in w["milestones"]], ["连续 7 天 12 点前睡"])
+        self.assertEqual([h["title"] for h in w["habits"]], ["23:30 放下手机"])
+        self.assertEqual(sorted(x["title"] for x in d["steps"] if x["wish_id"] == w["id"]), ["今晚手机放到床外面", "定一个 23:30 的提醒"])
+        self.assertIn("今晚手机放到床外面", d["messages"][-1]["content"])
+        kinds = {m["kind"] for m in d["memories"]}
+        self.assertTrue({"intent", "identity", "preference", "boundary"} <= kinds)
+
+    def test_scene_waits_for_each_answer_then_writes(self):
+        c, _ = self.onboarded("scene")
+        s, d = c.req("POST", "/api/scene/start", {"scene": "gratitude"})
+        self.assertEqual(s, 200)
+        rid = d["run"]["id"]
+        _, d1 = c.req("POST", "/api/scene/answer", {"run_id": rid, "text": "食堂的汤很好喝"})
+        self.assertFalse(d1["done"])
+        self.assertEqual(d1["step"]["index"], 1)
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertEqual(boot["scene"]["id"], rid)      # resumable after reload
+        c.req("POST", "/api/scene/answer", {"run_id": rid, "text": "同事帮我带了伞"})
+        _, d3 = c.req("POST", "/api/scene/answer", {"run_id": rid, "text": "按时下班了"})
+        self.assertTrue(d3["done"])
+        types = sorted(w["type"] for w in d3["wrote"])
+        self.assertEqual(types, ["memory", "record"])
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertIn("食堂的汤很好喝；同事帮我带了伞；按时下班了", [x["text"] for x in boot["records"]])
+        self.assertIsNone(boot["scene"])
+
+    def test_removed_ideas_are_gone(self):
+        c, uid = self.onboarded("removed")
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertEqual([i["id"] for i in boot["ideas"]], ["relearn", "seven_steps_lite", "kickstart", "meditation", "gratitude"])
+        self.assertNotIn("clarify", [s["id"] for s in boot["scenes"]])
+        self.assertEqual(c.req("POST", "/api/scene/start", {"scene": "clarify"})[0], 404)
+        with Store(uid) as st:     # 上线前做到一半的「说清想要的」：再答就结束，不报错
+            st.c.execute("INSERT INTO scene_run(id, scene, step, answers, status, created_at) VALUES('sc_old','clarify',1,'[\"x\"]','active','2026-11-01T10:00:00')")
+        s, d = c.req("POST", "/api/scene/answer", {"run_id": "sc_old", "text": "y"})
+        self.assertEqual((s, d.get("error")), (404, "这个练习已经下架了"))
+        with Store(uid) as st:
+            self.assertEqual((st.get_scene("sc_old")["status"], st.get_scene("sc_old")["answers"]), ("abandoned", []))
+
+    def test_meditation_journey_keeps_nothing_unless_asked(self):
+        c, uid = self.onboarded("meditate")
+        _, boot = c.req("GET", "/api/bootstrap")
+        med = next(s for s in boot["scenes"] if s["id"] == "meditation")
+        self.assertEqual((med["title"], med["music"]), ("冥想体验：遇见更好的自己", "/audio/meditation.mp3"))
+        n_msgs, n_recs, n_mems = len(boot["messages"]), len(boot["records"]), len(boot["memories"])
+        answers = ["准备好了", "在阳光下，享受户外的空气", "更平静，不再总是担心", "有人理解我、支持我", "自信", "我准备好了"]
+        rid, outs = self._scene(c, "meditation", answers)
+        first = outs[0]["step"]
+        self.assertEqual((first["cta"], first["breath"], first["calm"], first["optional"]), ("准备好了", True, True, False))
+        self.assertTrue(outs[1]["step"]["auto"])                              # 选了就往下走
+        self.assertEqual(outs[3]["reply"], "那是你期待成为的样子。\n我们一起再看看，那时的你过着怎样的生活。")
+        self.assertEqual(outs[5]["reply"], "你选择了自信。\n现在，试着在心里对自己说：\n我正在慢慢相信自己。")
+        self.assertTrue(outs[5]["glow"])
+        done = outs[-1]
+        self.assertEqual(done["review"]["kind"], "feel")
+        self.assertEqual([x["key"] for x in done["review"]["choices"]], ["write", "talk", "end"])
+        self.assertEqual(done["xp"]["amount"], 12)
+        _, boot = c.req("GET", "/api/bootstrap")                             # 冥想时选的什么都没存
+        self.assertEqual((len(boot["messages"]), len(boot["records"]), len(boot["memories"])), (n_msgs, n_recs, n_mems))
+        # 记下感受：一颗小确幸
+        self.assertEqual(c.req("POST", "/api/scene/save", {"run_id": rid, "extra": "  "})[0], 400)
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "extra": "肩膀松下来了，想多晒太阳"})
+        self.assertEqual(s, 200, out)
+        self.assertEqual(out["state"]["records"][0]["text"], "冥想后：肩膀松下来了，想多晒太阳")
+        self.assertEqual(out["state"]["records"][0]["type"], "good")
+        self.assertEqual(len(out["state"]["messages"]), n_msgs)
+        # 和你聊聊：小光带着刚才的画面先开口
+        rid, outs = self._scene(c, "meditation", answers)
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "talk": True})
+        self.assertEqual(s, 200, out)
+        self.assertEqual(out["reply"], "刚才那几分钟，你在阳光下的户外，看到了更平静的自己，那束光带来了自信。想从哪儿聊起都行。")
+        self.assertEqual(out["state"]["messages"][-1]["content"], out["reply"])
+        # 先不记录：什么都不留
+        rid, outs = self._scene(c, "meditation", answers)
+        c.req("POST", "/api/scene/discard", {"run_id": rid})
+        with Store(uid) as st:
+            self.assertEqual(st.get_scene(rid)["answers"], [])
+
+    # ---- 两分钟启动 -------------------------------------------------------------
+    def _kick(self, c, action, **body):
+        s, d = c.req("POST", "/api/kick", {"action": action, **body})
+        self.assertEqual(s, 200, d)
+        return d
+
+    def test_kickstart_route_adjust_and_forget_by_default(self):
+        c, uid = self.onboarded("kick_low")
+        self.fake.json_out = {"say": "被子先掀开一角就行。", "cheer": "起来了，今天已经赢了一半。", "steps": [
+            {"title": "先坐起来", "tip": "慢慢撑起身体，靠在床头。", "minutes": 1},
+            {"title": "双脚踩地", "tip": "把脚放到地上，感受地板的凉。", "minutes": 1},
+            {"title": "喝一口温水", "tip": "拿起旁边的水，小口喝下。", "minutes": 1}]}
+        run = self._kick(c, "start", task="想起床", mode="low")["run"]
+        self.assertEqual((run["mode"], run["total"], run["cur"], run["questions"]), ("low", 3, 0, []))
+        sent = self.fake.seen_json[-1]
+        self.assertIn("两分钟启动", sent[0]["content"])                          # 独立的提示词，不是聊天的人设
+        self.assertIn("想起床", sent[1]["content"])
+        self.assertIn("能量很低", sent[1]["content"])
+        run = self._kick(c, "done", run_id=run["id"])["run"]
+        run = self._kick(c, "done", run_id=run["id"])["run"]
+        self.assertEqual((run["cur"], run["done"]), (2, 2))
+        # 调整路线：只改现在这一步和后面的，做完的不动
+        self.fake.json_out = {"say": "没有温水也没关系。", "steps": [
+            {"title": "倒杯凉白开", "tip": "去厨房倒小半杯。", "minutes": 2}, {"title": "做三次深呼吸", "tip": "吸四拍，呼四拍。", "minutes": 1}]}
+        out = self._kick(c, "adjust", run_id=run["id"], text="没有温水")
+        run = out["run"]
+        self.assertEqual(out["say"], "没有温水也没关系。")
+        self.assertEqual([s["title"] for s in run["route"]], ["先坐起来", "双脚踩地", "倒杯凉白开", "做三次深呼吸"])
+        self.assertEqual([s["state"] for s in run["route"]][:2], ["done", "done"])
+        prompt = self.fake.seen_json[-1][1]["content"]
+        self.assertIn("✓ 先坐起来", prompt)
+        self.assertIn("→ 喝一口温水", prompt)
+        self.assertIn("没有温水", prompt)
+        # 遇到困难：第二轮还记得第一轮说过的话
+        self.fake.json_out = {"say": "那就只拿起杯子。", "steps": [{"title": "只拿起杯子", "tip": "拿起来就算。", "minutes": 1}]}
+        run = self._kick(c, "stuck", run_id=run["id"], text="不想动")["run"]
+        self.assertIn("「没有温水」", self.fake.seen_json[-1][1]["content"])
+        self.assertEqual([x["text"] for x in run["log"]], ["没有温水", "不想动"])
+        out = self._kick(c, "done", run_id=run["id"])
+        self.assertTrue(out["run"]["finished"])
+        self.assertEqual(out["xp"]["amount"], 12)                                 # 走完一条路线，算一次练习
+        # 结束时没勾「记住」：不写记忆，这一次的细节也清掉
+        out = self._kick(c, "finish", run_id=run["id"], remember=False)
+        self.assertFalse(out["saved"])
+        self.assertEqual(out["state"]["kick_memories"], [])
+        with Store(uid) as st:
+            row = dict(st.c.execute("SELECT * FROM kick_run WHERE id=?", (run["id"],)).fetchone())
+        self.assertEqual((row["status"], row["log"], row["answers"]), ("closed", "[]", "{}"))
+        self.assertNotIn("倒杯凉白开", row["route"])
+        _, home = c.req("GET", "/api/kick")
+        self.assertIsNone(home["active"])
+
+    def test_kickstart_precise_remember_and_recall(self):
+        c, uid = self.onboarded("kick_precise")
+        self.fake.json_out = {"now": ["还没开始", "写了个开头", "大纲有了", "资料还没找"], "want": ["写完第一段", "列个大纲", "找两份资料", "定个标题"],
+                              "block": ["怕写不好", "不知道写什么", "太累了", "总刷手机"]}
+        run = self._kick(c, "start", task="开始写周报", mode="precise")["run"]
+        self.assertEqual(run["total"], 0)
+        self.assertEqual([q["q"] for q in run["questions"]], ["你现在做到哪了？", "你现在最想推进的是什么？", "你现在最大的阻碍是什么？"])
+        self.assertEqual(run["questions"][2]["options"][0], "怕写不好")
+        self.fake.json_out = {"say": "从你写了的那个开头接着来。", "steps": [
+            {"title": "打开周报文档", "tip": "就打开，先不写。", "minutes": 1}, {"title": "写一句最简单的", "tip": "比如「本周做了三件事」。", "minutes": 2},
+            {"title": "列三个关键词", "tip": "", "minutes": 1}]}
+        run = self._kick(c, "answer", run_id=run["id"], answers={"now": "写了个开头", "want": "写完第一段", "block": "怕写不好"})["run"]
+        self.assertIn("怕写不好", self.fake.seen_json[-1][1]["content"])
+        self.assertIn("最大阻碍", self.fake.seen_json[-1][1]["content"])
+        run = self._kick(c, "done", run_id=run["id"])["run"]
+        run = self._kick(c, "skip", run_id=run["id"])["run"]                    # 先跳过这一步：不用问模型
+        self.assertEqual(run["route"][1]["state"], "skipped")
+        run = self._kick(c, "done", run_id=run["id"])["run"]
+        self.assertTrue(run["finished"])
+        self.fake.json_out = {"say": "接着来。", "steps": [{"title": "再写三句", "tip": "", "minutes": 3}]}
+        run = self._kick(c, "more", run_id=run["id"])["run"]                    # 继续做这件事：同一次会话接着加
+        self.assertEqual((run["total"], run["cur"], run["finished"]), (4, 3, False))
+        self.assertIn("✓ 打开周报文档", self.fake.seen_json[-1][1]["content"])
+        run = self._kick(c, "done", run_id=run["id"])["run"]
+        out = self._kick(c, "finish", run_id=run["id"], remember=True)
+        self.assertTrue(out["saved"])
+        [k] = out["state"]["kick_memories"]
+        for part in ("开始写周报（拆更准）", "最大的阻碍：怕写不好", "一开始的路线：打开周报文档 → 写一句最简单的 → 列三个关键词",
+                     "跳过了「写一句最简单的」", "实际做了：打开周报文档、列三个关键词、再写三句（3/4 步）"):
+            self.assertIn(part, k["text"])
+        # 夜里整理能读到它（连同 TA 的原话），聊天里按需查
+        from core import agent, digest
+        with Store(uid) as st:
+            mat = digest.material(st, k["day"])
+            self.assertEqual(len(mat["kicks"]), 1)
+            self.assertIn("怕写不好", mat["user_lines"])
+            hit = agent.run_tool(st, "kick_history", {"query": "周报"})
+            miss = agent.run_tool(st, "kick_history", {"query": "练琴"})
+        self.assertEqual(len(hit["entries"]), 1)
+        self.assertEqual((miss["entries"], bool(miss["note"])), ([], True))
+        # 我的空间里能删
+        out = self._kick(c, "forget", id=k["id"])
+        self.assertEqual(out["state"]["kick_memories"], [])
+
+    def test_kickstart_from_plan_step_and_model_failure(self):
+        c, uid = self.onboarded("kick_fail")
+        _, d = c.req("POST", "/api/step", {"action": "add", "title": "整理桌面"})
+        step = next(s for s in d["steps"] if s["title"] == "整理桌面")
+        self.fake.json_out = None                                                  # 模型不在：给一条最朴素的路，别卡住
+        out = self._kick(c, "start", task="整理桌面", step_id=step["id"])
+        run = out["run"]
+        self.assertFalse(out["by_model"])
+        self.assertEqual(run["total"], 3)
+        self.assertEqual(run["ctx"]["step"], "整理桌面")
+        self.assertIn("来自蜕变计划", self.fake.seen_json[-1][1]["content"])
+        s, d = c.req("POST", "/api/kick", {"action": "adjust", "run_id": run["id"], "text": "太难了"})
+        self.assertEqual((s, d["error"]), (400, "刚才没想好，换个说法再试一次？"))
+        _, home = c.req("GET", "/api/kick")
+        self.assertEqual(home["active"]["id"], run["id"])                         # 刷新页面也能接着做
+        self._kick(c, "close", run_id=run["id"])
+        _, home = c.req("GET", "/api/kick")
+        self.assertIsNone(home["active"])
+        self.assertEqual(c.req("POST", "/api/kick", {"action": "done", "run_id": run["id"]})[0], 404)
+        self.assertEqual(c.req("POST", "/api/kick", {"action": "start", "task": "  "})[0], 400)
+
+    def test_kickstart_guess_fix_found_and_review(self):
+        c, uid = self.onboarded("kick_guess")
+        with Store(uid) as st:
+            st.c.execute("INSERT INTO wish(id, title, category, started, archived, sort, created_at) VALUES('w_dress', '变得更会打扮', 'other', '2026-11-01', 0, 0, '2026-11-01T00:00:00+08:00')")
+            st.set_profile({"current_wish": "w_dress"})
+        # 先写理解、再拆：理解存下来（页面上不显示，记忆里有）
+        self.fake.json_out = {"guess": "在衣柜里挑一套衣服换上", "say": "先看看衣柜。", "cheer": "搭出来了。", "steps": [
+            {"title": "打开衣柜", "tip": "", "minutes": 1}, {"title": "挑一件上衣", "tip": "", "minutes": 2}]}
+        run = self._kick(c, "start", task="学穿搭")["run"]
+        self.assertEqual(run["guess"], "在衣柜里挑一套衣服换上")
+        sent = self.fake.seen_json[-1]
+        self.assertIn("先理解这件事", sent[0]["content"])
+        self.assertIn('"guess"', sent[1]["content"])
+        self.assertIn("「变得更会打扮」（现在主要在做）", sent[1]["content"])        # 愿望帮小光猜意思
+        # 在「调整路线」里说理解错了：理解换掉，路线从现在这一步重排
+        self.fake.json_out = {"guess": "在小红书上看穿搭，照着搭一套", "say": "好，那就上网学。", "found": "学穿搭你想先看别人怎么搭", "steps": [
+            {"title": "打开小红书", "tip": "搜「秋冬穿搭」", "minutes": 1}, {"title": "收藏一套", "tip": "", "minutes": 2},
+            {"title": "照着配一套", "tip": "", "minutes": 3}]}
+        run = self._kick(c, "adjust", run_id=run["id"], text="我想在网上学")["run"]
+        prompt = self.fake.seen_json[-1][1]["content"]
+        self.assertIn("你理解错了", prompt)
+        self.assertIn("你对这件事的理解：在衣柜里挑一套衣服换上", prompt)
+        self.assertEqual((run["guess"], run["total"], run["route"][0]["title"]), ("在小红书上看穿搭，照着搭一套", 3, "打开小红书"))
+        self.assertEqual([(x["kind"], x["step"], x["found"]) for x in run["log"]], [("adjust", 0, "学穿搭你想先看别人怎么搭")])
+        # 每一步实际用了多久（从这一步出现算起）
+        from datetime import timedelta
+        from core.util import iso, now
+        with Store(uid) as st:
+            st.c.execute("UPDATE kick_run SET mark=? WHERE id=?", (iso(now() - timedelta(seconds=150)), run["id"]))
+        run = self._kick(c, "done", run_id=run["id"])["run"]
+        self.assertTrue(140 <= run["route"][0]["sec"] <= 160)
+        self.fake.json_out = {"say": "那就先存一套。", "found": "", "steps": [{"title": "随手存一套", "tip": "", "minutes": 1}]}
+        run = self._kick(c, "stuck", run_id=run["id"], text="看花眼了")["run"]
+        self.assertEqual([(x["kind"], x["step"]) for x in run["log"]], [("adjust", 0), ("stuck", 1)])
+        run = self._kick(c, "done", run_id=run["id"])["run"]
+        self.assertTrue(run["finished"])
+        self.assertGreaterEqual(run["secs"], 140)
+        self.fake.json_out = {"say": "接着来。", "steps": [{"title": "换上拍一张", "tip": "", "minutes": 2}]}
+        run = self._kick(c, "more", run_id=run["id"])["run"]
+        self.assertEqual(run["log"][-1]["kind"], "more")
+        self.assertEqual(run["log"][-1]["step"], 2)                               # 路线回顾里「接着又做了」插在这一步前面
+        self._kick(c, "done", run_id=run["id"])
+        out = self._kick(c, "finish", run_id=run["id"], remember=True)
+        [k] = out["state"]["kick_memories"]
+        for part in ("小光的理解：在小红书上看穿搭，照着搭一套", "调整路线：TA 说「我想在网上学」", "小光的发现：学穿搭TA想先看别人怎么搭",
+                     "用了约 3 分钟"):
+            self.assertIn(part, k["text"])
+
+    def test_kickstart_fallback_route_is_generic(self):
+        c, _ = self.onboarded("kick_generic")
+        self.fake.json_out = None
+        out = self._kick(c, "start", task="学穿搭", mode="low")
+        run = out["run"]
+        self.assertEqual(run["guess"], "")
+        self.assertIn("没连上", run["say"])                                        # 说实话：这是通用的路，不是猜出来的
+        self.assertEqual([s["title"] for s in run["route"]], ["先让身体动一下", "先把要用的打开", "只做最小的一下", "停一下，看看感觉"])
+        self.assertNotIn("学穿搭", "".join(s["tip"] for s in run["route"]))
+
+    def test_audio_supports_range_requests(self):
+        import pathlib
+        from core.util import PUBLIC
+        f = pathlib.Path(PUBLIC) / "audio" / "_range_test.mp3"
+        f.parent.mkdir(exist_ok=True)
+        f.write_bytes(bytes(range(32, 127)) * 10)     # 950 字节，测试客户端按 UTF-8 读，所以只放可见字符
+        try:
+            c = Client(self.port)
+            s, body, _ = c.req("GET", "/audio/_range_test.mp3", headers={"Range": "bytes=10-19"}, raw=True)
+            self.assertEqual((s, body), (206, bytes(range(42, 52)).decode()))
+            s, body, _ = c.req("GET", "/audio/_range_test.mp3", headers={"Range": "bytes=5000-"}, raw=True)
+            self.assertEqual(s, 416)
+            s, body, _ = c.req("GET", "/audio/_range_test.mp3", raw=True)
+            self.assertEqual((s, len(body)), (200, 950))
+        finally:
+            f.unlink()
+
+    def test_every_scene_writes_something(self):
+        from core import scenes
+        c, _ = self.onboarded("scene_all")
+        for sid, sc in scenes.SCENES.items():
+            _, d = c.req("POST", "/api/scene/start", {"scene": sid})
+            out = None
+            for i in range(len(sc["steps"])):
+                _, out = c.req("POST", "/api/scene/answer", {"run_id": d["run"]["id"], "text": f"回答{i}"})
+            self.assertTrue(out["done"], sid)
+            if sc.get("review"):      # 先确认再存：答完什么都没写，勾选后保存才写
+                self.assertNotIn("wrote", out, sid)
+                if out["review"].get("kind") == "feel":     # 冥想：写下感受再保存
+                    body = {"run_id": d["run"]["id"], "extra": "很放松"}
+                else:
+                    body = {"run_id": d["run"]["id"], "items": [{"key": it["key"], "text": it["text"]}
+                                                               for it in out["review"]["items"] if not it.get("off")]}
+                s, out = c.req("POST", "/api/scene/save", body)
+                self.assertEqual(s, 200, out)
+            self.assertGreaterEqual(len(out["wrote"]), 1, sid)
+
+    def _scene(self, c, sid, answers):
+        """走完一个场景，返回 (run_id, 每一步的返回)。"""
+        _, d = c.req("POST", "/api/scene/start", {"scene": sid})
+        rid, outs = d["run"]["id"], [d]
+        for a in answers:
+            s, out = c.req("POST", "/api/scene/answer", {"run_id": rid, "text": a})
+            self.assertEqual(s, 200, out)
+            outs.append(out)
+        return rid, outs
+
+    def test_wish_chat_new_wish_becomes_wish_and_step(self):
+        c, uid = self.onboarded("seven_new")
+        _, boot = c.req("GET", "/api/bootstrap")
+        old = boot["journey"]["wishes"][0]
+        _, d = c.req("POST", "/api/scene/start", {"scene": "seven_steps_lite"})
+        first = d["step"]
+        self.assertIn(f"「{old['title']}」", first["q"])                     # 有愿望：先确认还是不是它
+        self.assertEqual(first["chips"], ["是的，还是这个愿望", "我想换一个愿望"])
+        self.assertEqual((first["foot"]["words"][0], first["foot"]["at"]), ("澄清", 0))
+        self.assertTrue(first["optional"] and first["plain"])
+        c.req("POST", "/api/scene/cancel")
+        rid, outs = self._scene(c, "seven_steps_lite", [
+            "希望自己更有勇气换工作", "现在还不太相信", "安心", "本周开始改简历", "之前积累的工作经验",
+            "必须一次就把简历写好", "我愿意先试一试"])
+        self.assertEqual(outs[2]["reply"], "没关系，不用现在就相信。我们可以慢慢聊。")
+        self.assertNotIn("reply", outs[3])
+        done = outs[-1]
+        self.assertTrue(done["done"])
+        self.assertEqual(done["xp"]["amount"], 12)
+        rv = done["review"]
+        self.assertEqual(rv["say"], "聊完啦～这是你接下来想尝试的事：")
+        self.assertEqual([it["key"] for it in rv["items"]], ["try", "wish", "say", "worry"])
+        # 点保存之前：不建愿望、不加小步、不进对话
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertEqual(len(boot["journey"]["wishes"]), 1)
+        self.assertNotIn("本周开始改简历", [s["title"] for s in boot["steps"]])
+        self.assertFalse(any("简历" in m["content"] for m in boot["messages"]))
+        items = [{"key": "try", "text": "本周开始改简历"}, {"key": "wish", "text": "更有勇气换工作"},
+                 {"key": "say", "text": "我愿意先试一试"}, {"key": "worry", "text": "必须一次就把简历写好"}]
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": items})
+        self.assertEqual(s, 200, out)
+        self.assertEqual([w["type"] for w in out["wrote"]], ["wish", "step", "moment", "memory"])
+        self.assertIn("「更有勇气换工作」放进愿望里了，第一小步是「本周开始改简历」", out["reply"])
+        st_ = out["state"]
+        new = next(w for w in st_["journey"]["wishes"] if w["title"] == "更有勇气换工作")
+        self.assertEqual(st_["journey"]["current"], new["id"])
+        step = next(s for s in st_["steps"] if s["title"] == "本周开始改简历")
+        self.assertEqual(step["wish_id"], new["id"])
+        mo = [m for m in st_["journey"]["moments"] if m["wish_id"] == new["id"]]
+        self.assertEqual([(m["text"], m["source"]) for m in mo], [("对自己说：我愿意先试一试", "scene")])
+        self.assertIn("想到「更有勇气换工作」时会有压力：必须一次就把简历写好", [m["text"] for m in st_["memories"]])
+        self.assertEqual(st_["messages"][-1]["content"], out["reply"])
+        self.assertEqual(c.req("POST", "/api/scene/save", {"run_id": rid, "items": items})[0], 400)   # 同一次不能存两遍
+
+    def test_wish_chat_keeps_wish_and_skips_unknowns(self):
+        c, uid = self.onboarded("seven_keep")
+        _, boot = c.req("GET", "/api/bootstrap")
+        wish = boot["journey"]["wishes"][0]
+        # 什么都没想好：没有卡片，结束语换成谢谢
+        _, outs = self._scene(c, "seven_steps_lite", ["是的，还是这个愿望", "（跳过）", "暂时想不到", "暂时不知道",
+                                                      "（跳过）", "（跳过）", "现在还想不到"])
+        self.assertEqual(outs[4]["reply"], "没关系，还没想好也可以。")
+        self.assertEqual(outs[-1]["review"]["items"], [])
+        self.assertEqual(outs[-1]["review"]["say"], "聊完啦～谢谢你愿意和我一起想一想。")
+        # 自己写「不知道」也不生成小步；只勾了一项就只存那一项，小步挂在原来的愿望下
+        _, outs = self._scene(c, "seven_steps_lite", ["是的，还是这个愿望", "我觉得有可能", "开心", "不知道",
+                                                      "（跳过）", "怕坚持不下来", "慢慢来就好"])
+        self.assertEqual(outs[4]["reply"], "没关系，还没想好也可以。")
+        rv = outs[-1]["review"]
+        self.assertEqual(rv["say"], "聊完啦～接下来做什么，还可以再想一想。")
+        self.assertEqual([it["key"] for it in rv["items"]], ["say", "worry"])
+        rid, outs = self._scene(c, "seven_steps_lite", [wish["title"], "（跳过）", "（跳过）", "周末去跑一次步",
+                                                        "（跳过）", "（跳过）", "（跳过）"])
+        self.assertEqual([it["key"] for it in outs[-1]["review"]["items"]], ["try"])   # 写的就是已有的愿望：不算新愿望
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": [{"key": "try", "text": "周末去跑一次步"}]})
+        self.assertEqual(s, 200, out)
+        step = next(s for s in out["state"]["steps"] if s["title"] == "周末去跑一次步")
+        self.assertEqual(step["wish_id"], wish["id"])
+        self.assertEqual(len(out["state"]["journey"]["wishes"]), 1)
+        self.assertIn(f"放进「{wish['title']}」的小步里了", out["reply"])
+
+    def test_relearn_saves_only_checked_and_ai_sorts_extra(self):
+        c, uid = self.onboarded("relearn_ai")
+        before = len(c.req("GET", "/api/bootstrap")[1]["messages"])
+        rid, outs = self._scene(c, "relearn", ["正在经历一些变化", "出门走走，换个环境", ["多一点勇气和行动力", "多一点属于自己的时间"],
+                                               "早上", "多听我说，不急着给建议", "每周一次"])
+        self.assertEqual(outs[1]["reply"], "听起来最近有些变化。如果你想聊，我愿意听。")
+        self.assertNotIn("reply", outs[2])
+        self.assertEqual(outs[3]["reply"], "好呀，你想要的这些，我们可以慢慢聊。")
+        rv = outs[-1]["review"]
+        shown = {it["key"]: it["text"] for it in rv["items"]}
+        self.assertEqual(shown["more"], "勇气和行动力、属于自己的时间")
+        self.assertEqual(shown["chat"], "多听你说，不急着给建议")
+        self.assertEqual(rv["extra"]["q"], "还有什么想让我知道的吗？")
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertEqual(len(boot["messages"]), before)                      # 答题不进对话
+        self.assertFalse(any(m["source"] == "scene:relearn" for m in boot["memories"]))
+        self.fake.json_out = {"reply": "最近在变，也想多一点勇气。以后我多听你说，不急着给建议。",
+                              "good": ["今天吃到了超好吃的寿司"], "meme": [], "memories": [{"text": "喜欢吃寿司", "kind": "preference"}]}
+        items = [{"key": k, "text": t} for k, t in shown.items() if k != "remind"]   # 提醒频率没勾
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": items, "extra": "今天吃到了超好吃的寿司，我真的好爱寿司"})
+        self.assertEqual(s, 200, out)
+        self.assertEqual(out["reply"], self.fake.json_out["reply"])
+        sent = self.fake.seen_json[-1][1]["content"]
+        self.assertIn("希望我这样陪你：多听你说，不急着给建议", sent)
+        self.assertNotIn("每周一次", sent)
+        p = out["state"]["profile"]
+        self.assertEqual((p["chat_style"], p["energy_time"], p["remind_pref"]), ("多听你说，不急着给建议", "早上", ""))
+        mems = {m["text"]: m for m in out["state"]["memories"]}
+        life = next(t for t in mems if "最近的生活：正在经历一些变化" in t)
+        self.assertEqual(mems[life]["kind"], "event")
+        self.assertIn("有空的时候，最近更想：出门走走，换个环境", mems)
+        self.assertIn("最近希望生活里多一点：勇气和行动力、属于自己的时间", mems)
+        self.assertEqual(mems["喜欢吃寿司"]["source"], "scene:relearn")
+        self.assertEqual([r["text"] for r in out["state"]["records"] if r["type"] == "good"], ["今天吃到了超好吃的寿司"])
+        self.assertEqual(out["state"]["messages"][-1]["content"], out["reply"])
+        # 小光以后按这个陪：聊天时的系统提示里有陪伴方式和有精神的时候
+        self.fake.turns = [[("text", "嗯。")]]
+        c.sse("今天有点乱")
+        sys_prompt = self.fake.seen[-1][0]["content"]
+        self.assertIn("聊天时 TA 希望你：多听 TA 说，先接住，不急着给建议", sys_prompt)
+        self.assertIn("一天里比较有精神的时候：早上", sys_prompt)
+        # 再做一次：近况更新上一次那条，不越堆越多，旧说法在修订记录里
+        self.fake.json_out = None
+        rid, outs = self._scene(c, "relearn", ["最近想慢下来，休息一下", "（跳过）", "（跳过）", "（跳过）", "（跳过）", "暂时不需要提醒"])
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": [{"key": "life", "text": "最近想慢下来，休息一下"},
+                                                                          {"key": "remind", "text": "暂时不需要提醒"}]})
+        self.assertEqual(s, 200, out)
+        lives = [m for m in out["state"]["memories"] if "最近的生活：" in m["text"]]
+        self.assertEqual(len(lives), 1)
+        self.assertIn("最近想慢下来", lives[0]["text"])
+        self.assertTrue(any("正在经历一些变化" in (r["old_text"] or "") for r in out["state"]["revisions"]))
+        self.assertTrue(out["reply"])                                        # 模型不在：固定的一句
+        self.assertEqual(out["state"]["prefs"]["remind_pref"], "暂时不需要提醒")
+
+    def test_relearn_back_keeps_nothing(self):
+        c, uid = self.onboarded("relearn_back")
+        _, boot = c.req("GET", "/api/bootstrap")
+        n_msgs, n_mems = len(boot["messages"]), len(boot["memories"])
+        rid, outs = self._scene(c, "relearn", ["忙忙碌碌，有很多事情要处理", "找朋友聊天或一起玩", "（跳过）", "晚上",
+                                               "给我一些鼓励和信心", "每天"])
+        self.assertGreater(outs[-1]["xp"]["amount"], 0)                      # 练习经验照给
+        self.assertEqual(c.req("POST", "/api/scene/discard", {"run_id": rid})[0], 200)
+        with Store(uid) as st:
+            self.assertEqual(st.get_scene(rid)["answers"], [])              # 回答清掉了
+        self.assertEqual(c.req("POST", "/api/scene/save", {"run_id": rid, "items": [{"key": "chat", "text": "x"}]})[0], 400)
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertEqual((len(boot["messages"]), len(boot["memories"]), boot["profile"]["chat_style"]), (n_msgs, n_mems, ""))
+        # 中途关掉也一样
+        _, d = c.req("POST", "/api/scene/start", {"scene": "relearn"})
+        c.req("POST", "/api/scene/answer", {"run_id": d["run"]["id"], "text": "正在经历一些变化"})
+        c.req("POST", "/api/scene/cancel")
+        with Store(uid) as st:
+            self.assertEqual(st.get_scene(d["run"]["id"])["answers"], [])
+        # 模型不在时，想让小光知道的话先原样记成一条
+        rid, outs = self._scene(c, "relearn", ["（跳过）"] * 6)
+        self.assertEqual(outs[-1]["review"]["items"], [])
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": [], "extra": "最近在学吉他"})
+        self.assertEqual(s, 200, out)
+        self.assertIn("想让小光知道：最近在学吉他", [m["text"] for m in out["state"]["memories"]])
+        self.assertEqual(c.req("POST", "/api/scene/save", {"run_id": rid, "items": []})[0], 400)
+
+    def test_companion_prefs_editable_in_settings(self):
+        c, _ = self.onboarded("prefs")
+        s, d = c.req("POST", "/api/profile", {"chat_style": "给你一些鼓励和信心", "remind_pref": "每周几次", "energy_time": "晚上"})
+        self.assertEqual(s, 200, d)
+        self.assertEqual((d["prefs"]["chat_style"], d["prefs"]["remind_pref"], d["prefs"]["energy_time"]),
+                         ("给你一些鼓励和信心", "每周几次", "晚上"))
+        self.assertIn("多听你说，不急着给建议", d["prefs"]["options"]["chat_style"])
+        _, d = c.req("POST", "/api/profile", {"remind_pref": ""})            # 再点一下就是不设
+        self.assertEqual(d["prefs"]["remind_pref"], "")
+
+    def test_lazy_day_never_resets_progress(self):
+        c, _ = self.onboarded("lazy")
+        c.req("POST", "/api/record", {"type": "good", "text": "早睡了"})
+        _, before = c.req("GET", "/api/bootstrap")
+        c.req("POST", "/api/record", {"type": "rest", "text": "今天想休息"})
+        _, after = c.req("GET", "/api/bootstrap")
+        self.assertEqual(after["counts"]["good"], before["counts"]["good"])
+        self.assertEqual(after["counts"]["rest"], 1)
+        self.assertEqual(after["growth"]["total"], before["growth"]["total"])
+
+    def test_step_done_gives_xp(self):
+        c, _ = self.onboarded("xp")
+        c.req("POST", "/api/step", {"action": "add", "title": "十一点前放下手机"})
+        _, d = c.req("GET", "/api/bootstrap")
+        sid = [s for s in d["steps"] if s["status"] == "todo"][0]["id"]
+        s, d2 = c.req("POST", "/api/step", {"action": "done", "id": sid})
+        self.assertEqual(s, 200)
+        self.assertEqual(d2["xp"]["amount"], 10)
+        self.assertEqual(d2["growth"]["today"]["by_source"]["action"], 10)
+        # 金币：小步 10 + 第一份建材 40 + 每日任务「完成 1 个小步」10；经验：小步 10 + 每日任务 5
+        self.assertEqual((d2["xp"]["coin_event"], d2["xp"]["first_gift"], d2["xp"]["coins"]), (10, 40, 60))
+        self.assertEqual((d2["xp"]["amount"], d2["xp"]["amount_total"]), (10, 15))
+        self.assertEqual(d2["growth"]["coins"], 60)
+        self.assertGreaterEqual(d2["growth"]["coins"], d2["town"]["catalog"][0]["price"])   # 够盖第一栋小木屋
+
+    def test_memory_confirm_edit_forget(self):
+        c, uid = self.onboarded("mem")
+        with Store(uid) as st:
+            g = st.add_memory("可能更怕说错而不是不会说", "insight", "chat", "guess")
+        c.req("POST", "/api/memory", {"action": "confirm", "id": g["id"]})
+        _, d = c.req("GET", "/api/bootstrap")
+        m = next(x for x in d["memories"] if x["id"] == g["id"])
+        self.assertEqual((m["status"], m["source"]), ("active", "confirmed"))
+        c.req("POST", "/api/memory", {"action": "edit", "id": g["id"], "text": "更怕说错"})
+        c.req("POST", "/api/memory", {"action": "forget", "id": g["id"]})
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertNotIn(g["id"], [x["id"] for x in d["memories"]])
+        with Store(uid) as st:  # forgotten means gone from the index too
+            self.assertEqual(st.search("说错"), [])
+
+    # ---- retrieval -------------------------------------------------------------
+    def test_retrieval_bigram_and_status(self):
+        c, uid = self.onboarded("rag")
+        with Store(uid) as st:
+            st.add_memory("和熟悉的朋友一起练口语时不紧张", "insight")
+            st.add_memory("喜欢在图书馆三楼靠窗的位置", "preference")
+            st.add_memory("可能害怕被评价", "insight", status="guess")
+            hits = st.search("口语练习好紧张")
+            self.assertEqual(hits[0]["text"], "和熟悉的朋友一起练口语时不紧张")
+            self.assertNotIn("可能害怕被评价", [h["text"] for h in st.search("害怕评价")])
+            self.assertIn("可能害怕被评价", [h["text"] for h in st.search("害怕评价", include_guess=True)])
+            self.assertEqual(st.search("完全无关的天文学"), [])
+
+    # ---- agent loop ------------------------------------------------------------
+    def test_chat_streams_and_runs_tools(self):
+        c, uid = self.onboarded("agent")
+        with Store(uid) as st:
+            st.add_memory("晚上十一点后容易刷手机停不下来", "event")
+        self.fake.turns = [
+            [("tool_calls", [{"id": "c1", "name": "log_good_news", "arguments": json.dumps({"text": "今天十一点就睡了"})},
+                             {"id": "c2", "name": "set_mood", "arguments": '{"mood":"happy"}'}])],
+            [("text", "太好了，"), ("text", "这条我收下了。")],
+        ]
+        s, ev = c.sse("今天十一点就睡了！刷手机的习惯好像好一点")
+        self.assertEqual(s, 200)
+        names = [e for e, _ in ev]
+        self.assertIn("context", names)
+        self.assertIn("tool", names)
+        self.assertEqual("".join(d["text"] for e, d in ev if e == "delta"), "太好了，这条我收下了。")
+        ctx = next(d for e, d in ev if e == "context")
+        self.assertIn("晚上十一点后容易刷手机停不下来", [m["text"] for m in ctx["memories"]])
+        self.assertIn("10", [d["id"] for e, d in ev if e == "mood"])
+        sys_prompt = " ".join(m["content"] for m in self.fake.seen[0] if m["role"] == "system")
+        self.assertIn("健康作息", sys_prompt)
+        self.assertIn("别说教", sys_prompt)
+        self.assertIn("晚上十一点后容易刷手机", sys_prompt)
+        tool_msg = self.fake.seen[1][-1]
+        self.assertEqual(tool_msg["role"], "tool")
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertIn("今天十一点就睡了", [r["text"] for r in d["records"]])
+        last = d["messages"][-1]
+        self.assertEqual((last["role"], last["content"]), ("assistant", "太好了，这条我收下了。"))
+        self.assertEqual(last["meta"]["tools"][0]["name"], "log_good_news")
+
+    def test_complete_step_by_title(self):
+        c, uid = self.onboarded("agent_step")
+        c.req("POST", "/api/step", {"action": "add", "title": "睡前把手机放在客厅"})
+        self.fake.turns = [
+            [("tool_calls", [{"id": "c1", "name": "complete_step", "arguments": '{"title":"手机放在客厅"}'}])],
+            [("text", "做到了。")],
+        ]
+        _, ev = c.sse("昨晚我把手机放客厅了")
+        tool = next(d for e, d in ev if e == "tool")
+        self.assertTrue(tool["result"]["ok"], tool)
+        self.assertIn("33", [d["id"] for e, d in ev if e == "mood"])
+
+    def test_llm_failure_degrades_gracefully(self):
+        c, _ = self.onboarded("agent_fail")
+
+        def boom(*a, **k):
+            raise llm.LLMError("HTTP 502")
+            yield  # pragma: no cover
+
+        orig, llm.stream_chat = llm.stream_chat, boom
+        try:
+            s, ev = c.sse("你好")
+        finally:
+            llm.stream_chat = orig
+        self.assertEqual(s, 200)
+        self.assertIn("error", [e for e, _ in ev])
+        self.assertIn("done", [e for e, _ in ev])
+
+    def test_memory_write_pipeline(self):
+        from core import memory
+        c, uid = self.onboarded("pipe")
+        with Store(uid) as st:
+            old = st.add_memory("每天晚上一点才睡", "event")
+            self.fake.json_out = {"ops": [
+                {"op": "UPDATE", "id": old["id"], "text": "最近能在十二点前睡", "kind": "event", "source": "said"},
+                {"op": "ADD", "text": "早上醒来会先喝水", "kind": "preference", "source": "said"},
+                {"op": "ADD", "text": "可能在压力大时更晚睡", "kind": "insight", "source": "guess"},
+                {"op": "ADD", "text": "第二条猜测应被丢弃", "kind": "insight", "source": "guess"},
+                {"op": "DELETE", "id": "m_not_shown_to_model"},
+            ]}
+            applied = memory.extract_and_apply(st, "这周我都在十二点前睡了，早上起来先喝水", "真好")
+            self.assertEqual([a["op"] for a in applied], ["UPDATE", "ADD", "ADD"])
+            self.assertEqual(st.get_memory(old["id"])["text"], "最近能在十二点前睡")
+            texts = {m["text"]: m["status"] for m in st.memories()}
+            self.assertEqual(texts["可能在压力大时更晚睡"], "guess")
+            self.assertNotIn("第二条猜测应被丢弃", texts)
+
+
+    # ---- growth: caps, branching, one-shot celebrations -------------------------
+    def test_xp_caps_and_dedup(self):
+        c, uid = self.onboarded("caps")
+        for i in range(5):
+            c.req("POST", "/api/step", {"action": "add", "title": f"第{i}步"})
+        _, d = c.req("GET", "/api/bootstrap")
+        got = []
+        for s_ in [x for x in d["steps"] if x["status"] == "todo"]:
+            _, out = c.req("POST", "/api/step", {"action": "done", "id": s_["id"]})
+            got.append(out["xp"]["amount"])
+        self.assertEqual(got, [10, 10, 10, 0, 0])            # 行动每天 30 封顶
+        goods = [c.req("POST", "/api/record", {"type": "good", "text": f"好事{i}"})[1]["xp"]["amount"] for i in range(6)]
+        self.assertEqual(goods, [6, 6, 6, 6, 6, 0])          # 好消息每天 30 封顶
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["growth"]["today"]["events"], 60)          # 真实的事；每日任务的经验另算
+        self.assertLessEqual(d["growth"]["today"]["events"], 120)
+        with Store(uid) as st:                                # 同一件事不重复计分
+            from core import growth
+            r = growth.award(st, "good", ref="rec:same")
+            r2 = growth.award(st, "good", ref="rec:same")
+            self.assertTrue(r["capped"] or r["amount"] >= 0)
+            self.assertTrue(r2.get("duplicate") or r2.get("capped"))
+
+    def test_old_account_moves_into_a_town(self):
+        """老账号：经验和等级一分不少，过去的经验按一半换成金币，宠物 / 徽章的记忆收起来，升级只庆祝一次。"""
+        from core import growth
+        c, uid = self.onboarded("migrate")
+        with Store(uid) as st:   # 假装这是升级前的老账号：300 经验，小光还记着小芽
+            st.c.execute("DELETE FROM coin")
+            st.c.execute("DELETE FROM town_item")
+            st.set_profile({"town_v": 0, "town_seen_level": 0, "town_welcome": "",
+                            "notebook": {"text": "喜欢早上跑步。\n给宠物小芽起名叫豆豆。", "by": "digest"}})
+            for i in range(30):
+                st.c.execute("INSERT INTO xp(id, day, source, amount, ref, note, created_at) VALUES(?,?,?,?,?,?,?)",
+                             (f"x{i}", f"2026-01-{i % 28 + 1:02d}", "good" if i % 3 else "action", 10, f"seed:{i}", "",
+                              f"2026-01-{i % 28 + 1:02d}T10:00:00+08:00"))
+            pet = st.add_memory("TA 的宠物小芽快分化了", "event")
+            keep = st.add_memory("TA 喜欢早上跑步", "preference")
+        _, d = c.req("GET", "/api/bootstrap")
+        g, t = d["growth"], d["town"]
+        self.assertEqual((g["total"], g["level"]["lv"]), (300, 8))     # 旧算法 300 经验是 Lv8，换曲线后保底
+        self.assertEqual(g["coins"], 150)
+        self.assertEqual(t["size"], 7)
+        self.assertEqual(t["welcome"]["kind"], "migrated")
+        self.assertIsNone(g["level_up"])                               # 老账号已经到的等级不补庆祝
+        self.assertEqual({i["kind"] for i in t["items"]}, {"sign", "road"})
+        with Store(uid) as st:
+            self.assertEqual(st.get_memory(pet["id"])["status"], "archived")
+            self.assertEqual(st.get_memory(keep["id"])["status"], "active")
+            self.assertNotIn("小芽", st.profile()["notebook"]["text"])
+            self.assertIn("跑步", st.profile()["notebook"]["text"])
+        _, d = c.req("GET", "/api/bootstrap")                         # 只迁移一次
+        self.assertEqual(d["growth"]["coins"], 150)
+        c.req("POST", "/api/town", {"action": "welcome_seen"})
+        _, out = c.req("POST", "/api/record", {"type": "good", "text": "跨过 320 的那一件"})
+        self.assertEqual(out["xp"]["first_gift"], 0)                  # 换过金币的老账号不再送第一份建材
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["growth"]["level"]["lv"], 8)                 # 曲线上还不到 Lv9（740），保底不掉
+        self.assertEqual(d["growth"]["level"]["to_next"], growth.xp_for_level(9) - d["growth"]["total"])
+        with Store(uid) as st:   # 过去的几天又攒了一些，跨过 Lv9
+            for i in range(45):
+                st.c.execute("INSERT INTO xp(id, day, source, amount, ref, note, created_at) VALUES(?,?,?,?,?,?,?)",
+                             (f"y{i}", "2026-02-01", "action", 10, f"seed:y{i}", "", "2026-02-01T10:00:00+08:00"))
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["growth"]["level"]["lv"], 9)
+        self.assertEqual(d["growth"]["level_up"]["to"], 9)
+        self.assertIn("小图书馆", [i["name"] for i in d["growth"]["level_up"]["unlocks"]])
+        self.assertIsNone(d["town"]["welcome"])
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertIsNone(d["growth"]["level_up"])                     # 只报一次
+
+    def test_town_buy_place_move_store(self):
+        c, uid = self.onboarded("town")
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["growth"]["coins"], 0)
+        s, err = c.req("POST", "/api/town", {"action": "buy", "kind": "cottage", "x": 2, "y": 2, "nonce": "first-try"})
+        self.assertEqual(s, 400)                                       # 还没做事，没有金币
+        c.req("POST", "/api/step", {"action": "add", "title": "整理书桌"})
+        sid = next(x for x in c.req("GET", "/api/bootstrap")[1]["steps"] if x["status"] == "todo")["id"]
+        _, d = c.req("POST", "/api/step", {"action": "done", "id": sid})
+        self.assertEqual(d["growth"]["coins"], 60)
+        buy = {"action": "buy", "kind": "cottage", "x": 2, "y": 2, "nonce": "click-0001"}
+        s, d = c.req("POST", "/api/town", buy)
+        self.assertEqual(s, 200, d)
+        self.assertEqual(d["built"]["name"], "小木屋")
+        self.assertIn("整理书桌", d["built"]["story"]["text"])        # 记下那之前做成的事
+        self.assertEqual(d["growth"]["coins"], 20)
+        s, d = c.req("POST", "/api/town", buy)                        # 同一次点击重发：不再扣钱
+        self.assertTrue(d["built"]["again"])
+        self.assertEqual(d["growth"]["coins"], 20)
+        self.assertEqual(sum(1 for i in d["town"]["items"] if i["kind"] == "cottage"), 1)
+        for bad, why in ((dict(buy, nonce="click-0002"), "这里已经有东西了"),
+                         (dict(buy, nonce="click-0003", x=1, y=1), "金币还差"),
+                         (dict(buy, nonce="click-0004", kind="house", x=1, y=1), "Lv3"),
+                         (dict(buy, nonce="click-0005", kind="road", x=9, y=9), "还没开出来")):
+            s, err = c.req("POST", "/api/town", bad)
+            self.assertEqual(s, 400, bad)
+            self.assertIn(why, err["error"])
+        self.assertEqual(c.req("GET", "/api/bootstrap")[1]["growth"]["coins"], 20)   # 失败的不扣钱
+        hid = next(i for i in d["town"]["items"] if i["kind"] == "cottage")["id"]
+        _, d = c.req("POST", "/api/town", {"action": "move", "id": hid, "x": 4, "y": 1})
+        self.assertEqual((d["moved"]["x"], d["moved"]["y"]), (4, 1))
+        self.assertEqual(c.req("POST", "/api/town", {"action": "move", "id": hid, "x": 0, "y": 0})[0], 400)   # 路牌在那儿
+        _, d = c.req("POST", "/api/town", {"action": "store", "id": hid})
+        self.assertIn(hid, [i["id"] for i in d["town"]["warehouse"]])
+        self.assertNotIn(hid, [i["id"] for i in d["town"]["items"]])
+        _, d = c.req("POST", "/api/town", {"action": "place", "id": hid, "x": 3, "y": 3})
+        self.assertIn(hid, [i["id"] for i in d["town"]["items"]])
+        self.assertEqual(d["growth"]["coins"], 20)                    # 挪、收、放都不花钱
+        _, d = c.req("POST", "/api/town", {"action": "rename", "name": "晴 天 镇"})
+        self.assertEqual(d["town"]["name"], "晴天镇")
+        ledger = c.req("GET", "/api/bootstrap")[1]["growth"]["ledger"]
+        self.assertIn(("建造：小木屋", -40), [(e["note"], e["coins"]) for e in ledger])
+        self.assertIn(("完成：整理书桌", 10, 10), [(e["note"], e["xp"], e["coins"]) for e in ledger])   # 同一件事一行
+
+    def test_daily_tasks_pay_once_and_chat_gives_no_coins(self):
+        from core.util import day_key
+        c, uid = self.onboarded("daily")
+        with Store(uid) as st:   # 今天的四件：固定的行动 + 小确幸 + 做一次练习 + 记两件好事
+            st.set_profile({"daily_pick": {"day": day_key(), "ids": ["act", "good", "practice", "record2"], "scene": "gratitude"}})
+        self.fake.turns = [[("text", "嗨")]]
+        c.sse("在吗")                                                 # 每天第一次来聊：只有经验
+        _, d = c.req("GET", "/api/bootstrap")
+        dl = d["growth"]["daily"]
+        self.assertEqual((d["growth"]["today"]["by_source"]["checkin"], d["growth"]["coins"]), (8, 0))
+        self.assertEqual([t["id"] for t in dl["tasks"]], ["act", "good", "practice", "record2"])
+        self.assertEqual(dl["max"], {"xp": 5 + 5 + 8 + 10 + 10, "coins": 10 + 8 + 12 + 18 + 20})
+        self.assertFalse(any(t["done"] for t in dl["tasks"]))
+        _, out = c.req("POST", "/api/record", {"type": "good", "text": "晒到了太阳"})
+        self.assertEqual([x["id"] for x in out["xp"]["daily"]], ["good"])
+        self.assertEqual((out["xp"]["amount"], out["xp"]["amount_total"]), (6, 11))   # 好消息 6 + 每日任务 5
+        _, out = c.req("POST", "/api/record", {"type": "good", "text": "又一件"})
+        self.assertEqual([x["id"] for x in out["xp"]["daily"]], ["record2"])            # 第二件：记两件好事
+        _, out = c.req("POST", "/api/record", {"type": "good", "text": "第三件"})
+        self.assertEqual(out["xp"]["daily"], [])                       # 一天只发一次
+        from core import scenes
+        _, d = c.req("POST", "/api/scene/start", {"scene": "gratitude"})
+        for i in range(len(scenes.SCENES["gratitude"]["steps"])):
+            _, sc = c.req("POST", "/api/scene/answer", {"run_id": d["run"]["id"], "text": f"第{i}件"})
+        self.assertEqual([x["id"] for x in sc["xp"]["daily"]], ["practice"])
+        # 偷懒：行动那项先暂停，另外三件做到了就拿全勤
+        _, d = c.req("POST", "/api/record", {"type": "rest", "text": "今天偷个懒"})
+        act = next(t for t in d["growth"]["daily"]["tasks"] if t["id"] == "act")
+        self.assertTrue(act["rest"] and not act["done"])
+        self.assertTrue(d["growth"]["daily"]["bonus"]["paid"])
+        coins, xp = d["growth"]["coins"], d["growth"]["total"]
+        for _ in range(2):
+            _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual((d["growth"]["coins"], d["growth"]["total"]), (coins, xp))   # 刷新不会多发
+        self.assertEqual(d["growth"]["daily"]["got"], {"xp": 5 + 8 + 10 + 10, "coins": 8 + 12 + 18 + 20})
+        with Store(uid) as st:
+            n = st.c.execute("SELECT COUNT(*) FROM coin WHERE kind='daily'").fetchone()[0]
+            self.assertEqual(n, 4)                                     # 小确幸 + 两件好事 + 练习 + 全勤
+            self.assertIn("今天的每日任务四件都做到了", [a["text"] for a in st.activity(10)])
+
+    def test_daily_tasks_rotate_and_fit_the_person(self):
+        from core import growth
+        from core.util import day_key
+        c, uid = self.onboarded("rotate")
+        with Store(uid) as st:
+            picks = []
+            for day in ("2026-03-01", "2026-03-02", "2026-03-03", "2026-03-04"):
+                p = growth._pick(st, day)
+                self.assertEqual(p["ids"][0], "act")                   # 第一件永远是行动
+                self.assertEqual([growth.DAILY[i]["slot"] for i in p["ids"]], list(growth.SLOTS))
+                self.assertNotIn("habit2", p["ids"])                   # 没有两个习惯就不出「两个习惯」
+                self.assertNotIn("wish2", p["ids"])                    # 只有一个愿望
+                picks.append(tuple(p["ids"]))
+                self.assertEqual(growth._pick(st, day), p)             # 同一天再问一遍不变
+            self.assertGreater(len(set(picks)), 1)                     # 每天不一样
+            st.set_profile({"daily_pick": {"day": day_key(), "ids": ["act", "good", "pick", "act3"], "scene": "meditation"}})
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["growth"]["daily"]["pick"], "meditation")   # 点子页的今日推荐就是它
+        self.assertIn("遇见更好的自己", next(t for t in d["growth"]["daily"]["tasks"] if t["id"] == "pick")["label"])
+        from core import scenes
+        _, run = c.req("POST", "/api/scene/start", {"scene": "gratitude"})   # 做别的练习：不算「今天推荐的」
+        for i in range(len(scenes.SCENES["gratitude"]["steps"])):
+            _, sc = c.req("POST", "/api/scene/answer", {"run_id": run["run"]["id"], "text": "好"})
+        self.assertEqual(sc["xp"]["daily"], [])
+        _, run = c.req("POST", "/api/scene/start", {"scene": "meditation"})
+        for i in range(len(scenes.SCENES["meditation"]["steps"])):
+            _, sc = c.req("POST", "/api/scene/answer", {"run_id": run["run"]["id"], "text": "好"})
+        self.assertEqual([x["id"] for x in sc["xp"]["daily"]], ["pick"])
+
+    def test_level_curve_grows_and_never_drops(self):
+        from core import growth
+        self.assertEqual([growth.xp_for_level(l) for l in (1, 2, 3, 5, 10, 20)], [0, 40, 95, 250, 900, 3325])
+        self.assertEqual(growth.level_of(39)["lv"], 1)
+        self.assertEqual(growth.level_of(40)["lv"], 2)
+        lv = growth.level_of(322, floor=9)                             # 老账号保底 Lv9
+        self.assertEqual((lv["lv"], lv["into"], lv["to_next"]), (9, 0, growth.xp_for_level(10) - 322))
+        self.assertEqual(growth.level_of(2000, floor=9)["lv"], 15)      # 曲线追上来以后照常升
+        # 每级最多 500（满额大约三天一级），不会无限涨
+        self.assertEqual(growth.level_cost(31), 490)
+        self.assertEqual([growth.level_cost(n) for n in (32, 50, 200)], [500, 500, 500])
+        self.assertEqual(growth.xp_for_level(60) - growth.xp_for_level(59), 500)
+        self.assertEqual(growth.level_of(growth.xp_for_level(45))["lv"], 45)
+
+    # ---- 小镇：素材库、后台全局改价格和等级、大建筑 ----
+    def admin(self):
+        a = Client(self.port)
+        self.assertEqual(a.req("POST", "/api/admin/login", {"key": "test-admin"})[0], 200)
+        return a
+
+    def test_building_library_and_admin_overrides(self):
+        from core import town
+        lib = town.library()
+        self.assertGreaterEqual(len(lib), 30)
+        self.assertEqual(lib["market"]["size"], [1, 2])
+        s, js, _ = Client(self.port).req("GET", "/js/buildings/all.js", raw=True)
+        self.assertEqual(s, 200)
+        self.assertIn('B["ferris"]', js)
+        self.assertNotIn("export default function", js)                # 每个文件都换成了 B[id] = …
+        c, uid = self.onboarded("lib_town")
+        a = self.admin()
+        self.assertEqual(c.req("GET", "/api/admin/town")[0], 401)       # 用户会话不是后台会话
+        s, cat = a.req("GET", "/api/admin/town")
+        self.assertEqual(s, 200)
+        self.assertTrue(any(i["id"] == "cottage" and i["price"] == 40 for i in cat["items"]))
+        s, _ = a.req("POST", "/api/admin/town", {"items": {"cottage": {"price": 25, "lv": 1}, "bush": {"enabled": False}}})
+        self.assertEqual(s, 200)
+        _, d = c.req("GET", "/api/bootstrap")
+        ids = {x["id"]: x for x in d["town"]["catalog"]}
+        self.assertEqual(ids["cottage"]["price"], 25)
+        self.assertNotIn("bush", ids)                                  # 下架了就不卖
+        c.req("POST", "/api/step", {"action": "add", "title": "第一步"})
+        sid = next(x for x in c.req("GET", "/api/bootstrap")[1]["steps"] if x["status"] == "todo")["id"]
+        _, d = c.req("POST", "/api/step", {"action": "done", "id": sid})
+        coins = d["growth"]["coins"]
+        _, d = c.req("POST", "/api/town", {"action": "buy", "kind": "cottage", "x": 3, "y": 3, "nonce": "cheap-0001"})
+        self.assertEqual(d["growth"]["coins"], coins - 25)            # 按后台改过的价格扣
+        self.assertEqual(c.req("POST", "/api/town", {"action": "buy", "kind": "bush", "x": 1, "y": 3, "nonce": "bush-0001"})[0], 400)
+        for bad in ({"nope": {"price": 1}}, {"cottage": {"price": -1}}, {"cottage": {"lv": "x"}}):
+            self.assertEqual(a.req("POST", "/api/admin/town", {"items": bad})[0], 400, bad)
+        _, cat = a.req("POST", "/api/admin/town", {"items": {"cottage": None, "bush": None}})   # 恢复默认
+        self.assertEqual(next(i for i in cat["items"] if i["id"] == "cottage")["price"], 40)
+        self.assertEqual(c.req("GET", "/api/bootstrap")[1]["town"]["catalog"][0]["price"], 40)
+
+    def test_admin_adjusts_xp_and_coins_with_a_record(self):
+        c, uid = self.onboarded("adj_user")
+        a = self.admin()
+        self.assertEqual(a.req("POST", "/api/admin/user/adjust", {"id": uid, "coins": 50})[0], 400)            # 要写原因
+        self.assertEqual(a.req("POST", "/api/admin/user/adjust", {"id": uid, "coins": -1, "reason": "x"})[0], 400)  # 不能扣到负数
+        s, g = a.req("POST", "/api/admin/user/adjust", {"id": uid, "xp": 120, "coins": 300, "reason": "活动奖励"})
+        self.assertEqual(s, 200, g)
+        self.assertEqual((g["xp"], g["coins"]), (120, 300))
+        self.assertEqual(g["adjustments"][0]["reason"], "活动奖励")
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual((d["growth"]["total"], d["growth"]["coins"]), (120, 300))
+        self.assertIn(("后台调整：活动奖励", 120, 300), [(e["note"], e["xp"], e["coins"]) for e in d["growth"]["ledger"]])
+        self.assertEqual(d["growth"]["coins_today"], 0)                # 后台给的不算「今天挣的」
+        s, g = a.req("POST", "/api/admin/user/adjust", {"id": uid, "coins": -100, "reason": "多给了"})
+        self.assertEqual(g["coins"], 200)
+        row = next(u for u in a.req("GET", "/api/admin/users")[1]["users"] if u["id"] == uid)
+        self.assertEqual(row["coins"], 200)
+        self.assertGreaterEqual(len(a.req("GET", "/api/admin/log")[1]["entries"]), 2)
+
+    def test_big_buildings_take_several_cells_and_turn(self):
+        c, uid = self.onboarded("big_town")
+        a = self.admin()
+        from core import growth
+        a.req("POST", "/api/admin/user/adjust", {"id": uid, "xp": growth.xp_for_level(16), "coins": 2000, "reason": "测试"})
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["town"]["size"], 9)
+        buy = lambda kind, x, y, n, rot=0: c.req("POST", "/api/town", {"action": "buy", "kind": kind, "x": x, "y": y, "rot": rot, "nonce": n})
+        s, d = buy("market", 4, 4, "mk-000001")                        # 1×2：占 (4,4)、(4,5)
+        self.assertEqual(s, 200, d)
+        mid = d["built"]["id"]
+        self.assertEqual(buy("tree", 4, 5, "tr-000001")[0], 400)        # 第二格也被占了
+        self.assertEqual(buy("market", 8, 8, "mk-000002")[0], 400)      # 伸出地外
+        self.assertEqual(buy("market", 4, 3, "mk-000003")[0], 400)      # 和上一座重叠
+        s, d = c.req("POST", "/api/town", {"action": "move", "id": mid, "x": 5, "y": 1, "rot": 1})   # 转过来：占 (5,1)、(6,1)
+        self.assertEqual((s, d["moved"]["rot"]), (200, 1))
+        self.assertEqual(buy("tree", 6, 1, "tr-000002")[0], 400)
+        self.assertEqual(buy("tree", 4, 5, "tr-000003")[0], 200)        # 原来的地方空出来了
+        self.assertEqual(buy("park", 0, 6, "pk-000001")[0], 400)        # 中心花园要 Lv22
+
+    def test_last_step_of_a_wish_says_so(self):
+        c, uid = self.onboarded("cleared")
+        _, d = c.req("GET", "/api/bootstrap")
+        wid = d["journey"]["current"]
+        for t in ("第一步", "第二步"):
+            c.req("POST", "/api/step", {"action": "add", "title": t, "wish_id": wid})
+        todo = [x for x in c.req("GET", "/api/bootstrap")[1]["steps"] if x["status"] == "todo" and x["wish_id"] == wid]
+        _, out = c.req("POST", "/api/step", {"action": "done", "id": todo[0]["id"]})
+        self.assertIsNone(out["cleared"])                              # 还有一步
+        _, out = c.req("POST", "/api/step", {"action": "done", "id": todo[1]["id"]})
+        self.assertEqual((out["cleared"]["wish_id"], out["cleared"]["done"]), (wid, 2))
+        from core import nudges
+        with Store(uid) as st:
+            self.assertIn("steps_cleared", [x["kind"] for x in nudges.attention(st)])
+
+    # ---- nightly digest ------------------------------------------------------------
+    def test_digest_protects_explicit_memory(self):
+        from core import digest
+        c, uid = self.onboarded("digest")
+        with Store(uid) as st:
+            sushi = st.add_memory("喜欢吃寿司", "preference", "chat:explicit")
+            loose = st.add_memory("周末常去图书馆", "event", "chat")
+            st.add_msg("user", "今天三天没去健身了，有点烦")
+            self.fake.json_out = {"summary": "你说三天没去健身。", "highlights": ["有点烦"], "ops": [
+                {"op": "UPDATE", "id": sushi["id"], "text": "不喜欢寿司", "kind": "preference", "source": "said"},
+                {"op": "DELETE", "id": sushi["id"]},
+                {"op": "UPDATE", "id": loose["id"], "text": "周末常去图书馆自习", "kind": "event", "source": "said"},
+                {"op": "ADD", "text": "连续三天没去健身", "kind": "event", "source": "said"},
+                {"op": "ADD", "text": "可能压力大", "kind": "insight", "source": "guess"},
+                {"op": "ADD", "text": "第二条猜测", "kind": "insight", "source": "guess"},
+            ]}
+            out = digest.run(st)
+            self.assertEqual(st.get_memory(sushi["id"])["text"], "喜欢吃寿司")     # 没有原话依据，不许动
+            self.assertEqual(st.get_memory(loose["id"])["text"], "周末常去图书馆自习")
+            self.assertEqual(out["stats"]["guesses"], 1)
+            self.assertEqual(out["stats"]["rejected"], 3)
+            self.assertEqual(st.digests(1)[0]["summary"], "你说三天没去健身。")
+            # 用户当天明确更正了，才允许改，并留下依据
+            st.add_msg("user", "我现在不喜欢寿司了")
+            self.fake.json_out = {"summary": "x", "ops": [{"op": "UPDATE", "id": sushi["id"], "text": "现在不喜欢寿司",
+                                                          "kind": "preference", "evidence": "我现在不喜欢寿司了"}]}
+            digest.run(st)
+            self.assertEqual(st.get_memory(sushi["id"])["text"], "现在不喜欢寿司")
+            rev = st.revisions(5)[0]
+            self.assertEqual((rev["old_text"], rev["evidence"]), ("喜欢吃寿司", "我现在不喜欢寿司了"))
+        # 模型不可用：只写模板小结，不动记忆
+        self.fake.json_out = None
+        s, d = c.req("POST", "/api/memory/digest", {})
+        self.assertEqual(s, 200)
+        self.assertFalse(d["digest"]["by_model"])
+        self.assertEqual(d["digest"]["stats"]["added"], 0)
+
+    def test_remember_needs_explicit_request(self):
+        c, uid = self.onboarded("remember_guard")
+        self.fake.turns = [
+            [("tool_calls", [{"id": "c1", "name": "remember", "arguments": json.dumps({"text": "三天没健身", "kind": "event"})}])],
+            [("text", "嗯，我在。")],
+            [("tool_calls", [{"id": "c2", "name": "remember", "arguments": json.dumps({"text": "喜欢吃寿司", "kind": "preference"})}])],
+            [("text", "记住了。")],
+        ]
+        _, ev = c.sse("我三天没健身了")
+        self.assertNotIn("remember", [d["name"] for e, d in ev if e == "tool"])
+        _, ev = c.sse("帮我记住我喜欢吃寿司")
+        self.assertIn("remember", [d["name"] for e, d in ev if e == "tool"])
+        with Store(uid) as st:
+            texts = [m["text"] for m in st.memories()]
+        self.assertIn("喜欢吃寿司", texts)
+        self.assertNotIn("三天没健身", texts)
+
+    def test_theme_and_agent_color(self):
+        c, _ = self.onboarded("theme")
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["profile"]["theme"], "forest")              # 建档没选时用默认
+        s, d = c.req("POST", "/api/profile", {"theme": "peach", "agent_hue": "#4fd1a5"})
+        self.assertEqual(s, 200)
+        self.assertEqual((d["profile"]["theme"], d["profile"]["agent_hue"]), ("peach", "#4fd1a5"))
+        self.assertEqual(c.req("POST", "/api/profile", {"theme": "neon"})[0], 400)
+        self.assertEqual(c.req("POST", "/api/profile", {"agent_hue": "#123456"})[0], 400)
+
+    def test_agent_look(self):
+        c, _ = self.onboarded("look")
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["profile"]["agent_avatar_id"], "cloud.moon.jelly")   # 建档没选时是云朵 · 月白
+        s, d = c.req("POST", "/api/profile", {"agent_avatar_id": "cat.lilac.liquid"})
+        self.assertEqual((s, d["profile"]["agent_avatar_id"]), (200, "cat.lilac.liquid"))
+        for bad in ("soft", "cat.lilac", "cat.neon.jelly", "dragon.moon.jelly", "cat.moon.metal", ""):
+            self.assertEqual(c.req("POST", "/api/profile", {"agent_avatar_id": bad})[0], 400, bad)
+        # 下架的形状：换成最接近的保留形状，颜色和质感不变
+        for old, new in (("hex.origin.jelly", "cube.origin.jelly"), ("heart.sakura.liquid", "flower.sakura.liquid"), ("gummy.sky.jelly", "mochi.sky.jelly")):
+            s, d = c.req("POST", "/api/profile", {"agent_avatar_id": old})
+            self.assertEqual((s, d["profile"]["agent_avatar_id"]), (200, new), old)
+        c2, _ = self.member("look2")
+        s, d = c2.req("POST", "/api/onboard", {"answers": {**ONBOARD, "agent_avatar_id": "star.night.jelly"}})
+        self.assertEqual((s, d["profile"]["agent_avatar_id"]), (200, "star.night.jelly"))
+        c3, _ = self.member("look3")
+        s, d = c3.req("POST", "/api/onboard", {"answers": {**ONBOARD, "agent_avatar_id": "drop.sea.liquid"}})
+        self.assertEqual((s, d["profile"]["agent_avatar_id"]), (200, "mochi.sea.liquid"))
+        keys = [q["key"] for q in c2.req("GET", "/api/bootstrap")[1]["onboarding"]]
+        self.assertNotIn("agent_hue", keys)
+        self.assertIn("agent_avatar_id", keys)
+
+    def test_correct_memory_tool(self):
+        c, uid = self.onboarded("correct")
+        with Store(uid) as st:
+            m = st.add_memory("喜欢吃寿司", "preference", "chat:explicit")
+        self.fake.turns = [
+            [("tool_calls", [{"id": "c1", "name": "correct_memory",
+                              "arguments": json.dumps({"about": "寿司", "new_text": "现在不喜欢寿司了", "quote": "我现在不喜欢寿司了"})}])],
+            [("text", "好，改过来了。")],
+        ]
+        _, ev = c.sse("我现在不喜欢寿司了")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "correct_memory")
+        self.assertTrue(tool["result"]["ok"])
+        with Store(uid) as st:
+            self.assertEqual(st.get_memory(m["id"])["text"], "现在不喜欢寿司了")
+            self.assertEqual(st.revisions(1)[0]["reason"], "user_corrected")
+
+    # ---- proactive & report ----------------------------------------------------
+    def test_proactive_rules(self):
+        from datetime import datetime
+        from core.util import TZ
+        base = {"onboarded": True, "proactive": "normal", "last_chat_at": "2026-10-20T10:00:00+08:00"}
+        at = lambda h: datetime(2026, 10, 22, h, 0, tzinfo=TZ)
+        self.assertTrue(scheduler.should_reach_out(base, False, at(10))[0])
+        self.assertFalse(scheduler.should_reach_out(base, False, at(23))[0])   # quiet
+        self.assertFalse(scheduler.should_reach_out(base, False, at(7))[0])    # quiet
+        self.assertFalse(scheduler.should_reach_out(base, True, at(10))[0])    # unseen pending
+        self.assertFalse(scheduler.should_reach_out({**base, "proactive": "off"}, False, at(10))[0])
+        recent = {**base, "last_chat_at": "2026-10-22T02:00:00+08:00"}
+        self.assertFalse(scheduler.should_reach_out(recent, False, at(9))[0])   # 7h < 8h
+        self.assertTrue(scheduler.should_reach_out(recent, False, at(11))[0])   # 9h ≥ 8h
+        self.assertFalse(scheduler.should_reach_out({**recent, "proactive": "less"}, False, at(15))[0])   # 13h < 24h
+        self.assertTrue(scheduler.should_reach_out({**recent, "proactive": "more"}, False, at(8))[0])     # 6h ≥ 4h
+
+    def test_proactive_demo_delivers_to_inbox_and_thread(self):
+        c, _ = self.onboarded("pro")
+        self.fake.json_out = {"text": "还在靠近「健康作息」吗？"}
+        s, d = c.req("POST", "/api/proactive/now", {})
+        self.assertTrue(d["sent"])
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertEqual(len(boot["inbox"]), 1)
+        self.assertTrue(boot["messages"][-1]["meta"]["proactive"])
+        c.req("POST", "/api/inbox/seen", {})
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertEqual(boot["inbox"], [])
+
+    def test_old_unseen_message_does_not_block_proactive(self):
+        # 之前前端从不标记已读：一条旧的主动消息会永远挡住后面的
+        c, uid = self.onboarded("pro_stuck")
+        self.fake.json_out = {"text": "还在靠近「健康作息」吗？"}
+        c.req("POST", "/api/proactive/now", {})
+        with Store(uid) as st:
+            self.assertTrue(scheduler.waiting_unseen(st))
+            st.set_profile({"last_chat_at": "2999-01-01T00:00:00+08:00"})   # TA 之后又来聊过
+            self.assertFalse(scheduler.waiting_unseen(st))
+        self.fake.turns = [[("text", "嗯，我在。")]]
+        c.sse("我回来啦")                                                      # sending a message marks it seen
+        _, boot = c.req("GET", "/api/bootstrap")
+        self.assertEqual(boot["inbox"], [])
+
+    def test_report_surprise_from_real_data(self):
+        c = Client(self.port)
+        c.req("POST", "/api/auth/guest", {})
+        self.fake.json_out = None  # model unavailable -> template letter
+        s, d = c.req("GET", "/api/report?days=14")
+        self.assertEqual(s, 200)
+        self.assertFalse(d["empty"])
+        self.assertTrue(d["surprise"])
+        self.assertIn(str(d["facts"]["good"]), json.dumps(d["facts"]))
+        self.assertTrue(d["ready"])  # the seeded guest is 15 days in
+        self.assertGreaterEqual(len(d["nodes"]), 2)
+        self.assertTrue(all("sources" in n for n in d["nodes"]))
+        c2, _ = self.onboarded("empty_report")
+        _, d2 = c2.req("GET", "/api/report?days=14")
+        self.assertTrue(d2["empty"])
+        self.assertIsNone(d2["narrative"])
+        self.assertFalse(d2["ready"])
+
+    # ---- 成长轨迹看板 ---------------------------------------------------------
+    def test_journey_board_from_onboarding_and_moment_crud(self):
+        c, uid = self.onboarded("journey")
+        _, d = c.req("GET", "/api/bootstrap")
+        j = d["journey"]
+        self.assertEqual([w["title"] for w in j["wishes"]], ["健康作息"])   # 建档答案直接变成第一张看板
+        self.assertEqual(j["wishes"][0]["category"], "body")
+        wid = j["current"]
+        s, d = c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": "十一点前关了灯", "feeling": "有点不习惯"})
+        self.assertEqual(s, 200, d)
+        mid = d["moment"]["id"]
+        self.assertEqual(d["moment"]["day"], d["journey"]["today"])
+        self.assertGreater(d["xp"]["amount"], 0)
+        # 同一天第二条：仍然是同一天，只是多一条
+        _, d = c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": "午饭后散步十分钟"})
+        self.assertEqual(len({m["day"] for m in d["journey"]["moments"]}), 1)
+        self.assertEqual(len(d["journey"]["moments"]), 2)
+        # 未来的日子、空内容都拒绝
+        today = d["journey"]["today"]
+        from datetime import date, timedelta
+        tomorrow = (date.fromisoformat(today) + timedelta(days=1)).isoformat()
+        self.assertEqual(c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": "x", "day": tomorrow})[0], 400)
+        self.assertEqual(c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": "  "})[0], 400)
+        # 补记以前的日子可以
+        past = (date.fromisoformat(today) - timedelta(days=40)).isoformat()
+        _, d = c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": "第一次早起跑步", "day": past})
+        self.assertIn(past, [m["day"] for m in d["journey"]["moments"]])
+        # 编辑 / 删除
+        _, d = c.req("POST", "/api/moment", {"action": "edit", "id": mid, "feeling": "其实挺舒服"})
+        self.assertEqual(next(m for m in d["journey"]["moments"] if m["id"] == mid)["feeling"], "其实挺舒服")
+        _, d = c.req("POST", "/api/moment", {"action": "delete", "id": mid})
+        self.assertNotIn(mid, [m["id"] for m in d["journey"]["moments"]])
+        # 别人看不到、也删不了
+        other, _ = self.member("journey_other")
+        self.assertEqual(other.req("POST", "/api/moment", {"action": "delete", "id": d["journey"]["moments"][0]["id"]})[0], 404)
+        self.assertEqual(other.req("GET", "/api/bootstrap")[1]["journey"]["moments"], [])
+
+    def test_journey_review_only_counts_range(self):
+        c, uid = self.member("journey_review")
+        s, d = c.req("POST", "/api/wish", {"action": "add", "title": "心里安静一点", "category": "calm", "now_text": "总是紧绷"})
+        self.assertEqual(s, 200, d)
+        wid = d["journey"]["current"]
+        today = d["journey"]["today"]
+        from datetime import date, timedelta
+        day = lambda n: (date.fromisoformat(today) - timedelta(days=n)).isoformat()
+        for n, t in ((1, "开完会给自己留了十分钟喝茶"), (3, "下午出去散步，安静地走了一圈"), (5, "睡前喝茶，放松下来"), (20, "周末去公园散步")):
+            c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": t, "day": day(n)})
+        _, r = c.req("GET", f"/api/wish/review?id={wid}&days=7")
+        self.assertEqual((r["count"], r["active_days"]), (3, 3))
+        self.assertEqual(r["top"]["word"], "喝茶")
+        self.assertIn("过去 7 天，你留下了 3 个瞬间，其中 2 次提到了「喝茶」", r["line"])
+        _, r30 = c.req("GET", f"/api/wish/review?id={wid}&days=30")
+        self.assertEqual(r30["count"], 4)
+        # 空区间：直说，不编
+        c2, _ = self.member("journey_empty")
+        _, d2 = c2.req("POST", "/api/wish", {"action": "add", "title": "", "category": "freedom"})
+        _, e = c2.req("GET", f"/api/wish/review?id={d2['journey']['current']}&days=15")
+        self.assertEqual(e["count"], 0)
+        self.assertTrue(e["line"].startswith("这段时间还没有留下记录"))
+        _, r = c.req("POST", "/api/wish/reflect", {"id": wid, "days": 7, "text": "好像没那么紧了"})
+        self.assertEqual(r["reflections"][0]["text"], "好像没那么紧了")
+
+    def test_journey_insight_needs_confirmation(self):
+        c, uid = self.member("journey_insight")
+        _, d = c.req("POST", "/api/wish", {"action": "add", "title": "敢开口", "category": "confidence"})
+        wid = d["journey"]["current"]
+        self.fake.json_out = {"text": "会不会…", "claim": "x", "basis": []}
+        _, out = c.req("POST", "/api/wish/insight", {"id": wid})
+        self.assertIsNone(out["insight"])           # 记录不足 4 条不生成
+        ids = []
+        for t in ("课上举手了", "主动问了老师问题", "和室友说出了不舒服", "投了稿"):
+            _, d = c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": t})
+            ids.append(d["moment"]["id"])
+        self.fake.json_out = {"text": "编出来的发现", "claim": "很勇敢", "basis": ["mo_fake"]}
+        _, out = c.req("POST", "/api/wish/insight", {"id": wid})
+        self.assertIsNone(out["insight"])           # 依据对不上真实记录就不要
+        self.fake.json_out = {"text": "你担心做得不够好，但还是投了稿。这算一次勇敢的尝试吗？",
+                              "claim": "害怕不够好时，仍然愿意尝试", "basis": [ids[3], "mo_fake"]}
+        _, out = c.req("POST", "/api/wish/insight", {"id": wid})
+        ins = out["insight"]
+        self.assertEqual(ins["basis"], [ids[3]])
+        with Store(uid) as st:
+            self.assertNotIn("害怕不够好时，仍然愿意尝试", [m["text"] for m in st.memories(statuses=("active", "guess"))])
+        _, out = c.req("POST", "/api/wish/insight", {"insight_id": ins["id"], "answer": "yes"})
+        self.assertEqual(out["memory"]["text"], "害怕不够好时，仍然愿意尝试")
+        self.assertIsNone(out["journey"]["insights"][wid])
+
+    def test_chat_only_proposes_moments(self):
+        c, uid = self.onboarded("journey_chat")
+        self.fake.turns = [
+            [("tool_calls", [{"id": "c1", "name": "propose_moment",
+                              "arguments": json.dumps({"text": "昨晚十一点就睡了", "feeling": "早上很清醒"})}])],
+            [("text", "真好。要不要把它留在轨迹上？")],
+        ]
+        s, ev = c.sse("昨晚十一点就睡了，早上很清醒")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "propose_moment")
+        self.assertTrue(tool["result"]["pending"])
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["journey"]["moments"], [])     # 没点「留下」就什么都没存
+        p = tool["result"]["proposal"]
+        _, d = c.req("POST", "/api/moment", {"action": "add", "wish_id": p["wish_id"], "text": p["text"], "feeling": p["feeling"], "source": "chat"})
+        self.assertEqual(d["moment"]["source"], "chat")
+
+    # ---- 蜕变计划：路径（习惯 / 里程碑 / 小步）与时间 ----------------------------
+    def test_plan_path_habits_milestones_and_target(self):
+        c, uid = self.member("path")
+        from datetime import date, timedelta
+        s, d = c.req("POST", "/api/wish", {"action": "add", "title": "规律健身", "category": "body"})
+        self.assertEqual(s, 200, d)
+        w = d["journey"]["wishes"][0]
+        today = d["journey"]["today"]
+        # 默认计划日：定下后 90 天；改成更早于定下日会被拒绝
+        self.assertEqual(w["target_day"], (date.fromisoformat(w["started"]) + timedelta(days=30)).isoformat())
+        bad = (date.fromisoformat(w["started"]) - timedelta(days=1)).isoformat()
+        self.assertEqual(c.req("POST", "/api/wish", {"action": "edit", "id": w["id"], "target_day": bad})[0], 400)
+        new_t = (date.fromisoformat(today) + timedelta(days=60)).isoformat()
+        _, d = c.req("POST", "/api/wish", {"action": "edit", "id": w["id"], "target_day": new_t})
+        self.assertEqual(d["journey"]["wishes"][0]["target_day"], new_t)
+        # 习惯：每周 3 次；打卡一次给行动经验，同一天再打不重复计分；撤销后本周次数回落
+        s, d = c.req("POST", "/api/habit", {"action": "add", "wish_id": w["id"], "title": "去健身房", "freq": "weekly", "per_week": 3})
+        self.assertEqual(s, 200, d)
+        hid = d["habit"]["id"]
+        self.assertEqual((d["habit"]["need"], d["habit"]["freq_text"]), (3, "每周 3 次"))
+        _, d = c.req("POST", "/api/habit", {"action": "check", "id": hid})
+        self.assertEqual(d["xp"]["amount"], 10)
+        h = d["journey"]["wishes"][0]["habits"][0]
+        self.assertEqual((h["today"], h["week"]), (True, 1))
+        _, d = c.req("POST", "/api/habit", {"action": "check", "id": hid})
+        self.assertNotIn("xp", d)
+        _, d = c.req("POST", "/api/habit", {"action": "uncheck", "id": hid})
+        self.assertEqual(d["journey"]["wishes"][0]["habits"][0]["week"], 0)
+        _, d = c.req("POST", "/api/habit", {"action": "check", "id": hid})
+        self.assertTrue(d["xp"]["duplicate"])          # 撤销再打卡，不会再拿一次经验
+        # 小光的提议里和路径上重复的项不会再加一遍
+        _, d = c.req("POST", "/api/plan/apply", {"wish_id": w["id"], "habits": [{"title": "去 健身房", "freq": "daily"}],
+                                                  "steps": [{"title": "买一双跑鞋"}]})
+        self.assertEqual(d["made"], {"milestones": 0, "habits": 0, "steps": 1})
+        # 里程碑
+        s, d = c.req("POST", "/api/milestone", {"action": "add", "wish_id": w["id"], "title": "能连续跑 5 公里", "due_day": new_t})
+        mid = d["milestone"]["id"]
+        _, d = c.req("POST", "/api/milestone", {"action": "done", "id": mid})
+        self.assertEqual(d["journey"]["wishes"][0]["milestones"][0]["status"], "done")
+        self.assertEqual([(i["name"], i["note"]) for i in d["town"]["warehouse"]], [("纪念碑", "能连续跑 5 公里")])
+        _, d = c.req("POST", "/api/milestone", {"action": "todo", "id": mid})
+        _, d = c.req("POST", "/api/milestone", {"action": "done", "id": mid})
+        self.assertEqual(len(d["town"]["warehouse"]), 1)               # 改回来再到达，不会再送一块
+        # 休息日：记一次、重复点不重复记、可以撤销
+        _, d = c.req("POST", "/api/record", {"type": "rest"})
+        _, d = c.req("POST", "/api/record", {"type": "rest"})
+        self.assertEqual(d["journey"]["rest_days"], [today])
+        self.assertEqual(sum(1 for r in d["records"] if r["type"] == "rest"), 1)
+        _, d = c.req("POST", "/api/record", {"type": "rest", "undo": True})
+        self.assertEqual(d["journey"]["rest_days"], [])
+        # 好消息页只记开心的事：内心戏下线了，find 也不能再新建
+        self.assertEqual(c.req("POST", "/api/record", {"type": "meme", "text": "我：早睡。也是我：再刷十分钟"})[0], 400)
+        self.assertEqual(c.req("POST", "/api/record", {"type": "find", "text": "x"})[0], 400)
+        # 别人动不了
+        other, _ = self.member("path_other")
+        self.assertEqual(other.req("POST", "/api/habit", {"action": "check", "id": hid})[0], 400)
+        self.assertEqual(other.req("POST", "/api/milestone", {"action": "done", "id": mid})[0], 404)
+
+    def test_chat_proposes_plan_and_user_applies(self):
+        c, uid = self.onboarded("plan_chat")
+        self.fake.turns = [
+            [("tool_calls", [{"id": "c1", "name": "propose_plan", "arguments": json.dumps({
+                "wish": "健康作息",
+                "milestones": [{"title": "一周有 5 天 12 点前睡", "due_in_days": 14}],
+                "habits": [{"title": "11 点放下手机", "freq": "daily"}, {"title": "晨跑", "freq": "weekly", "per_week": 2}],
+                "steps": [{"title": "把充电器挪到客厅"}]})}])],
+            [("text", "你看看哪些想加进计划。")],
+        ]
+        s, ev = c.sse("帮我规划一下健康作息这条路")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "propose_plan")
+        self.assertTrue(tool["result"]["pending"])
+        _, d = c.req("GET", "/api/bootstrap")
+        w = d["journey"]["wishes"][0]
+        self.assertEqual((w["habits"], w["milestones"]), ([], []))     # 没确认就什么都没加
+        plan = tool["result"]["plan"]
+        _, d = c.req("POST", "/api/plan/apply", {"wish_id": tool["result"]["wish_id"], "milestones": plan["milestones"],
+                                                  "habits": plan["habits"][:1], "steps": plan["steps"]})
+        self.assertEqual(d["made"], {"milestones": 1, "habits": 1, "steps": 1})
+        w = d["journey"]["wishes"][0]
+        self.assertEqual([h["title"] for h in w["habits"]], ["11 点放下手机"])
+        self.assertTrue(w["milestones"][0]["due_day"])
+        self.assertIn("把充电器挪到客厅", [s_["title"] for s_ in d["steps"] if s_["wish_id"] == w["id"]])
+        # 「今天跑了」→ 打卡工具
+        c.req("POST", "/api/habit", {"action": "add", "wish_id": w["id"], "title": "晨跑", "freq": "weekly", "per_week": 2})
+        self.fake.turns = [[("tool_calls", [{"id": "c2", "name": "checkin_habit", "arguments": '{"title":"晨跑"}'}])], [("text", "跑完了，真好。")]]
+        s, ev = c.sse("今天早上去晨跑了")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "checkin_habit")
+        self.assertEqual(tool["result"]["habit"]["week"], 1)
+
+    def test_old_meme_records_hidden_but_exported(self):
+        from core import agent, cheer, growth, lookup
+        c, uid = self.member("meme_gone")
+        with Store(uid) as st:
+            st.add_record("good", "楼下的猫让我摸了")
+            st.add_record("meme", "今天的我：社恐但嘴硬")             # 下线前存下的内心戏
+            # 今天已经抽到了「记一段内心戏」：只换掉这一件，其他三件不动
+            from core.util import day_key
+            day = day_key()
+            growth._pick(st, day)
+            ids = st.profile()["daily_pick"]["ids"]
+            st.set_profile({"daily_pick": {**st.profile()["daily_pick"], "ids": [ids[0], "meme", ids[2], ids[3]]}})
+            self.assertEqual(growth._pick(st, day)["ids"], [ids[0], "good", ids[2], ids[3]])
+            self.assertEqual([r["type"] for r in st.records()], ["good"])
+            self.assertNotIn("社恐", " ".join(cheer.material(st)))
+            self.assertNotIn("社恐", str(lookup.look_up(st, "good_news")))
+            self.assertNotIn("社恐", str(agent.run_tool(st, "edit_good_news", {"target": "社恐", "action": "remove"}, "删掉")))
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual([r["text"] for r in d["records"]], ["楼下的猫让我摸了"])
+        _, ex = c.req("GET", "/api/export")
+        self.assertIn("今天的我：社恐但嘴硬", [r["text"] for r in ex["records"]])
+
+    def test_cheer_you_and_affirmations(self):
+        from core import cheer
+        c, uid = self.member("cheer")
+        _, d = c.req("GET", "/api/bootstrap")
+        ch = d["cheer"]
+        self.assertIsNone(ch["you"])                                   # 没材料就没有「最近的你」
+        self.assertIn("我值得拥有精彩的人生。", ch["affirm"])
+        self.assertTrue(all(t.startswith(("我", "好事", "今天", "事情", "平静", "机会")) for t in ch["affirm"]))
+        c.req("POST", "/api/wish", {"action": "add", "title": "身体好一点", "category": "body"})
+        self.assertIn("我的身体是一个奇迹。", c.req("GET", "/api/bootstrap")[1]["cheer"]["affirm"])
+        self.assertNotIn("我身边有爱我的人。", c.req("GET", "/api/bootstrap")[1]["cheer"]["affirm"])   # 关系类只给有关系愿望的人
+        with Store(uid) as st:
+            st.add_record("good", "楼下的猫让我摸了")
+            st.add_record("good", "第一次在课上举手了")
+            self.fake.json_out = {"text": "这不是小事，而是你在照顾自己。"}
+            self.assertIsNone(cheer.refresh(uid))                       # 「不是……而是」的句子不用
+            self.fake.json_out = {"text": "这几天你一直在留意身边的小可爱。"}
+            self.assertEqual(cheer.refresh(uid)["kind"], "you")
+        self.assertEqual(c.req("GET", "/api/bootstrap")[1]["cheer"]["you"]["text"], "这几天你一直在留意身边的小可爱。")
+
+    def test_lazy_day_pauses_today_and_offers_adjust(self):
+        c, uid = self.member("rest_mode")
+        _, d = c.req("POST", "/api/wish", {"action": "add", "title": "规律健身", "category": "body"})
+        wid = d["journey"]["current"]
+        _, d = c.req("POST", "/api/habit", {"action": "add", "wish_id": wid, "title": "去健身房", "freq": "daily"})
+        hid = d["habit"]["id"]
+        # 单项暂停：这个习惯今天先不做；之后又做了，暂停自动取消
+        _, d = c.req("POST", "/api/habit", {"action": "skip", "id": hid})
+        self.assertTrue(d["journey"]["wishes"][0]["habits"][0]["skipped"])
+        _, d = c.req("POST", "/api/habit", {"action": "check", "id": hid})
+        h = d["journey"]["wishes"][0]["habits"][0]
+        self.assertEqual((h["skipped"], h["today"]), (False, True))
+        # 调轻一档：每天 → 每周 3 次 → 2 → 1，到 1 次就不能再调
+        for want in ("每周 3 次", "每周 2 次", "每周 1 次"):
+            _, d = c.req("POST", "/api/habit", {"action": "ease", "id": hid})
+            self.assertEqual(d["eased"], want)
+        self.assertEqual(c.req("POST", "/api/habit", {"action": "ease", "id": hid})[0], 400)
+        # 一键偷懒（带原因）：每日任务的行动这项先暂停，休息记录留在时间线上
+        c2, uid = self.member("rest_mode2")       # 今天还没做任何行动的人
+        _, d = c2.req("POST", "/api/record", {"type": "rest", "text": "今天偷个懒：有点累"})
+        q = next(x for x in d["growth"]["daily"]["tasks"] if x["id"] == "act")
+        self.assertTrue(q["rest"] and not q["done"])
+        self.assertIn("今天偷个懒：有点累", [a["text"] for a in d["activity"]])
+        c = c2
+        # 偷懒日小光不主动打扰（演示用的强制触发不受影响）
+        with Store(uid) as st:
+            st.set_profile({"onboarded": True, "last_chat_at": "", "last_proactive_at": ""})
+            self.assertEqual(scheduler.deliver(st)["reason"], "今天是偷懒日，不打扰")
+        # 不偷懒了：任务恢复
+        _, d = c.req("POST", "/api/record", {"type": "rest", "undo": True})
+        self.assertFalse(next(x for x in d["growth"]["daily"]["tasks"] if x["id"] == "act")["rest"])
+
+    def test_chat_lazy_day_and_adjust_habit(self):
+        c, uid = self.onboarded("lazy_chat")
+        _, d = c.req("GET", "/api/bootstrap")
+        wid = d["journey"]["current"]
+        c.req("POST", "/api/habit", {"action": "add", "wish_id": wid, "title": "11 点放下手机", "freq": "daily"})
+        self.fake.turns = [[("tool_calls", [{"id": "c1", "name": "log_lazy_day", "arguments": '{"note":"加班太累"}'}])],
+                           [("text", "收到，今天给自己放个假吧。")],
+                           [("tool_calls", [{"id": "c2", "name": "adjust_habit", "arguments": '{"title":"放下手机","action":"ease"}'}])],
+                           [("text", "调成每周 3 次了。")]]
+        s, ev = c.sse("今天加班太累了，想偷个懒")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "log_lazy_day")
+        self.assertEqual(tool["result"]["record"]["text"], "今天偷个懒：加班太累")
+        s, ev = c.sse("放下手机那个每天做有点难，能不能少一点")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "adjust_habit")
+        self.assertEqual(tool["result"]["done"], "调成每周 3 次")
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["journey"]["wishes"][0]["habits"][0]["freq_text"], "每周 3 次")
+
+    # ---- 定时任务 ------------------------------------------------------------------
+    def test_tasks_schedule_fire_and_toggle(self):
+        from datetime import timedelta
+        from core.util import now
+        c, uid = self.onboarded("tasks_user")
+        s, d = c.req("POST", "/api/task", {"action": "add", "title": "开财富与爱情的会", "repeat": "once", "in_minutes": 5})
+        self.assertEqual(s, 200, d)
+        tid = d["task"]["id"]
+        self.assertTrue(d["task"]["when"].endswith("一次"))
+        self.assertIn(tid, [t["id"] for t in d["tasks"]])
+        _, d = c.req("POST", "/api/task", {"action": "add", "title": "早安鼓励", "kind": "ai", "message": "给我一句鼓励",
+                                           "repeat": "daily", "time": "08:00"})
+        daily = d["task"]["id"]
+        self.assertEqual(d["task"]["when"], "每天 08:00")
+        self.assertEqual(c.req("POST", "/api/task", {"action": "add", "title": "x", "repeat": "daily", "time": "25:00"})[0], 400)
+        # 别人碰不到
+        other, _ = self.member("tasks_other")
+        self.assertEqual(other.req("POST", "/api/task", {"action": "off", "id": tid})[0], 404)
+        # 还没到点：什么都不发
+        self.assertEqual(scheduler.run_tasks(now() + timedelta(minutes=2)), 0)
+        # 到点：remind 不调模型，消息进对话和收件箱，一次性任务关掉
+        self.fake.json_out = None
+        _, before = c.req("GET", "/api/pulse")
+        self.assertGreaterEqual(scheduler.run_tasks(now() + timedelta(minutes=6)), 1)
+        _, d = c.req("GET", "/api/bootstrap")
+        last = d["messages"][-1]
+        self.assertEqual(last["meta"]["task"], tid)
+        self.assertIn("开财富与爱情的会", last["content"])
+        self.assertFalse(next(t for t in d["tasks"] if t["id"] == tid)["enabled"])
+        _, after = c.req("GET", "/api/pulse")
+        self.assertGreater(after["unseen"], before["unseen"])
+        # ai 任务：到点由小光写一句；每天的任务跑完排到下一天
+        self.fake.json_out = {"text": "早呀，今天也从一件小事开始就好。"}
+        scheduler.run_tasks(now() + timedelta(days=1, hours=1))
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertIn("早呀，今天也从一件小事开始就好。", [m["content"] for m in d["messages"]])
+        t = next(t for t in d["tasks"] if t["id"] == daily)
+        self.assertTrue(t["enabled"])
+        # 开关与内置例行任务
+        _, d = c.req("POST", "/api/task", {"action": "off", "id": daily})
+        self.assertFalse(next(t for t in d["tasks"] if t["id"] == daily)["enabled"])
+        _, d = c.req("POST", "/api/task", {"action": "delete", "id": daily})
+        self.assertNotIn(daily, [t["id"] for t in d["tasks"]])
+
+    def test_chat_schedules_task(self):
+        c, uid = self.onboarded("tasks_chat")
+        self.fake.turns = [
+            [("tool_calls", [{"id": "c1", "name": "schedule_task", "arguments": json.dumps(
+                {"title": "开会", "kind": "remind", "repeat": "once", "in_minutes": 5})}])],
+            [("text", "好，五分钟后叫你。")],
+        ]
+        s, ev = c.sse("你能5分钟后提醒我开一个会议吗")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "schedule_task")
+        self.assertTrue(tool["result"]["ok"])
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual([t["title"] for t in d["tasks"]], ["开会"])
+
+    # ---- 记忆：三天原话 + 笔记本 + 翻聊天记录 ------------------------------------------
+    def test_history_window_notebook_and_search(self):
+        from datetime import timedelta
+        from core import agent, digest
+        from core.util import now
+        c, uid = self.onboarded("memory_long")
+        with Store(uid) as st:
+            for d, text in ((6, "上周我和 Mia 去看了海"), (2, "前天面试被问到最喜欢的书"), (1, "昨天熬夜到两点")):
+                m = st.add_msg("user", text)
+                st.c.execute("UPDATE msg SET created_at=? WHERE id=?", ((now() - timedelta(days=d)).isoformat(timespec="seconds"), m["id"]))
+            for i in range(40):     # 让总条数超过「至少 16 轮」，三天的窗口才起作用
+                st.add_msg("assistant" if i % 2 else "user", f"今天的闲聊 {i}")
+            hist = agent.history(st)
+            texts = " ".join(h["content"] for h in hist)
+            self.assertIn("前天面试被问到最喜欢的书", texts)
+            self.assertIn("昨天熬夜到两点", texts)
+            self.assertNotIn("去看了海", texts)                       # 超过三天的不在上下文里
+            self.assertTrue(any(h["content"].startswith("［") for h in hist if h["role"] == "user"))
+            hits = agent.search_chats(st, "和 Mia 去看海")
+            self.assertIn("上周我和 Mia 去看了海", [h["text"] for h in hits])   # 但能翻到
+            # 夜里整理顺手更新笔记本
+            st.add_msg("user", "我决定下个月开始学游泳")
+            self.fake.json_out = {"summary": "你决定学游泳。", "highlights": [], "ops": [],
+                                  "notebook": "最近的生活：决定下个月开始学游泳。\n在意的人：Mia。"}
+            digest.run(st)
+            self.assertIn("学游泳", st.profile()["notebook"]["text"])
+            sp = agent.system_prompt(st, [])
+            self.assertIn("你的笔记本", sp)
+            self.assertIn("学游泳", sp)
+        _, d = c.req("POST", "/api/notebook", {"text": "在意的人：Mia、室友。"})
+        self.assertEqual(d["profile"]["notebook"]["by"], "user")
+
+    def test_persona_and_custom_moments(self):
+        from core import agent
+        c, uid = self.onboarded("persona_user")
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["profile"]["persona"], "gentle")
+        self.assertEqual(c.req("POST", "/api/profile", {"persona": "robot"})[0], 400)
+        _, d = c.req("POST", "/api/profile", {"persona": "lively", "custom_moods": ["松了口气", " ", "超开心的那种很长的心情"]})
+        self.assertEqual(d["profile"]["custom_moods"], ["松了口气", "超开心的那种很长"])
+        with Store(uid) as st:
+            self.assertIn("活泼", agent.system_prompt(st, []))
+        wid = d["journey"]["current"]
+        _, d = c.req("POST", "/api/wish", {"action": "edit", "id": wid, "prompts": ["今天哪一刻我没有逃避？", ""]})
+        self.assertEqual(d["journey"]["wishes"][0]["prompts"], ["今天哪一刻我没有逃避？"])
+
+    def test_rename_nickname_and_username(self):
+        c, uid = self.onboarded("old_name")
+        _, d = c.req("POST", "/api/profile", {"nickname": "小鱼"})
+        self.assertEqual(d["profile"]["nickname"], "小鱼")
+        s, d = c.req("POST", "/api/auth/rename", {"username": "new_name"})
+        self.assertEqual((s, d["user"]["username"]), (200, "new_name"))
+        self.member("taken_name")
+        self.assertEqual(c.req("POST", "/api/auth/rename", {"username": "taken_name"})[0], 409)
+        self.assertEqual(c.req("POST", "/api/auth/rename", {"username": "x"})[0], 400)
+        c2 = Client(self.port)
+        self.assertEqual(c2.req("POST", "/api/auth/login", {"username": "new_name", "password": "secret12"})[0], 200)
+        g = Client(self.port)
+        g.req("POST", "/api/auth/guest", {"seed": False})
+        self.assertEqual(g.req("POST", "/api/auth/rename", {"username": "guest_x"})[0], 400)
+
+    def test_memory_requests_follow_the_conversation(self):
+        c, uid = self.onboarded("notebook_user")
+        with Store(uid) as st:
+            st.set_profile({"notebook": {"text": "最近的生活：在准备考试。\n相处时的偏好：不喜欢被催。", "by": "digest"}})
+        # 1) 直接让小光往笔记本里加
+        self.fake.turns = [[("tool_calls", [{"id": "n1", "name": "update_notebook", "arguments": json.dumps(
+            {"action": "add", "text": "爱看动漫", "section": "相处时的偏好"})}])], [("text", "加好啦。")]]
+        s, ev = c.sse("我看到你的笔记本了，好好笑，帮我加一个“我爱看动漫”吧")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "update_notebook")
+        self.assertTrue(tool["result"]["ok"])
+        with Store(uid) as st:
+            nb = st.profile()["notebook"]["text"]
+            self.assertIn("相处时的偏好：不喜欢被催；爱看动漫", nb)
+            self.assertIn("爱看动漫", [m["text"] for m in st.memories(limit=50)])
+        # 2) 前面提了一句、小光问要不要记，这一句只说「那你加进去吧」也算同意
+        self.fake.turns = [[("text", "要我帮你记住你喜欢猫吗？")]]
+        c.sse("我好喜欢猫")
+        self.fake.turns = [[("tool_calls", [{"id": "n2", "name": "remember", "arguments": json.dumps({"text": "喜欢猫", "kind": "preference"})}])],
+                           [("text", "记下啦。")]]
+        s, ev = c.sse("那你加进去吧")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "remember")
+        self.assertTrue(tool["result"]["ok"], tool["result"])
+        # 2b)「对了……」开头的新话题不是同意
+        self.fake.turns = [[("tool_calls", [{"id": "n4", "name": "remember", "arguments": json.dumps({"text": "养了一只叫团团的猫"})}])],
+                           [("text", "团团！听起来软乎乎的。")]]
+        c.sse("对了我养了一只叫团团的猫")
+        with Store(uid) as st:
+            self.assertNotIn("养了一只叫团团的猫", [m["text"] for m in st.memories(limit=50)])
+        # 2c) 「记着点」「那条删了吧」这种说法也算
+        self.fake.turns = [[("tool_calls", [{"id": "n5", "name": "remember", "arguments": json.dumps({"text": "特别怕打雷"})}])], [("text", "好，记着呢。")]]
+        c.sse("我其实特别怕打雷，你能记着点吗")
+        with Store(uid) as st:
+            self.assertIn("特别怕打雷", [m["text"] for m in st.memories(limit=50)])
+        # 3) 和记忆无关的一句话，小光自己想写也写不进去
+        self.fake.turns = [[("tool_calls", [{"id": "n3", "name": "remember", "arguments": json.dumps({"text": "今天下雨"})}])],
+                           [("text", "下雨天适合窝着。")]]
+        s, ev = c.sse("今天下雨了")
+        self.assertFalse([d for e, d in ev if e == "tool" and d["name"] == "remember"])   # 被拦下的写入不显示卡片
+        with Store(uid) as st:
+            self.assertNotIn("今天下雨", [m["text"] for m in st.memories(limit=50)])
+        # 4) 改和删
+        with Store(uid) as st:
+            from core import agent
+            self.assertTrue(agent.notebook_edit(st, "replace", "在准备期末考试", old="在准备考试")["ok"])
+            self.assertTrue(agent.notebook_edit(st, "remove", "", old="爱看动漫")["ok"])
+            nb = st.profile()["notebook"]["text"]
+            self.assertIn("在准备期末考试", nb)
+            self.assertNotIn("动漫", nb)
+            self.assertTrue(nb.split("\n")[1].endswith("不喜欢被催"))
+            self.assertFalse(agent.notebook_edit(st, "remove", "", old="不存在的话")["ok"])
+
+    def test_agent_edits_existing_plan_items(self):
+        from datetime import date, timedelta
+        c, uid = self.onboarded("plan_edit")
+        _, d = c.req("GET", "/api/bootstrap")
+        wid = d["journey"]["current"]
+        today = date.fromisoformat(d["journey"]["today"])
+        c.req("POST", "/api/milestone", {"action": "add", "wish_id": wid, "title": "选定一首慵懒浪漫的爵士曲",
+                                          "due_day": (today + timedelta(days=10)).isoformat()})
+        c.req("POST", "/api/habit", {"action": "add", "wish_id": wid, "title": "练琴 20 分钟", "freq": "daily"})
+        c.req("POST", "/api/step", {"action": "add", "title": "买一本爵士和弦书", "wish_id": wid})
+        new_due = (today + timedelta(days=3)).isoformat()
+        self.fake.turns = [
+            [("tool_calls", [{"id": "e1", "name": "edit_plan", "arguments": json.dumps(
+                {"kind": "milestone", "target": "选定慵懒爵士曲目", "due_day": new_due})}])],
+            [("text", "改好啦，选曲提前到了。")],
+        ]
+        s, ev = c.sse("你改一下吧")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "edit_plan")
+        self.assertTrue(tool["result"]["ok"], tool["result"])
+        _, d = c.req("GET", "/api/bootstrap")
+        m = d["journey"]["wishes"][0]["milestones"][0]
+        self.assertEqual(m["due_day"], new_due)
+        with Store(uid) as st:
+            from core import journey
+            self.assertEqual(journey.edit_item(st, "habit", "练琴", {"freq": "weekly", "per_week": 3})["changed"], ["改成每周 3 次"])
+            self.assertTrue(journey.edit_item(st, "step", "爵士和弦书", {"delete": True})["ok"])
+            self.assertFalse(st.c.execute("SELECT 1 FROM step WHERE title='买一本爵士和弦书'").fetchone())
+            out = journey.edit_item(st, "wish", "", {"due_in_days": 21})
+            self.assertTrue(out["ok"] and out["changed"][0].startswith("计划日期改到"))
+            miss = journey.edit_item(st, "milestone", "不存在的里程碑", {"title": "x"})
+            self.assertFalse(miss["ok"])
+            self.assertIn("选定一首慵懒浪漫的爵士曲", miss["have"])
+
+
+    # ---- 小光能看、能改、会提醒（2.11） ----------------------------------------------
+    def _tool_events(self, ev, name):
+        return [d for e, d in ev if e == "tool" and d["name"] == name]
+
+    def test_agent_removes_and_restores_a_wish_after_asking(self):
+        """线上的 bug：小光问「要我帮你删掉早睡早起吗？」，用户说「可以」，结果「没有要改的内容」。"""
+        c, uid = self.onboarded("wish_rm")
+        _, d = c.req("POST", "/api/wish", {"action": "add", "title": "早睡早起", "category": "body"})
+        wid = d["journey"]["current"]
+        c.req("POST", "/api/habit", {"action": "add", "wish_id": wid, "title": "11 点上床", "freq": "daily"})
+        c.req("POST", "/api/wish", {"action": "add", "title": "财富与事业", "category": "wealth"})
+        self.fake.turns = [[("text", "我会建议保留「健康作息」，删掉「早睡早起」。要我帮你删掉「早睡早起」吗？")],
+                           [("tool_calls", [{"id": "w1", "name": "edit_plan", "arguments": json.dumps(
+                               {"kind": "wish", "target": "早睡早起", "delete": True})}])],
+                           [("text", "收起了，记录都还在。")]]
+        c.sse("你觉得删掉哪个呢")
+        s, ev = c.sse("可以")
+        tool = self._tool_events(ev, "edit_plan")[0]
+        self.assertTrue(tool["result"]["ok"], tool["result"])
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual([w["title"] for w in d["journey"]["wishes"]], ["健康作息", "财富与事业"])
+        with Store(uid) as st:
+            from core import agent, journey
+            self.assertNotIn("11 点上床", [h["title"] for h in journey.habits(st)])   # 收起的愿望，它的习惯也不再算
+            self.assertIn("收起的愿望", agent.core_block(st.profile(), st))
+            back = agent.run_tool(st, "edit_plan", {"action": "restore", "kind": "wish", "target": "早睡早起"}, "把早睡早起找回来")
+            self.assertTrue(back["ok"], back)
+            self.assertIn("11 点上床", [h["title"] for h in journey.habits(st)])
+            # 「删掉一个吧」没点名：不能替 TA 挑一个删
+            vague = agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "wish", "target": "健康作息"},
+                                   "早睡早起和健康作息是不是冲突了呀，删掉一个吧")
+            self.assertTrue(vague.get("need_consent"), vague)
+            self.assertTrue(agent.consented(st, "删掉早睡早起吧", removing=True))
+            # 名字对不上时不能悄悄改到「正在看的那个」愿望上
+            miss = journey.edit_item(st, "wish", "学吉他", {"title": "x"})
+            self.assertFalse(miss["ok"])
+            self.assertIn("早睡早起", miss["have"])
+
+    def test_agent_needs_consent_before_changing_things(self):
+        c, uid = self.onboarded("consent")
+        _, d = c.req("GET", "/api/bootstrap")
+        c.req("POST", "/api/habit", {"action": "add", "wish_id": d["journey"]["current"], "title": "每天跑步", "freq": "daily"})
+        self.fake.turns = [[("tool_calls", [{"id": "x1", "name": "edit_plan", "arguments": json.dumps(
+                               {"action": "remove", "kind": "habit", "target": "每天跑步"})}])],
+                           [("text", "最近是不是太累了？要不要把跑步先收起来？")]]
+        s, ev = c.sse("最近好累啊")
+        self.assertFalse(self._tool_events(ev, "edit_plan"))          # 没让改，就不动，也不出卡片
+        tool_msg = next(m for m in self.fake.seen[-1] if m["role"] == "tool")
+        self.assertIn("need_consent", tool_msg["content"])
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(len(d["journey"]["wishes"][0]["habits"]), 1)
+        self.fake.turns = [[("tool_calls", [{"id": "x2", "name": "edit_plan", "arguments": json.dumps(
+                               {"action": "remove", "kind": "habit", "target": "跑步"})}])],
+                           [("text", "先收起来了。")]]
+        s, ev = c.sse("好呀")
+        self.assertTrue(self._tool_events(ev, "edit_plan")[0]["result"]["ok"])
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["journey"]["wishes"][0]["habits"], [])
+
+    def test_agent_adds_and_edits_every_kind_of_plan_item(self):
+        c, uid = self.onboarded("plan_crud")
+        from datetime import date, timedelta
+        from core import agent, journey
+        with Store(uid) as st:
+            run = lambda args, said="帮我加一下": agent.run_tool(st, "edit_plan", args, said)
+            w = run({"action": "add", "kind": "wish", "title": "学吉他", "due_in_days": 60})
+            self.assertTrue(w["ok"], w)
+            m = run({"action": "add", "kind": "milestone", "title": "弹完第一首曲子", "due_in_days": 20, "wish": "吉他"})
+            self.assertEqual(m["wish_title"], "学吉他")
+            self.assertTrue(run({"action": "add", "kind": "habit", "title": "练琴 15 分钟", "freq": "weekly", "per_week": 3})["ok"])
+            self.assertTrue(run({"action": "add", "kind": "step", "title": "买一套琴弦"})["ok"])
+            mo = run({"action": "add", "kind": "moment", "text": "第一次按响了 C 和弦", "feeling": "手指好痛但很开心"})
+            self.assertTrue(mo["ok"] and mo["xp"]["amount"] > 0, mo)
+            reached = run({"kind": "milestone", "target": "第一首曲子", "status": "done"}, "我弹完第一首了，标一下")
+            self.assertTrue(reached["ok"] and reached["xp"]["amount"] > 0, reached)
+            self.assertTrue(run({"action": "change", "kind": "moment", "target": "C 和弦", "feeling": "很开心"}, "改一下")["ok"])
+            self.assertTrue(run({"action": "remove", "kind": "moment", "target": "C 和弦"}, "删了吧")["ok"])
+            self.assertFalse(journey.moments(st))
+            self.assertTrue(run({"action": "change", "kind": "step", "target": "琴弦", "status": "dropped"}, "先放一放")["ok"])
+            self.assertTrue(run({"action": "restore", "kind": "step", "target": "琴弦"}, "放回来")["ok"])
+            self.assertTrue(run({"action": "remove", "kind": "habit", "target": "练琴"}, "收起")["ok"])
+            self.assertTrue(run({"action": "restore", "kind": "habit", "target": "练琴"}, "找回来")["ok"])
+            wish = next(x for x in journey.wishes(st) if x["title"] == "学吉他")
+            self.assertEqual(wish["target_day"], (date.today() + timedelta(days=60)).isoformat())
+
+    def test_look_up_and_app_guide_cover_every_area(self):
+        c, uid = self.onboarded("lookup")
+        c.req("POST", "/api/record", {"type": "good", "text": "楼下的猫冲我叫了一声"})
+        from core import agent, lookup, guide
+        with Store(uid) as st:
+            for area in lookup.AREAS:
+                out = agent.run_tool(st, "look_up", {"area": area}, "看看")
+                self.assertTrue(out["ok"] and out["text"], area)
+            self.assertIn("楼下的猫", agent.run_tool(st, "look_up", {"area": "good_news"})["text"])
+            self.assertIn("健康作息", agent.run_tool(st, "look_up", {"area": "plan"})["text"])
+            for t in guide.TOPICS:
+                self.assertTrue(agent.run_tool(st, "app_guide", {"topic": t})["text"])
+            self.assertEqual(guide.guide("里程碑怎么删")["topic"], "plan")
+            prompt = agent.system_prompt(st, [])
+            self.assertIn("好消息", prompt)
+            self.assertIn("look_up", prompt)
+            self.assertIn("小镇", prompt)
+            self.assertNotIn("宠物「", prompt)
+            g = agent.run_tool(st, "get_growth", {}, "我能建什么")
+            self.assertTrue(g["ok"] and "coins" in g["growth"] and g["growth"]["town"]["land"] == "5×5")
+
+    def test_good_news_tasks_settings_and_lazy_undo_via_agent(self):
+        c, uid = self.onboarded("misc_tools")
+        from core import agent, journey
+        with Store(uid) as st:
+            first = agent.run_tool(st, "log_good_news", {"text": "开会时脑子里在想晚饭", "type": "meme"})
+            self.assertEqual(first["record"]["type"], "good")                  # 内心戏下线了：老参数也只记成好消息
+            agent.run_tool(st, "log_good_news", {"text": "喝到一杯好喝的拿铁"})
+            out = agent.run_tool(st, "edit_good_news", {"target": "拿铁", "action": "change", "text": "喝到一杯超好喝的燕麦拿铁"}, "改一下")
+            self.assertTrue(out["ok"], out)
+            self.assertTrue(agent.run_tool(st, "edit_good_news", {"target": "晚饭", "action": "remove"}, "删掉")["ok"])
+            texts = [r["text"] for r in st.records()]
+            self.assertIn("喝到一杯超好喝的燕麦拿铁", texts)
+            self.assertNotIn("开会时脑子里在想晚饭", texts)
+
+            agent.run_tool(st, "schedule_task", {"title": "早安鼓励", "kind": "ai", "repeat": "daily", "time": "08:30"})
+            self.assertTrue(agent.run_tool(st, "edit_task", {"target": "早安", "action": "off"}, "先关掉")["ok"])
+            self.assertTrue(agent.run_tool(st, "edit_task", {"target": "早安", "action": "on"}, "打开吧")["ok"])
+            ch = agent.run_tool(st, "edit_task", {"target": "早安", "action": "change", "time": "09:00"}, "改到九点")
+            self.assertIn("09:00", ch["done"])
+            self.assertTrue(agent.run_tool(st, "edit_task", {"target": "早安", "action": "delete"}, "删了")["ok"])
+            self.assertEqual(tasks.list_for(uid), [])
+
+            s_ = agent.run_tool(st, "update_settings", {"proactive": "more", "persona": "lively", "nickname": "小鱼"}, "多督促我")
+            self.assertTrue(s_["ok"], s_)
+            p = st.profile()
+            self.assertEqual((p["proactive"], p["persona"], p["nickname"]), ("more", "lively", "小鱼"))
+            self.assertFalse(agent.run_tool(st, "update_settings", {"theme": "neon"}, "换个主题")["ok"])
+
+            agent.run_tool(st, "log_lazy_day", {})
+            self.assertTrue(journey.is_resting(st))
+            self.assertTrue(agent.run_tool(st, "log_lazy_day", {"undo": True}, "不偷懒了")["ok"])
+            self.assertFalse(journey.is_resting(st))
+
+    def test_attention_drives_chat_context_and_proactive_cues(self):
+        from datetime import date, timedelta
+        c, uid = self.onboarded("nudges")
+        _, d = c.req("GET", "/api/bootstrap")
+        wid = d["journey"]["current"]
+        today = date.fromisoformat(d["journey"]["today"])
+        c.req("POST", "/api/milestone", {"action": "add", "wish_id": wid, "title": "连续一周 12 点前睡",
+                                          "due_day": (today + timedelta(days=2)).isoformat()})
+        c.req("POST", "/api/milestone", {"action": "add", "wish_id": wid, "title": "戒掉睡前刷手机",
+                                          "due_day": (today - timedelta(days=3)).isoformat()})
+        from core import agent, nudges
+        with Store(uid) as st:
+            kinds = [x["kind"] for x in nudges.attention(st)]
+            self.assertIn("milestone_due", kinds)
+            self.assertIn("milestone_overdue", kinds)
+            note = agent.context_note([], st)
+            self.assertIn("连续一周 12 点前睡", note)
+            self.assertIn("戒掉睡前刷手机", agent.run_tool(st, "look_up", {"area": "attention"})["text"])
+            cue = scheduler.pick_cue(st)
+            self.assertIn(cue["cue"], ("milestone_due", "milestone_overdue"))
+            self.assertTrue(cue["fact"])
+            st.add_record("rest", "今天偷个懒")
+            self.assertNotIn("可以顺手提的事", agent.context_note([], st))   # 偷懒日什么都不提
+
+
+    def test_ids_with_brackets_and_dropped_streams(self):
+        from core import journey
+        items = [{"id": "r_2ac0bb9e3216", "title": "喝到一杯燕麦拿铁"}, {"id": "w_1a2b3c4d5e6f", "title": "早睡早起"}]
+        self.assertEqual(journey._pick(items, "[r_2ac0bb9e3216]")["title"], "喝到一杯燕麦拿铁")
+        self.assertEqual(journey._pick(items, "[w_1a2b3c4d5e6f] 早睡早起")["title"], "早睡早起")
+
+        def broken():
+            yield b"data: {}"
+            raise ConnectionResetError("peer reset")
+        with self.assertRaises(llm.LLMError):
+            list(llm._lines(broken()))
+
+        c, uid = self.onboarded("dropped")
+
+        def half(messages, tools=None, **kw):
+            yield ("text", "嗯，先把明天要穿的衣服")
+            raise llm.LLMError("stream interrupted: ConnectionResetError")
+        orig, llm.stream_chat = llm.stream_chat, half
+        try:
+            s, ev = c.sse("今天不知道干啥")
+        finally:
+            llm.stream_chat = orig
+        self.assertTrue(any(e == "error" for e, _ in ev))
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["messages"][-1]["content"], "嗯，先把明天要穿的衣服")   # 半句也存下了
+
+
+    def test_push_back_moves_from_the_current_date_and_noop_is_quiet(self):
+        """「往后推两周」要在原来的日子上加 14 天（线上实测曾被算成从今天起两周，反而提前了）。"""
+        c, uid = self.onboarded("shift")
+        from datetime import date, timedelta
+        target = (date.today() + timedelta(days=26)).isoformat()
+        c.req("POST", "/api/wish", {"action": "add", "title": "早睡早起", "category": "body", "target_day": target})
+        self.fake.turns = [[("tool_calls", [{"id": "s1", "name": "edit_plan", "arguments": json.dumps(
+                               {"kind": "wish", "target": "早睡早起", "shift_days": 14})}])],
+                           [("text", "往后推了两周。")],
+                           [("tool_calls", [{"id": "s2", "name": "edit_plan", "arguments": json.dumps(
+                               {"kind": "wish", "target": "早睡早起", "due_day": (date.today() + timedelta(days=40)).isoformat()})}])],
+                           [("text", "嗯，就是这天。")]]
+        s, ev = c.sse("早睡早起的计划日期往后推两周吧")
+        self.assertTrue(self._tool_events(ev, "edit_plan")[0]["result"]["ok"])
+        _, d = c.req("GET", "/api/bootstrap")
+        w = next(x for x in d["journey"]["wishes"] if x["title"] == "早睡早起")
+        self.assertEqual(w["target_day"], (date.today() + timedelta(days=40)).isoformat())
+        s, ev = c.sse("改到那天对吧")
+        self.assertFalse(self._tool_events(ev, "edit_plan"))      # 已经是这样了：不出「没成功」的卡片
+
+
+class MemoryTest(unittest.TestCase):
+    """记忆读写（2026-11-07）：写之前查重（mem0 的 ADD / UPDATE / NOOP），要点一直放在提示里（Letta 的 core block）。"""
+
+    def setUp(self):
+        from core import agent
+        self.agent = agent
+        self.st = Store("u_" + os.urandom(8).hex())
+        self.st.add_memory("不吃香菜", "preference", "chat:explicit")
+        self.st.add_memory("喜欢吃寿司", "preference", "onboarding")
+
+    def test_remember_does_not_duplicate(self):
+        r = self.agent.run_tool(self.st, "remember", {"text": "不吃香菜", "kind": "preference"}, "你记一下，我不吃香菜")
+        self.assertTrue(r["ok"])
+        self.assertEqual(sum(1 for m in self.st.memories() if "香菜" in m["text"]), 1)
+
+    def test_correct_keeps_revision(self):
+        r = self.agent.run_tool(self.st, "correct_memory", {"about": "寿司", "new_text": "以前喜欢寿司，现在吃腻了", "quote": "不喜欢寿司了"},
+                                "我现在不喜欢寿司了")
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["old"], "喜欢吃寿司")
+        self.assertTrue(self.st.c.execute("SELECT 1 FROM memory_rev WHERE old_text='喜欢吃寿司'").fetchone())
+
+    def test_pinned_in_prompt_and_search_fallback(self):
+        prompt = self.agent.system_prompt(self.st, [])
+        self.assertIn("不吃香菜", prompt)
+        self.assertEqual(self.st.search("晚饭吃什么"), [])
+        self.assertTrue(self.st.search("晚饭吃什么", fallback=True))
+
+
+class ActsTest(unittest.TestCase):
+    """聊天里的统一展示（core/acts.py）：回执写出旧 → 新，撤销只认存在消息里的那份改动。"""
+
+    def setUp(self):
+        from core import acts, agent, journey
+        self.acts, self.agent = acts, agent
+        self.st = Store("u_" + os.urandom(8).hex())
+        w = journey.add_wish(self.st, "敢开口说英语", "")
+        self.st.add_step("在小组里主动提一个问题", wish_id=w["id"])
+
+    def _do(self, name, args, text):
+        snap = self.acts.before(self.st, name, args)
+        return self.acts.view(self.st, name, args, self.agent.run_tool(self.st, name, args, text), snap)
+
+    def test_rename_shows_before_after_and_undoes(self):
+        v = self._do("edit_plan", {"action": "change", "kind": "step", "target": "小组", "title": "在课上主动提一个问题"}, "把它改成课上提问")
+        self.assertEqual((v[0]["old"], v[0]["new"]), ("在小组里主动提一个问题", "在课上主动提一个问题"))
+        m = self.st.add_msg("assistant", "改好啦", {"acts": v})
+        self.assertTrue(self.acts.set_state(self.st, m["id"], 0, "", do_undo=True)["ok"])
+        self.assertEqual(self.st.c.execute("SELECT title FROM step").fetchone()[0], "在小组里主动提一个问题")
+        self.assertFalse(self.acts.set_state(self.st, m["id"], 0, "", do_undo=True)["ok"])     # 不能撤两次
+
+    def test_undo_refuses_after_later_edit(self):
+        v = self._do("edit_plan", {"action": "change", "kind": "step", "target": "小组", "title": "A"}, "改成 A")
+        m = self.st.add_msg("assistant", "好", {"acts": v})
+        self._do("edit_plan", {"action": "change", "kind": "step", "target": "A", "title": "B"}, "再改成 B")
+        self.assertFalse(self.acts.set_state(self.st, m["id"], 0, "", do_undo=True)["ok"])
+
+    def test_read_only_and_suggest(self):
+        self.assertEqual(self._do("look_up", {"area": "plan"}, "看看计划"), [])
+        e = self._do("suggest_feature", {"feature": "kickstart", "task": "写引言"}, "x")[0]
+        self.assertEqual((e["type"], e["title"], e["open"]["task"]), ("entry", "两分钟启动", "写引言"))
+        self.assertEqual(self.acts.infer_entry("要不要试试冥想？", [])["feature"], "meditation")
+
+
+class PortraitTest(unittest.TestCase):
+    """我的空间 →「了解你」（core/portrait.py）：每条记忆都在且只在一个大类里；发现不到门槛不下结论。"""
+
+    def setUp(self):
+        from core import portrait
+        self.p = portrait
+        self.st = Store("u_" + os.urandom(8).hex())
+        self.st.set_profile({"intent_primary": "敢开口说英语", "boundaries": ["别聊体重"]})
+        for t, k in [("室友叫阿琪", "identity"), ("不吃香菜", "preference"), ("下学期去英国交换", "identity"),
+                     ("11月5日在英语角和外国朋友聊了十分钟", "event"), ("想在课上敢发言", "intent"), ("累了先陪着", "boundary")]:
+            self.st.add_memory(t, k, "digest")
+        self.st.add_memory("可能有点焦虑", "insight", "digest", status="guess")
+
+    def test_every_memory_in_exactly_one_category(self):
+        cats = self.p.about(self.st)
+        self.assertEqual([c["id"] for c in cats], self.p.CAT_IDS)
+        ids = [i["id"] for c in cats for i in c["items"] if i["id"]]
+        active = [m["id"] for m in self.st.memories(statuses=("active",))]
+        self.assertEqual(sorted(ids), sorted(active))           # 一条不少，也不重复；猜测不在这里
+        by = {i["text"]: c["id"] for c in cats for i in c["items"]}
+        self.assertEqual(by["室友叫阿琪"], "people")
+        self.assertEqual(by["11月5日在英语角和外国朋友聊了十分钟"], "recent")   # 事件里随口提到朋友，不算在意的人
+        self.assertIn("别聊体重", by)                            # 设置里的边界也在小规矩里
+
+    def test_category_override_and_early_portrait(self):
+        m = self.st.memories(statuses=("active",))[0]
+        self.st.set_cat(m["id"], "likes")
+        self.assertIn(m["text"], [i["text"] for i in self.p.about(self.st)[2]["items"]])
+        self.assertEqual(self.p.portrait(self.st)["by"], "early")
+
+    def test_insights_locked_until_enough_and_hidden_after_no(self):
+        f = {x["id"]: x for x in self.p.insights(self.st)}
+        self.assertFalse(f["energy"]["ready"])
+        self.assertEqual(f["energy"]["left"], 12)
+        for i in range(10):
+            self.st.c.execute("INSERT INTO record(id, type, text, day, created_at) VALUES(?,?,?,?,?)",
+                              (f"r{i}", "good", "好事", "2026-11-01", "2026-11-01T21:00:00+08:00"))
+        got = {x["id"]: x for x in self.p.insights(self.st)}["goodtime"]
+        self.assertEqual(got["a"], "你多半在晚上记下开心的事")
+        self.st.set_profile({"insight_fb": {"goodtime": "no"}})
+        self.assertNotIn("goodtime", [x["id"] for x in self.p.insights(self.st)])     # 说了不太像，就不再出现
+
+
+class StepJudgeAndProactiveTest(unittest.TestCase):
+    """小步别打错勾；主动消息只挑有真材料的那种、不连着两次同一种、不带标签。"""
+
+    def setUp(self):
+        from core import agent, journey, proactive
+        self.agent, self.journey, self.pro = agent, journey, proactive
+        self.st = Store("u_" + os.urandom(8).hex())
+        self.st.set_profile({"onboarded": True, "intent_primary": "敢开口说英语"})
+        self.w = journey.add_wish(self.st, "敢开口说英语", "")
+        self.st.add_step("在小组里主动提一个问题", wish_id=self.w["id"])
+
+    def tearDown(self):
+        self.st.close()
+
+    def test_similar_but_different_thing_is_not_ticked(self):
+        r = self.agent.run_tool(self.st, "complete_step", {"title": "在小组里主动提一个问题"},
+                                "刚才我第一次在课上举手用英语回答了老师的问题")
+        self.assertTrue(r.get("skipped"))
+        self.assertEqual([s["status"] for s in self.st.steps()], ["todo"])
+        r = self.agent.run_tool(self.st, "complete_step", {"title": "在小组里主动提一个问题"}, "小组里主动提问那一步我做完啦")
+        self.assertTrue(r["ok"])
+
+    def test_choose_needs_material_and_rotates(self):
+        self.assertIsNone(self.pro.choose(self.st, resting=True))          # 什么都没有：不硬发
+        self.st.add_memory("室友叫阿琪", "identity", "chat:explicit")
+        self.st.add_record("good", "抢到最后一份糖醋排骨")
+        kinds = {self.pro.choose(self.st)["kind"] for _ in range(30)}
+        self.assertTrue(kinds <= {"chat", "cheer", "plan", "feature"})
+        self.st.set_profile({"last_proactive_kind": "chat"})
+        self.assertNotIn("chat", {self.pro.choose(self.st, resting=True)["kind"] for _ in range(20)})   # 不连着两次
+
+
+class LLMSwitchTest(unittest.TestCase):
+    """后台切换模型：思考档按服务商翻译；思考 / 强制工具被拒、服务商 500 时自动换一种写法再试，保证有回复。"""
+
+    def setUp(self):
+        self.orig_open = llm._open
+        self.calls = []
+        os.environ.setdefault("MODELFLARE_API_KEY", "test")
+        os.environ.setdefault("DEEPSEEK_API_KEY", "test")
+
+    def tearDown(self):
+        llm._open = self.orig_open
+        if llm.CHOICE_PATH.exists():
+            llm.CHOICE_PATH.unlink()
+
+    def test_effort_translation_and_saved_choice(self):
+        mf = llm.config({"provider": "modelflare", "model": "gpt-6.1-sol", "effort": "none"})
+        self.assertNotIn("reasoning_effort", llm._body([], cfg=mf))                  # GPT 不认 none：不带
+        ds = llm.config({"provider": "deepseek", "model": "deepseek-flash", "effort": "high"})
+        self.assertEqual(llm._body([], cfg=ds)["reasoning_effort"], "max")
+        llm.save_choice("modelflare", "kimi-k3", "low")
+        c = llm.config()
+        self.assertEqual((c["provider"], c["model"], c["reasoning"]), ("modelflare", "kimi-k3", "low"))
+
+    def test_fallbacks_keep_a_reply(self):
+        def fake(cfg, body, stream, timeout):
+            self.calls.append((body.get("reasoning_effort"), body.get("tool_choice")))
+            if body.get("reasoning_effort") not in (None, "none") and isinstance(body.get("tool_choice"), dict):
+                raise llm.LLMError("HTTP 400: Thinking mode does not support this tool_choice")
+            if len(self.calls) == 1:
+                raise llm.LLMError("HTTP 500: Internal Server Error")
+            return "resp"
+        llm._open = fake
+        ds = llm.config({"provider": "deepseek", "model": "deepseek-flash", "effort": "high"})
+        body = llm._body([{"role": "user", "content": "x"}], tools=[{"type": "function", "function": {"name": "t"}}], tool_choice="t", cfg=ds)
+        self.assertEqual(llm._request(body, True, 10, ds), "resp")
+        self.assertEqual(self.calls[-1][0], "none")                                   # 最后是关掉思考、照样强制工具成功的
+        llm._open = lambda *a: (_ for _ in ()).throw(llm.LLMError("HTTP 401: bad key"))
+        with self.assertRaises(llm.LLMError):
+            llm._request(body, True, 10, ds)                                          # key 不对不重试，直接报
+
+
+if __name__ == "__main__":
+    unittest.main()
