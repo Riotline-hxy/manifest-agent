@@ -2151,5 +2151,83 @@ class MemoryTest(unittest.TestCase):
         self.assertTrue(self.st.search("晚饭吃什么", fallback=True))
 
 
+class ActsTest(unittest.TestCase):
+    """聊天里的统一展示（core/acts.py）：回执写出旧 → 新，撤销只认存在消息里的那份改动。"""
+
+    def setUp(self):
+        from core import acts, agent, journey
+        self.acts, self.agent = acts, agent
+        self.st = Store("u_" + os.urandom(8).hex())
+        w = journey.add_wish(self.st, "敢开口说英语", "")
+        self.st.add_step("在小组里主动提一个问题", wish_id=w["id"])
+
+    def _do(self, name, args, text):
+        snap = self.acts.before(self.st, name, args)
+        return self.acts.view(self.st, name, args, self.agent.run_tool(self.st, name, args, text), snap)
+
+    def test_rename_shows_before_after_and_undoes(self):
+        v = self._do("edit_plan", {"action": "change", "kind": "step", "target": "小组", "title": "在课上主动提一个问题"}, "把它改成课上提问")
+        self.assertEqual((v[0]["old"], v[0]["new"]), ("在小组里主动提一个问题", "在课上主动提一个问题"))
+        m = self.st.add_msg("assistant", "改好啦", {"acts": v})
+        self.assertTrue(self.acts.set_state(self.st, m["id"], 0, "", do_undo=True)["ok"])
+        self.assertEqual(self.st.c.execute("SELECT title FROM step").fetchone()[0], "在小组里主动提一个问题")
+        self.assertFalse(self.acts.set_state(self.st, m["id"], 0, "", do_undo=True)["ok"])     # 不能撤两次
+
+    def test_undo_refuses_after_later_edit(self):
+        v = self._do("edit_plan", {"action": "change", "kind": "step", "target": "小组", "title": "A"}, "改成 A")
+        m = self.st.add_msg("assistant", "好", {"acts": v})
+        self._do("edit_plan", {"action": "change", "kind": "step", "target": "A", "title": "B"}, "再改成 B")
+        self.assertFalse(self.acts.set_state(self.st, m["id"], 0, "", do_undo=True)["ok"])
+
+    def test_read_only_and_suggest(self):
+        self.assertEqual(self._do("look_up", {"area": "plan"}, "看看计划"), [])
+        e = self._do("suggest_feature", {"feature": "kickstart", "task": "写引言"}, "x")[0]
+        self.assertEqual((e["type"], e["title"], e["open"]["task"]), ("entry", "两分钟启动", "写引言"))
+        self.assertEqual(self.acts.infer_entry("要不要试试冥想？", [])["feature"], "meditation")
+
+
+class PortraitTest(unittest.TestCase):
+    """我的空间 →「了解你」（core/portrait.py）：每条记忆都在且只在一个大类里；发现不到门槛不下结论。"""
+
+    def setUp(self):
+        from core import portrait
+        self.p = portrait
+        self.st = Store("u_" + os.urandom(8).hex())
+        self.st.set_profile({"intent_primary": "敢开口说英语", "boundaries": ["别聊体重"]})
+        for t, k in [("室友叫阿琪", "identity"), ("不吃香菜", "preference"), ("下学期去英国交换", "identity"),
+                     ("11月5日在英语角和外国朋友聊了十分钟", "event"), ("想在课上敢发言", "intent"), ("累了先陪着", "boundary")]:
+            self.st.add_memory(t, k, "digest")
+        self.st.add_memory("可能有点焦虑", "insight", "digest", status="guess")
+
+    def test_every_memory_in_exactly_one_category(self):
+        cats = self.p.about(self.st)
+        self.assertEqual([c["id"] for c in cats], self.p.CAT_IDS)
+        ids = [i["id"] for c in cats for i in c["items"] if i["id"]]
+        active = [m["id"] for m in self.st.memories(statuses=("active",))]
+        self.assertEqual(sorted(ids), sorted(active))           # 一条不少，也不重复；猜测不在这里
+        by = {i["text"]: c["id"] for c in cats for i in c["items"]}
+        self.assertEqual(by["室友叫阿琪"], "people")
+        self.assertEqual(by["11月5日在英语角和外国朋友聊了十分钟"], "recent")   # 事件里随口提到朋友，不算在意的人
+        self.assertIn("别聊体重", by)                            # 设置里的边界也在小规矩里
+
+    def test_category_override_and_early_portrait(self):
+        m = self.st.memories(statuses=("active",))[0]
+        self.st.set_cat(m["id"], "likes")
+        self.assertIn(m["text"], [i["text"] for i in self.p.about(self.st)[2]["items"]])
+        self.assertEqual(self.p.portrait(self.st)["by"], "early")
+
+    def test_insights_locked_until_enough_and_hidden_after_no(self):
+        f = {x["id"]: x for x in self.p.insights(self.st)}
+        self.assertFalse(f["energy"]["ready"])
+        self.assertEqual(f["energy"]["left"], 12)
+        for i in range(10):
+            self.st.c.execute("INSERT INTO record(id, type, text, day, created_at) VALUES(?,?,?,?,?)",
+                              (f"r{i}", "good", "好事", "2026-11-01", "2026-11-01T21:00:00+08:00"))
+        got = {x["id"]: x for x in self.p.insights(self.st)}["goodtime"]
+        self.assertEqual(got["a"], "你多半在晚上记下开心的事")
+        self.st.set_profile({"insight_fb": {"goodtime": "no"}})
+        self.assertNotIn("goodtime", [x["id"] for x in self.p.insights(self.st)])     # 说了不太像，就不再出现
+
+
 if __name__ == "__main__":
     unittest.main()

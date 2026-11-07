@@ -46,9 +46,15 @@ PROMPT = """你在为「显化陪伴」应用做每天一次的记忆整理。�
 9. 「两分钟启动记忆」是 TA 勾选让你记住的启动经历（想做什么、卡在哪、怎么调整、做了几步）。
    从里面找值得长期记住的：常见的阻碍、对 TA 管用的启动方式、行为上的规律，写进记忆或笔记本；
    只出现一次的经历最多记成带日期的事件，不要直接当成稳定的偏好或性格；已经记过的不要重复。
+10. 每条 ADD 都写 cat，归进「了解你」的六个大类之一（用户在「我的空间」里按这六类看自己的记忆）：
+   effort 在努力（想靠近的样子、正在做的事）/ people 在意的人（家人、朋友、宠物，和他们有关的事）/
+   likes 喜好和习惯（口味、喜欢不喜欢、作息习惯）/ self 关于你自己（处境、身份、对自己的认识）/
+   recent 最近发生的事（带日期的事件）/ rules 相处的小规矩（希望小光怎么陪、别碰的话题）。
+11. portrait：「小光眼中的你」，一句话、≤30 字、第二人称或「一个……的人」。写这个人是什么样的人、最近在变成什么样，
+   只用笔记本和已有记忆里的事实，温暖、具体，不夸张、不说教。材料太少写不出来就返回空字符串。
 
 只输出 JSON：
-{"summary":"...","highlights":["..."],"notebook":"（完整的新笔记本）","ops":[{"op":"ADD|UPDATE|DELETE","id":"(UPDATE/DELETE 必填)","text":"...","kind":"identity|intent|preference|boundary|insight|event|good_news","source":"said|guess","evidence":"(改动保护记忆时必填：用户原话)"}]}"""
+{"summary":"...","highlights":["..."],"notebook":"（完整的新笔记本）","portrait":"...","ops":[{"op":"ADD|UPDATE|DELETE","id":"(UPDATE/DELETE 必填)","text":"...","kind":"identity|intent|preference|boundary|insight|event|good_news","cat":"effort|people|likes|self|recent|rules","source":"said|guess","evidence":"(改动保护记忆时必填：用户原话)"}]}"""
 
 
 def material(st: Store, day: str) -> dict:
@@ -149,6 +155,9 @@ def run(st: Store, day: str | None = None, use_model: bool = True) -> dict:
         nb = str(out.get("notebook") or "").strip()
         if len(nb) >= 20 and nb != old_nb:
             st.set_profile({"notebook": {"text": clip(nb, 1600), "updated_at": now().isoformat(timespec="seconds"), "day": day, "by": "digest"}})
+        pt = clip(str(out.get("portrait") or "").strip(), 40)
+        if pt and (st.profile().get("portrait") or {}).get("by") != "user":     # TA 亲手改过的那句不覆盖
+            st.set_profile({"portrait": {"text": pt, "by": "digest", "updated_at": now().isoformat(timespec="seconds")}})
         if not summary:
             summary, _ = fallback_summary(mat)
     else:
@@ -195,7 +204,8 @@ def apply(st: Store, ops: list, known: dict, mat: dict, day: str) -> tuple[list[
                     rejected.append({"op": act, "text": text, "why": "guess limit"})
                     continue
                 guesses += 1
-            m = st.add_memory(text, kind, "digest", "guess" if is_guess else "active")
+            cat = op.get("cat") if op.get("cat") in ("effort", "people", "likes", "self", "recent", "rules") else ""
+            m = st.add_memory(text, kind, "digest", "guess" if is_guess else "active", cat=cat)
             applied.append({"op": "ADD", "text": m["text"], "kind": kind, "status": m["status"]})
         elif act in ("UPDATE", "DELETE"):
             if not target:

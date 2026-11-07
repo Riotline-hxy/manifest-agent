@@ -5,7 +5,7 @@ the only source of the user id.
 """
 from __future__ import annotations
 
-from core import academy, admin, auth, digest, metrics, webpush, growth, journey, kickstart, llm, onboarding, report, scenes, scheduler, tasks, town, trial
+from core import academy, acts, admin, portrait, auth, digest, metrics, webpush, growth, journey, kickstart, llm, onboarding, report, scenes, scheduler, tasks, town, trial
 from core.store import Store
 from core.util import clip, day_key, iso
 from core.api import VERSION, ApiError, bootstrap, public_user
@@ -350,16 +350,42 @@ def memory(h, u, b, q):
         elif act == "edit":
             if not text:
                 raise ApiError(400, "内容不能为空")
-            st.update_memory(m["id"], text=text, status="active", reason="user_edit")
-            st.c.execute("UPDATE memory SET source='confirmed' WHERE id=?", (m["id"],))
-            st.log("memory", "你改了一条记忆：" + text)
+            if text != m["text"]:
+                st.update_memory(m["id"], text=text, status="active", reason="user_edit")
+                st.c.execute("UPDATE memory SET source='confirmed' WHERE id=?", (m["id"],))
+                st.log("memory", "你改了一条记忆：" + text)
+            if b.get("cat") in portrait.CAT_IDS:
+                st.set_cat(m["id"], b["cat"])
         elif act == "add":
             if not text:
                 raise ApiError(400, "内容不能为空")
-            st.add_memory(text, "identity", "confirmed")
+            cat = b.get("cat") if b.get("cat") in portrait.CAT_IDS else ""
+            kind = {"effort": "intent", "likes": "preference", "rules": "boundary", "recent": "event"}.get(cat, "identity")
+            st.add_memory(text, kind, "confirmed", cat=cat)
             st.log("memory", "你亲手写下：" + text)
         else:
             raise ApiError(400, "未知操作")
+        return 200, bootstrap(st)
+
+
+def portrait_api(h, u, b, q):
+    """「小光眼中的你」那一句：TA 改了就以 TA 的为准，夜里整理不再覆盖。清空就交还给小光。"""
+    text = clip(str(b.get("text") or ""), 60).strip()
+    with Store(u["id"]) as st:
+        st.set_profile({"portrait": {"text": text, "by": "user", "updated_at": iso()} if text else {}})
+        st.log("memory", "你改了小光眼中的你：" + text if text else "让小光重新写「小光眼中的你」")
+        return 200, bootstrap(st)
+
+
+def insight_api(h, u, b, q):
+    """「小光的发现」：像我 / 不太像。不太像的不再出现。"""
+    fid, fb = str(b.get("id") or ""), str(b.get("fb") or "")
+    if fb not in ("yes", "no", ""):
+        raise ApiError(400, "bad fb")
+    with Store(u["id"]) as st:
+        cur = dict(st.profile().get("insight_fb") or {})
+        cur[fid] = fb
+        st.set_profile({"insight_fb": cur})
         return 200, bootstrap(st)
 
 
@@ -515,6 +541,20 @@ def pulse(h, u, b, q):
         r = st.c.execute("SELECT COUNT(*), MAX(created_at) FROM inbox WHERE seen=0").fetchone()
         last = st.c.execute("SELECT id, content, meta FROM msg WHERE role='assistant' ORDER BY created_at DESC LIMIT 1").fetchone()
     return 200, {"unseen": r[0], "latest": r[1] or "", "last_msg": last["id"] if last else ""}
+
+
+def act_api(h, u, b, q):
+    """聊天里小光做过的一件事（core/acts.py）：撤销，或者记下待确认的结果（留下了 / 不用 / 加进计划了）。"""
+    with Store(u["id"]) as st:
+        try:
+            i = int(b.get("i"))
+        except (TypeError, ValueError):
+            raise ApiError(400, "bad index")
+        op = str(b.get("op") or "")
+        out = acts.set_state(st, str(b.get("msg_id") or ""), i, str(b.get("state") or ""), do_undo=op == "undo")
+        if not out["ok"]:
+            raise ApiError(409, out["error"])
+        return 200, {"act": out["act"], **bootstrap(st)}
 
 
 def plan_apply(h, u, b, q):
@@ -874,6 +914,9 @@ ROUTES = {
     ("POST", "/api/habit"): (habit_api, True),
     ("POST", "/api/milestone"): (milestone_api, True),
     ("POST", "/api/plan/apply"): (plan_apply, True),
+    ("POST", "/api/act"): (act_api, True),
+    ("POST", "/api/portrait"): (portrait_api, True),
+    ("POST", "/api/insight"): (insight_api, True),
     ("POST", "/api/task"): (task_api, True),
     ("POST", "/api/notebook"): (notebook, True),
     ("GET", "/api/pulse"): (pulse, True),

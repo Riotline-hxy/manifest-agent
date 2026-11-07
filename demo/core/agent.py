@@ -19,7 +19,7 @@ import re
 from datetime import timedelta
 import threading
 
-from . import academy, growth, guide, journey, kickstart, llm, lookup, memory, nudges, router, tasks, town, voice
+from . import academy, acts, growth, guide, journey, kickstart, llm, lookup, memory, nudges, router, tasks, town, voice
 from .scenes import CHAT_HOW, SCENES
 from .store import Store
 from .util import clip, day_key, now, parse_iso
@@ -87,6 +87,9 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
 先问一句，TA 说好，下一句再做：
 - 你自己想到的修改，或者 TA 说得含糊（「这两个好像重复了」「帮我精简一下」）：说你建议改哪个、怎么改、为什么，问 TA 要不要。没点名的东西，永远不替 TA 挑一个就删。
 - TA 难过、累、焦虑、受挫：先陪着。想推荐休息、冥想、两分钟启动这些，只问一句「要不要……」，不替 TA 决定、不直接打开。
+- 推荐 App 里的一个功能（冥想、三分钟感恩、两分钟启动、聊聊愿望、蜕变计划、小镇、学堂……）时，调用 suggest_feature：
+  界面会在你的话下面出一个入口，TA 点「开始」才开始。回复里一句话说为什么推荐它就好，功能介绍界面上有，别再讲一遍，也别说已经打开了。
+  一次最多推荐一个；TA 没在难过、也没卡住时，不用硬推荐。
 - TA 说一件事想做却一直开始不了：可以问一句要不要试试点子里的「两分钟启动」（把事情拆成几个一两分钟的小动作，你陪着一步一步做）。
 - 好几件事堆着不知道从哪开始：先替 TA 挑出现在最该先做的那一件、说一个理由（比如截止日期最近），再问要不要用「两分钟启动」开个头。
 - TA 讲了一件刚做的、和愿望有关的具体的事（做了什么、什么感受）→ propose_moment，界面会让 TA 点「留下」；回复里问「要不要把它留在轨迹上？」，不说「记下了」。
@@ -273,6 +276,13 @@ TOOLS = [
             "action": {"type": "string", "enum": ["ease", "pause"], "description": "ease 调低一档频率 / pause 先收起"}},
             "required": ["title", "action"]}}},
     {"type": "function", "function": {
+        "name": "suggest_feature", "description": "推荐 TA 试一个 App 里的功能：界面会出一个入口（名字、一句介绍、开始按钮），TA 点了才开始。TA 自己点名要做时用 start_scene",
+        "parameters": {"type": "object", "properties": {
+            "feature": {"type": "string", "enum": list(acts.FEATURES),
+                        "description": "meditation 冥想 / gratitude 三分钟感恩 / kickstart 两分钟启动 / seven_steps_lite 聊聊你的愿望 / relearn 聊聊现在的你 / plan 蜕变计划 / report 蜕变报告 / goodnews 好消息 / town 我的小镇 / academy 心灵学堂"},
+            "task": {"type": "string", "description": "只给 kickstart 用：TA 想开始的那件事，一句短话"}},
+            "required": ["feature"]}}},
+    {"type": "function", "function": {
         "name": "start_scene", "description": "开始一个引导场景，由界面一步步带用户完成",
         "parameters": {"type": "object", "properties": {
             "scene": {"type": "string", "enum": list(SCENES) + ["kickstart"],
@@ -304,7 +314,7 @@ TOOLS = [
             "boundaries": {"type": "array", "items": {"type": "string"}, "description": "TA 不希望你碰的话题（整份替换）"}}}}},
 ]
 
-TOOL_MOOD = {"look_up": "focused", "app_guide": "searching", "edit_good_news": "satisfied", "edit_task": "done", "update_settings": "shy", "edit_plan": "satisfied", "update_notebook": "recall", "search_chats": "recall", "kick_history": "recall", "schedule_task": "satisfied", "cancel_task": "done", "list_tasks": "focused", "adjust_habit": "satisfied", "propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
+TOOL_MOOD = {"suggest_feature": "curious", "look_up": "focused", "app_guide": "searching", "edit_good_news": "satisfied", "edit_task": "done", "update_settings": "shy", "edit_plan": "satisfied", "update_notebook": "recall", "search_chats": "recall", "kick_history": "recall", "schedule_task": "satisfied", "cancel_task": "done", "list_tasks": "focused", "adjust_habit": "satisfied", "propose_plan": "focused", "add_habit": "satisfied", "checkin_habit": "done", "propose_moment": "curious", "correct_memory": "recall", "complete_step": "done", "log_good_news": "happy", "log_lazy_day": "tired",
              "add_step": "satisfied", "remember": "recall", "start_scene": "curious",
              "get_growth": "focused", "knowledge_search": "searching", "set_care_style": "shy"}
 
@@ -866,6 +876,12 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         h = next(x for x in journey.habits(store) if x["id"] == h["id"])
         return {"ok": True, "habit": {"title": h["title"], "week": h["week"], "need": h["need"], "freq_text": h["freq_text"]},
                 "already": not created, "xp": xp}
+    if name == "suggest_feature":
+        f = acts.FEATURES.get(str(args.get("feature") or ""))
+        if not f:
+            return {"ok": False, "error": "没有这个功能", "have": list(acts.FEATURES)}
+        return {"ok": True, "feature": args.get("feature"), "title": f["title"],
+                "note": "界面会出一个入口，TA 点「开始」才开始。回复里一句话说为什么推荐就好，别说已经打开了。"}
     if name == "start_scene":
         sid = args.get("scene")
         if sid == "kickstart":
@@ -939,8 +955,11 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
     store.mark_inbox_seen()  # TA 回来说话了，之前的主动消息就算看过了
     # 每天第一次来聊天算一次签到；award() 对同一天同一个 ref 是幂等的
     checkin = growth.award(store, "checkin", ref="day:" + now().strftime("%Y-%m-%d"), note="今天来聊了")
+    all_acts: list[dict] = []   # 这一轮要画的东西（core/acts.py），也存进这条回复的 meta，重看聊天时还在
     if checkin.get("amount"):
-        yield ("tool", {"name": "checkin", "args": {}, "result": checkin})
+        v = acts.view(store, "checkin", {}, checkin, {})
+        yield ("tool", {"name": "checkin", "args": {}, "result": checkin, "acts": v, "act_start": len(all_acts)})
+        all_acts += v
     yield ("mood", {"id": MOODS["thinking"]})
 
     # 检索：这一句 + TA 上一句（接着上一句说「那个呢」时也能对上）；一条都对不上就退回最近的几条；已经钉在提示里的不重复放
@@ -991,12 +1010,15 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
                 args = _parse_args(c["arguments"])
                 if c["name"] == "search_memory":
                     yield ("mood", {"id": MOODS["searching"]})
+                snap = acts.before(store, c["name"], args)
                 result = run_tool(store, c["name"], args, user_text)
                 tool_log.append({"name": c["name"], "args": args, "result": result})
                 if result.get("skipped"):
                     blocked.add(c["name"])
                 elif not result.get("unchanged"):
-                    yield ("tool", {"name": c["name"], "args": args, "result": result})
+                    v = acts.view(store, c["name"], args, result, snap)
+                    yield ("tool", {"name": c["name"], "args": args, "result": result, "acts": v, "act_start": len(all_acts)})
+                    all_acts += v
                 if result.get("ok") and c["name"] in TOOL_MOOD:
                     mood_set = True
                     yield ("mood", {"id": MOODS[TOOL_MOOD[c["name"]]]})
@@ -1008,9 +1030,15 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
             yield ("delta", {"text": reply})
         yield ("error", {"message": str(e)[:200]})
 
-    meta = {"memories": [m["id"] for m in retrieved], "tools": [{"name": t["name"], "args": t["args"]} for t in tool_log]}
+    extra = acts.infer_entry(reply, all_acts)   # 嘴上推荐了练习、却没调 suggest_feature：补上入口
+    if extra:
+        yield ("tool", {"name": "suggest_feature", "args": {"feature": extra["feature"]}, "result": {"ok": True},
+                        "acts": [extra], "act_start": len(all_acts)})
+        all_acts.append(extra)
+    meta = {"memories": [m["id"] for m in retrieved], "tools": [{"name": t["name"], "args": t["args"]} for t in tool_log],
+            "acts": all_acts}
     mid = store.add_message("assistant", reply, meta)
-    yield ("done", {"message_id": mid})
+    yield ("done", {"message_id": mid["id"]})
     yield ("mood", {"id": MOODS["idle"]})
 
     # 隐性记忆改为日终统一整理（core/digest.py）；逐轮抽取只在显式打开时运行

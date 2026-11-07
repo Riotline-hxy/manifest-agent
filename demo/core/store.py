@@ -52,6 +52,8 @@ DEFAULT_PROFILE = {
     "custom_moods": [],     # 用户自己加的心情词
     "digest_on": True,      # 例行任务「夜里整理记忆」的开关
     "notebook": {},         # 小光的笔记本：夜里整理时更新的、关于 TA 的长期笔记 {text, updated_at}
+    "portrait": {},         # 「小光眼中的你」一句话 {text, by: digest|user, updated_at}
+    "insight_fb": {},       # 小光的发现：TA 点的「像我」yes /「不太像」no，按发现 id
     "last_digest_day": "", "current_wish": "", "cheer": {},
     "xp": 0, "last_chat_at": "", "last_proactive_at": "", "created_at": "",
     # 我的小镇（town.py）：名字、数据版本、已经庆祝过的等级、第一次进小镇时的欢迎（new / migrated）
@@ -188,6 +190,9 @@ class Store:
             self.c.execute("ALTER TABLE wish ADD COLUMN target_day TEXT DEFAULT ''")
         if "prompts" not in wcols:
             self.c.execute("ALTER TABLE wish ADD COLUMN prompts TEXT DEFAULT '[]'")
+        mcols = {r["name"] for r in self.c.execute("PRAGMA table_info(memory)")}
+        if "cat" not in mcols:   # 「了解你」的六个大类（core/portrait.py）；空着就按 kind 猜
+            self.c.execute("ALTER TABLE memory ADD COLUMN cat TEXT DEFAULT ''")
         tcols = {r["name"] for r in self.c.execute("PRAGMA table_info(town_item)")}
         if "rot" not in tcols:   # 大建筑可以转 90°
             self.c.execute("ALTER TABLE town_item ADD COLUMN rot INTEGER DEFAULT 0")
@@ -207,7 +212,7 @@ class Store:
         return self.profile()
 
     # ---- memory -------------------------------------------------------------
-    def add_memory(self, text: str, kind: str = "insight", source: str = "chat", status: str = "active") -> dict:
+    def add_memory(self, text: str, kind: str = "insight", source: str = "chat", status: str = "active", cat: str = "") -> dict:
         text = clip(text, 240)
         mid = new_id("m")
         t = iso()
@@ -215,7 +220,13 @@ class Store:
             self.c.execute("INSERT INTO memory(id, kind, text, source, status, created_at, updated_at) VALUES(?,?,?,?,?,?,?)",
                            (mid, kind, text, source, status, t, t))
             self.c.execute("INSERT INTO memory_fts(id, tok) VALUES(?,?)", (mid, fts_doc(text + " " + kind)))
+            if cat:
+                self.c.execute("UPDATE memory SET cat=? WHERE id=?", (cat, mid))
         return self.get_memory(mid)
+
+    def set_cat(self, mid: str, cat: str) -> None:
+        with self.lock:
+            self.c.execute("UPDATE memory SET cat=? WHERE id=?", (cat, mid))
 
     def get_memory(self, mid: str) -> dict | None:
         r = self.c.execute("SELECT * FROM memory WHERE id=?", (mid,)).fetchone()

@@ -13,8 +13,8 @@ from .util import clip
 ACTIONS = {
     "log_lazy_day": "TA 说今天想躺平 / 休息 / 偷懒 / 什么都不干（只说累、焦虑、烦，不算）；或者说今天不偷懒了",
     "log_good_news": "TA 讲了一件已经发生的、开心的小事，和 TA 的愿望无关（抢到排骨、天气很好、收到礼物）",
-    "propose_moment": "TA 讲了一件刚做的、和 TA 的愿望有关的具体的事，带着做了什么或什么感受",
-    "complete_step": "TA 说做完了计划里某个待做的小步",
+    "propose_moment": "TA 讲了一件刚做的、和 TA 的愿望有关的具体的事，带着做了什么或什么感受（新做成的事默认是它）",
+    "complete_step": "TA 说做完了计划里某个待做的小步：说的事要和下面「待做的小步」里的某一条对得上；对不上就不是它",
     "checkin_habit": "TA 说今天做了某个习惯里的事（今天去健身了、背完单词了）",
     "remember": "TA 明确让你记住一件关于 TA 的事（「记一下」「记住」「别忘了」）",
     "correct_memory": "TA 更正关于自己的一件事实（「我现在不喜欢 X 了」「交换的学校换成澳洲了」「那条不对」）。这是改记忆，不是改计划",
@@ -76,7 +76,12 @@ def decide(ctx: dict, user_text: str, timeout: float = 8) -> str:
         print("[router] failed:", e)
         return ""
     tool = out.get("tool") if isinstance(out, dict) else ""
-    return tool if isinstance(tool, str) and tool in ACTIONS else ""
+    if not (isinstance(tool, str) and tool in ACTIONS):
+        return ""
+    # 没有待做的小步 / 没有习惯，就不可能「完成哪一步」「打哪个卡」：别逼着小光去调一个注定找不到的工具
+    if (tool == "complete_step" and not ctx["steps"]) or (tool == "checkin_habit" and not ctx["habits"]):
+        return ""
+    return tool
 
 
 def pick(store, user_text: str, timeout: float = 8) -> str:
