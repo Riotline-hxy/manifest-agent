@@ -12,7 +12,7 @@ from __future__ import annotations
 import threading
 import time
 
-from . import digest, llm, nudges, proactive, tasks, webpush
+from . import digest, finds, llm, nudges, proactive, tasks, webpush
 from .store import Store, UID_RE
 from .util import DATA, clip, day_key, hours_since, iso, now
 from .voice import STYLE
@@ -122,7 +122,9 @@ def tick() -> int:
                 # 日终整理：03:00 之后处理「昨天」，每人每天一次
                 day = digest.due(st) if st.profile().get("digest_on", True) else None
                 if day:
-                    digest.run(st, day)
+                    out = digest.run(st, day)
+                    if not out.get("skipped"):
+                        finds.discover(st)      # 隔几天写一次「小光的发现」（finds.due 自己判断）
                 if deliver(st)["sent"]:
                     sent += 1
         except Exception as e:  # one broken user must not stop the loop

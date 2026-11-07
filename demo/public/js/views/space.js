@@ -1,4 +1,4 @@
-// 我的空间：档案 · 了解你（记忆分六类、小光的发现）· 夜里整理（笔记本、最近几晚）· 时间线 · 设置（含氛围与小光的颜色）。
+// 我的空间：档案 · 了解你（小光眼中的你、「小光记得的」入口、小光的发现）· 夜里整理（小光的笔记本，一晚一页）· 时间线 · 设置。
 // 「聊聊现在的你」不封在这里，它是点子里的体验；这里只看结果（记忆、设置里的陪伴偏好），随时改。
 import { api } from "../api.js";
 import { state, setData, go } from "../store.js";
@@ -50,64 +50,118 @@ export function renderSpace(root) {
   ({ memory: memoryTab, digest: digestTab, timeline: timelineTab, settings: settingsTab })[tab](root.querySelector(".space-body"), root);
 }
 
-// ---- 了解你（原来的「记忆」）：一句话 → 六个大类 → 小光的发现 → 猜测 --------------------------
-// 记忆一条不少：每条都在某一类里（core/portrait.py），点开一类能看全、能改、能删、能加；
-// 最底下「按时间看全部」是平铺的完整清单和修订记录。
+// ---- 了解你：小光眼中的你 → 「小光记得的」一个入口 → 小光的发现（重点） --------------------------
+// 记忆一条不少，但不摊开：六类、等你点头的猜测、笔记本里整理好的要点、按时间的全部，都收在「小光记得的」里。
+// 页面上真正想让 TA 看的是「小光的发现」：小光隔几天翻笔记本时注意到的事（core/finds.py）。
 
-function catCard(c) {
-  const items = c.items || [];
-  const shown = items.slice(0, 3);
-  return `<button class="card cat" data-cat="${esc(c.id)}">
-    <div class="cat-h">${tile(c.icon, c.color, 34)}<b>${esc(c.name)}</b><span class="n">${items.length ? `${items.length} 件` : ""}</span></div>
-    ${shown.length ? `<ul>${shown.map((i) => `<li>${esc(i.text)}${i.fixed ? `<small>你定的</small>` : ""}</li>`).join("")}</ul>`
-      : `<p class="cat-empty">还没有。点开告诉小光一件</p>`}
-    <div class="more">${items.length > 3 ? `还有 ${items.length - 3} 件 · ` : ""}全部 ›</div></button>`;
+const FD_COLORS = ["var(--c-orange)", "var(--c-pink)", "var(--c-mint)", "var(--c-sky)", "var(--c-violet)", "var(--c-lemon)"];
+
+function mdOf(s) {
+  const d = (s || "").slice(0, 10).split("-");
+  return d.length === 3 ? `${+d[1]}月${+d[2]}日` : "";
 }
 
-function findRow(f, i) {
-  const sub = f.ready ? `${f.src}${f.fb === "yes" ? " · 你说像" : " · 等你说像不像"}` : `正在积累 · 还差 ${f.left} ${f.unit}`;
-  return `<button class="row ${f.ready ? "" : "wait"}" data-find="${i}" style="--i:${i}">${tile(f.icon, f.ready ? f.color : "var(--surface-3)", 42)}
-    <span class="row-main"><b>${esc(f.ready ? f.a : f.q)}</b><span>${esc(sub)}</span></span><span class="row-go">${icon("arrow")}</span></button>`;
+function fdCard(f, i) {
+  return `<button class="fd ${i === 0 ? "hero" : ""}" data-fd="${i}" style="--fc:${FD_COLORS[i % FD_COLORS.length]};--i:${i}">
+    <span class="fd-mark" aria-hidden="true">“</span>
+    <p class="fd-t">${esc(f.text)}</p>
+    <span class="fd-m">${esc(mdOf(f.at))}${f.fb === "yes" ? `<span class="fd-yes">${icon("check")}你说像</span>` : ""}</span></button>`;
 }
 
 function memoryTab(body, root) {
   const d = state.data;
   const about = d.about || [];
   const pt = d.portrait || {};
-  const ins = d.insights || [];
+  const fds = d.finds || [];
   const guesses = (d.memories || []).filter((m) => m.status === "guess");
   const total = about.reduce((n, c) => n + c.items.filter((i) => !i.fixed).length, 0);
   body.innerHTML = `
     <section class="card portrait">${tile("sparkles", "var(--c-violet)", 46)}
       <div class="pt-main"><div class="pt-k">小光眼中的你</div>
         <div class="pt-t">${esc(pt.text || "")}</div>
-        <div class="pt-m">${pt.by === "user" ? "你写的 · 小光会照这个认识你" : pt.by === "early" ? "认识满一周后，小光每晚整理时会写一句" : `认识第 ${pt.days} 天 · 每晚整理时更新`}</div></div>
+        <div class="pt-m">${pt.by === "user" ? "你写的 · 小光会照这个认识你" : pt.by === "early" ? (pt.days >= 7 ? "下次夜里整理时，小光会试着写一句" : "认识满一周后，小光每晚整理时会写一句") : `认识第 ${pt.days} 天 · 每晚整理时更新`}</div></div>
       ${pt.by === "early" ? "" : `<button class="icon-btn" data-pt-edit title="改这句话">${icon("edit")}</button>`}</section>
-    <div class="sec-title">关于你<span class="more">6 类 · ${total} 件事，点开能看全、能改</span></div>
-    <div class="cats">${about.map(catCard).join("")}</div>
-    <div class="sec-title">小光的发现<span class="more">从你做过的事里算出来的 · ${ins.filter((f) => f.ready).length} / ${ins.length}</span></div>
-    <div class="finds rows">${ins.map(findRow).join("")}</div>
-    ${guesses.map((g) => `<div class="mem guess guess-row"><div class="mt">小光猜：${esc(g.text)}</div>
-      <button class="btn btn-sm btn-good" data-act="confirm" data-id="${esc(g.id)}">对</button>
-      <button class="btn btn-sm btn-ghost" data-act="reject" data-id="${esc(g.id)}">不太对</button></div>`).join("")}
-    <button class="all-link" data-all>${icon("list")}按时间看全部 ${total} 件事和修订记录</button>`;
+    <button class="card known" data-known>
+      <span class="kn-dots">${about.map((c) => `<i style="--tile:${c.color}">${icon(c.icon)}</i>`).join("")}</span>
+      <span class="kn-main"><b>小光记得的关于你</b><small>${total} 件事<span class="kn-long">，分成六类 · 看看对不对、改一改</span>${guesses.length ? `<span class="kn-wait-m"> · ${guesses.length} 件等你点头</span>` : ""}</small></span>
+      ${guesses.length ? `<span class="kn-wait">${guesses.length} 件等你点头</span>` : ""}
+      <span class="row-go">${icon("arrow")}</span></button>
+    <div class="sec-title fd-title">小光的发现<span class="more">${fds.length ? "它慢慢注意到的事" : ""}</span></div>
+    ${fds.length ? `<div class="fds">${fds.map(fdCard).join("")}</div>`
+      : `<div class="fd-empty card">${tile("sparkles", "var(--c-lemon)", 40)}<div><b>小光还在留意</b>
+          <p>多聊几天、多记几件小事，它会把注意到的、你自己可能都没发现的事，写在这里。</p></div></div>`}`;
 
-  body.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => catSheet(b.dataset.cat, root)));
-  body.querySelectorAll("[data-find]").forEach((b) => b.addEventListener("click", () => findSheet(ins[+b.dataset.find], root)));
-  body.querySelector("[data-all]").addEventListener("click", () => allSheet(root));
+  body.querySelector("[data-known]").addEventListener("click", () => knownSheet(root));
+  body.querySelectorAll("[data-fd]").forEach((b) => b.addEventListener("click", () => findSheet(fds[+b.dataset.fd], +b.dataset.fd, root)));
   body.querySelector("[data-pt-edit]")?.addEventListener("click", () => portraitSheet(pt, root));
-  body.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", async () => {
-    try {
-      setData(await api.memory(b.dataset.act, { id: b.dataset.id }));
-      toast(b.dataset.act === "confirm" ? "记下了" : "删掉了，谢谢你纠正我");
-      renderSpace(root);
-    } catch (e) { toast(e.message, "err"); }
-  }));
+  if (state.spaceOpen === "notes") { state.spaceOpen = ""; notesSheet(root); }
 }
 
 function refreshAnd(root, then) {
   renderSpace(root);
   if (then) then();
+}
+
+// 「小光记得的关于你」：等你点头的猜测 → 六类 → 整理好的要点 → 按时间看全部
+function knownSheet(root) {
+  const d = state.data;
+  const about = d.about || [];
+  const guesses = (d.memories || []).filter((m) => m.status === "guess");
+  const nb = d.profile?.notebook || {};
+  const total = about.reduce((n, c) => n + c.items.filter((i) => !i.fixed).length, 0);
+  const body = h("div", { class: "known-sheet" });
+  body.innerHTML = `
+    ${guesses.length ? `<div class="pick-k">小光猜的，等你点头</div>
+      ${guesses.map((g) => `<div class="kn-guess"><span>${esc(g.text)}</span>
+        <button class="btn btn-sm btn-good" data-act="confirm" data-id="${esc(g.id)}">对</button>
+        <button class="btn btn-sm btn-ghost" data-act="reject" data-id="${esc(g.id)}">不太对</button></div>`).join("")}` : ""}
+    <div class="pick-k">${guesses.length ? "六类" : "分成六类，点开能看全、能改"}</div>
+    <div class="kn-cats">${about.map((c) => `<button class="kn-cat" data-cat="${esc(c.id)}">${tile(c.icon, c.color, 34)}
+      <span class="kc-main"><b>${esc(c.name)}</b><small>${esc(c.items[0]?.text || "还没有，点开告诉小光一件")}</small></span>
+      <span class="kc-n num">${c.items.length || ""}</span></button>`).join("")}</div>
+    <button class="kn-cat kn-notes" data-notes>${tile("book", "var(--c-violet)", 34)}
+      <span class="kc-main"><b>笔记本里整理好的要点</b><small>${nb.text ? "小光聊天时靠它记得你，你也可以直接改" : "聊过几天以后，小光会开始整理"}</small></span></button>
+    <button class="all-link" data-all>${icon("list")}按时间看全部 ${total} 件事和修订记录</button>`;
+  const s = sheet({ title: "小光记得的关于你", sticker: "heart", body });
+  body.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => { s.close(); catSheet(b.dataset.cat, root); }));
+  body.querySelector("[data-notes]").addEventListener("click", () => { s.close(); notesSheet(root); });
+  body.querySelector("[data-all]").addEventListener("click", () => { s.close(); allSheet(root); });
+  body.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", async () => {
+    try {
+      setData(await api.memory(b.dataset.act, { id: b.dataset.id }));
+      toast(b.dataset.act === "confirm" ? "记下了" : "删掉了，谢谢你纠正我");
+      s.close(); refreshAnd(root, () => knownSheet(root));
+    } catch (e) { toast(e.message, "err"); }
+  }));
+}
+
+// 笔记本里整理好的要点（小光聊天时靠它记得 TA）：看、改
+function nbRows(text) {
+  return (text || "").split(/\n+/).map((l) => l.trim()).filter(Boolean).map((l) => {
+    const m = l.match(/^([^：:]{2,8})[：:]\s*(.+)$/);
+    return m ? `<div class="nb-row"><i>${esc(m[1])}</i><span>${esc(m[2])}</span></div>` : `<div class="nb-row"><i></i><span>${esc(l)}</span></div>`;
+  }).join("");
+}
+
+function notesSheet(root) {
+  const nb = state.data.profile?.notebook || {};
+  const body = h("div", { class: "notes-sheet" });
+  const view = () => {
+    body.innerHTML = `<p class="why">${nb.updated_at ? `${esc(fmtDay(nb.updated_at))}${nb.by === "user" ? " · 你改过" : " · 夜里整理时更新"} · ` : ""}小光聊天时靠这些记得你。哪里不对，直接改。</p>
+      ${nb.text ? `<div class="nb-rows">${nbRows(nb.text)}</div>` : `<p class="muted">还没有内容。聊过几天以后，小光会在这里整理关于你的事。</p>`}`;
+  };
+  view();
+  const s = sheet({ title: "整理好的要点", sticker: "book", body, footer: [h("button", { class: "btn btn-ghost", onclick: edit }, "改一改")] });
+  function edit() {
+    body.innerHTML = `<textarea class="field" rows="12" maxlength="1600">${esc(nb.text || "")}</textarea>`;
+    body.querySelector("textarea").focus();
+    s.panel.querySelector(".sheet-foot, footer")?.replaceChildren(
+      h("button", { class: "btn btn-ghost", onclick: () => { s.close(); notesSheet(root); } }, "取消"),
+      h("button", { class: "btn btn-main", onclick: async () => {
+        try { setData(await api.notebook(body.querySelector("textarea").value)); s.close(); toast("改好了，小光会照这个记"); renderSpace(root); }
+        catch (e) { toast(e.message, "err"); }
+      } }, "保存"));
+  }
 }
 
 // 点开一类：这一类的全部记忆，每件从哪来、改过的写「原来是」，能改、能删、能加
@@ -167,29 +221,20 @@ function editMem(m, cid, root) {
   setTimeout(() => input.focus(), 60);
 }
 
-// 一个发现：问题 → 答案 → 图和依据 → 像我 / 不太像
-function findSheet(f, root) {
+// 一个发现：那句话 → 小光是从哪些事看出来的 → 像我 / 不太像
+function findSheet(f, i, root) {
   const body = h("div", { class: "find-sheet" });
-  const max = Math.max(1, ...(f.chart || [1]));
-  const top = (f.chart || []).indexOf(max);
-  body.innerHTML = `<div class="fq">${esc(f.q)}</div>
-    ${f.ready ? `<div class="fa">${esc(f.a)}</div>
-      ${f.chart ? `<div class="panel"><div class="pk">最近 4 周，每天打卡和完成小步的次数</div>
-        <div class="chart">${f.chart.map((n, i) => `<i class="${i === top ? "hi" : ""}" style="height:${Math.max(6, Math.round(n / max * 100))}%"></i>`).join("")}</div>
-        <div class="xl">${"一二三四五六日".split("").map((x) => `<span>${x}</span>`).join("")}</div></div>` : ""}
-      <div class="panel"><div class="pk">小光是怎么看出来的</div>${(f.evidence || []).map((e) => `<div class="ev">${esc(e)}</div>`).join("")}</div>`
-    : `<div class="fa wait">还在积累</div>
-      <div class="panel"><div class="pk">还差 ${f.left} ${esc(f.unit)}</div>
-        <div class="prog"><i style="width:${Math.round(Math.min(f.have, f.need) / f.need * 100)}%"></i></div>
-        <div class="ev">记录够了，小光会把算出来的结论放在这里，带着依据，等你说像不像。</div></div>`}`;
-  const footer = f.ready ? [
+  body.innerHTML = `<div class="fd big" style="--fc:${FD_COLORS[i % FD_COLORS.length]}"><span class="fd-mark" aria-hidden="true">“</span>
+      <p class="fd-t">${esc(f.text)}</p><span class="fd-m">${esc(mdOf(f.at))}，小光翻笔记本时注意到的</span></div>
+    ${(f.evidence || []).length ? `<div class="panel"><div class="pk">它是从这几件事看出来的</div>${f.evidence.map((e) => `<div class="ev">${esc(e)}</div>`).join("")}</div>` : ""}`;
+  const footer = [
     h("button", { class: "btn btn-ghost", onclick: () => save("no") }, "不太像"),
-    h("button", { class: `btn ${f.fb === "yes" ? "btn-good" : "btn-main"}`, onclick: () => save("yes") }, f.fb === "yes" ? "你说过像" : "像我")] : null;
-  const s = sheet({ title: "小光的发现", sticker: f.icon, body, footer });
+    h("button", { class: `btn ${f.fb === "yes" ? "btn-good" : "btn-main"}`, onclick: () => save("yes") }, f.fb === "yes" ? "你说过像" : "像我")];
+  const s = sheet({ title: "小光的发现", sticker: "sparkles", body, footer });
   async function save(fb) {
     try {
       setData(await api.discovery(f.id, fb));
-      s.close(); toast(fb === "yes" ? "记下了，小光以后照这个来" : "好，这条不再出现"); renderSpace(root);
+      s.close(); toast(fb === "yes" ? "小光记下了" : "好，这条收起来了，以后不往这边猜"); renderSpace(root);
     } catch (e) { toast(e.message, "err"); }
   }
 }
@@ -237,61 +282,70 @@ function allSheet(root) {
   }));
 }
 
-// ---- 夜里整理：整理说明 → 小光的笔记本（分行）→ 最近几晚（一晚一行，点开看变化）-----------
+// ---- 夜里整理 = 小光的笔记本：每晚一页（小标题、几句话、TA 的一句原话）。最新一页摊开，往前的按目录翻 -----------
+// 记忆的增删改不是这里的主角：每页底下一行小字，点开才看。
 
-function nbRows(text) {
-  return (text || "").split(/\n+/).map((l) => l.trim()).filter(Boolean).map((l) => {
-    const m = l.match(/^([^：:]{2,8})[：:]\s*(.+)$/);
-    return m ? `<div class="nb-row"><i>${esc(m[1])}</i><span>${esc(m[2])}</span></div>` : `<div class="nb-row"><i></i><span>${esc(l)}</span></div>`;
-  }).join("");
+const WEEK = "日一二三四五六";
+
+function pageOf(x) {
+  const pg = x.page || {};
+  if (pg.body) return pg;
+  return { title: (x.highlights || [])[0] || "这一天", body: x.summary || "", quote: "" };
 }
 
-function nightLabel(day) {
-  const y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
-  return day === y ? "昨天" : day.slice(5);
+function dayLine(day) {
+  const d = new Date(day + "T12:00:00");
+  return `${d.getMonth() + 1}月${d.getDate()}日 · 周${WEEK[d.getDay()]}`;
+}
+
+function nthDay(day) {
+  const c = state.data.profile?.created_at;
+  if (!c) return "";
+  const n = Math.round((new Date(day + "T12:00:00") - new Date(c.slice(0, 10) + "T12:00:00")) / 864e5) + 1;
+  return n >= 1 ? `认识第 ${n} 天` : "";
+}
+
+function memLine(x) {
+  const ops = x.ops || [];
+  if (!ops.length) return "";
+  const catOf = {};
+  (state.data.about || []).forEach((c) => c.items.forEach((i) => { catOf[i.text] = c.name; }));
+  return `<details class="nb-mem"><summary>${icon("heart")}这一晚，小光还记住了 ${ops.length} 件关于你的事</summary>
+    ${ops.map((o) => `<div class="chg"><span class="k">${o.op === "ADD" ? (o.status === "guess" ? "猜了一件" : "记住") : o.op === "UPDATE" ? "改了" : "忘掉"}</span>
+      <span class="tx">${o.op === "UPDATE" ? `<s>${esc(o.old)}</s> → ` : ""}${esc(o.text || o.old)}</span>${catOf[o.text] ? `<span class="to">${esc(catOf[o.text])}</span>` : ""}</div>`).join("")}</details>`;
+}
+
+function pageHTML(x) {
+  const pg = pageOf(x);
+  return `<div class="nb-date"><b>${esc(dayLine(x.day))}</b><span>${esc(nthDay(x.day))}</span></div>
+    <h3 class="nb-title">${esc(pg.title)}</h3>
+    <p class="nb-body">${esc(pg.body)}</p>
+    ${pg.quote ? `<div class="nb-quote"><span>${esc(pg.quote)}</span><small>你那天写的</small></div>` : ""}
+    ${memLine(x)}`;
 }
 
 function digestTab(body, root) {
   const list = state.data.digests || [];
-  const nb = state.data.profile?.notebook || {};
-  const catOf = {};
-  (state.data.about || []).forEach((c) => c.items.forEach((i) => { catOf[i.text] = c.name; }));
+  const [first, ...older] = list;
   body.innerHTML = `
     <section class="night card">
       <div class="night-ball"></div>
       <div class="night-copy">
-        <h2>每天夜里，小光会安静地整理一遍</h2>
-        <p>把这一天里值得记住的，写进笔记本、归进「了解你」的六类里。你让它记的不会被忘掉；它猜的，要你点头。</p>
-        <button class="btn btn-main" data-run>${icon("moon")}现在整理一下今天</button>
+        <h2>小光的笔记本</h2>
+        <p>每天夜里，小光会把这一天零零散散的事想一想，写成一页。</p>
+        <button class="btn btn-main" data-run>${icon("moon")}现在写今天这一页</button>
       </div>
     </section>
-    <section class="nb card">
-      <div class="nb-head">${tile("book", "var(--c-violet)", 34)}<div><b>小光的笔记本</b>
-        <small>${nb.updated_at ? `${esc(fmtDay(nb.updated_at))}${nb.by === "user" ? " · 你改过" : " · 夜里整理时更新"}` : "夜里整理时会开始写"}</small></div>
-        <span class="sp"></span><button class="btn btn-sm btn-ghost" data-nb-edit>${icon("edit")}改一改</button></div>
-      <div class="nb-text">${nb.text ? `<div class="nb-rows">${nbRows(nb.text)}</div>` : '<p class="muted" style="margin:10px 0 0">还没有内容。聊过几天以后，小光会在这里写下关于你的事。</p>'}</div>
-    </section>
-    ${list.length ? `<div class="sec-title" style="margin-top:26px">最近几晚<span class="more">只写变了什么，点开看细节</span></div>
-    <section class="card nights">${list.map((x) => {
-      const st = x.stats || {};
-      const chips = [st.added ? `<span class="pill good">新记 ${st.added}</span>` : "", st.guesses ? `<span class="pill acc">猜 ${st.guesses}</span>` : "",
-        st.updated ? `<span class="pill">改 ${st.updated}</span>` : "", st.deleted ? `<span class="pill">删 ${st.deleted}</span>` : ""].join("");
-      return `<details class="night-row"><summary><span class="d">${esc(nightLabel(x.day))}</span><span class="s">${esc(x.summary)}</span><span class="c">${chips}</span></summary>
-        <div class="night-open">${(x.ops || []).map((o) => `<div class="chg"><span class="k">${o.op === "ADD" ? (o.status === "guess" ? "猜了一件" : "新记住") : o.op === "UPDATE" ? "改了" : "删掉"}</span>
-          <span class="tx">${o.op === "UPDATE" ? `<s>${esc(o.old)}</s> → ` : ""}${esc(o.text || o.old)}</span>${catOf[o.text] ? `<span class="to">→ ${esc(catOf[o.text])}</span>` : ""}</div>`).join("")
-          || `<div class="muted" style="font-size:13px">这一晚没有改动记忆。</div>`}</div></details>`;
-    }).join("")}</section>` : ""}`;
-  body.querySelector("[data-nb-edit]").addEventListener("click", () => {
-    const box = body.querySelector(".nb-text");
-    box.innerHTML = `<textarea class="field" rows="10" maxlength="1600">${esc(nb.text || "")}</textarea>
-      <div class="row end" style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px"><button class="btn btn-ghost btn-sm" data-nb-cancel>取消</button><button class="btn btn-main btn-sm" data-nb-save>保存</button></div>`;
-    box.querySelector("textarea").focus();
-    box.querySelector("[data-nb-cancel]").addEventListener("click", () => renderSpace(root));
-    box.querySelector("[data-nb-save]").addEventListener("click", async () => {
-      try { setData(await api.notebook(box.querySelector("textarea").value)); toast("改好了，小光会照这个记"); renderSpace(root); }
-      catch (e) { toast(e.message, "err"); }
-    });
-  });
+    ${first ? `<article class="nb-page card">${pageHTML(first)}</article>`
+      : `<article class="nb-page card empty"><div class="nb-date"><b>第一页</b></div>
+        <p class="nb-body muted">还是空白的。今晚小光会写下第一页。</p></article>`}
+    ${older.length ? `<div class="sec-title" style="margin-top:26px">往前翻<span class="more">${older.length} 页</span></div>
+      <div class="nb-index card">${older.map((x) => {
+        const pg = pageOf(x);
+        return `<details class="nb-old"><summary><span class="d">${esc(dayLine(x.day).split(" · ")[0])}</span>
+          <span class="t"><b>${esc(pg.title)}</b><small>${esc(pg.body)}</small></span><span class="row-go">${icon("arrow")}</span></summary>
+          <div class="nb-page inner">${pageHTML(x)}</div></details>`;
+      }).join("")}</div>` : ""}`;
   const ball = mountBall(body.querySelector(".night-ball"), { size: 92, emotion: "00", agent: false });
   body.querySelector("[data-run]").addEventListener("click", async (e) => {
     const b = e.currentTarget;
@@ -301,8 +355,8 @@ function digestTab(body, root) {
       const out = await api.digest();
       setData(out);
       const dg = out.digest;
-      if (dg.skipped) { toast("今天还没有可整理的内容"); ball.set("sleep"); }
-      else { ball.set("done"); burstAt(b, 36); toast(`整理好了：新记 ${dg.stats.added}，更新 ${dg.stats.updated}，待确认 ${dg.stats.guesses}`); }
+      if (dg.skipped) { toast("今天还没有可以写的事"); ball.set("sleep"); }
+      else { ball.set("done"); burstAt(b, 36); toast(dg.page?.title ? `写好了：「${dg.page.title}」` : "写好了"); }
       setTimeout(() => renderSpace(root), 900);
     } catch (err) { toast(err.message, "err"); ball.set("error"); b.classList.remove("off"); }
   });

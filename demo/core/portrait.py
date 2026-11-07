@@ -82,7 +82,8 @@ def portrait(st) -> dict:
     if pt.get("text") and (pt.get("by") == "user" or days >= 7):
         return {"text": pt["text"], "by": pt.get("by") or "digest", "days": days}
     intent = (p.get("intent_primary") or "").strip()
-    return {"text": f"我们才认识 {days} 天。" + (f"你想靠近「{intent}」，" if intent else "") + "别的，我们慢慢聊。",
+    head = f"我们才认识 {days} 天。" if days < 7 else f"我们认识 {days} 天了。"
+    return {"text": head + (f"你想靠近「{intent}」，" if intent else "") + "别的，我还在慢慢认识你。",
             "by": "early", "days": days}
 
 

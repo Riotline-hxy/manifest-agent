@@ -1,10 +1,10 @@
 """Pieces shared by server.py and routes.py."""
 from __future__ import annotations
 
-from . import academy, cheer, growth, journey, kickstart, portrait, scenes, scheduler, tasks, town
+from . import academy, cheer, finds, growth, journey, kickstart, portrait, scenes, scheduler, tasks, town
 from .store import Store
 
-VERSION = "3.10.0"
+VERSION = "3.11.0"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
@@ -80,13 +80,13 @@ def bootstrap(st: Store) -> dict:
         "journey": journey.board(st),
         "cheer": cheer.get(st),
         "tasks": tasks.list_for(st.uid),
-        "digests": st.digests(7),
+        "digests": st.digests(21),       # 夜里整理 = 小光的笔记本，一晚一页
         "scene_counts": {r[0]: r[1] for r in st.c.execute(
             "SELECT scene, COUNT(*) FROM scene_run WHERE status='done' GROUP BY scene")},
         "revisions": st.revisions(60),
         "about": portrait.about(st),          # 我的空间 →「了解你」：六个大类
         "portrait": portrait.portrait(st),    # 小光眼中的你，一句话
-        "insights": portrait.insights(st),    # 小光的发现（代码算出来的）
+        "finds": finds.view(st),              # 小光的发现（小光翻笔记本时注意到的事，core/finds.py）
         "kick_memories": kickstart.entries(st, 30),   # 《两分钟启动记忆》：我的空间 → 记忆 里能看、能删
         "proactive": dict(zip(("ok", "reason"), scheduler.should_reach_out(p, scheduler.waiting_unseen(st, p)))),
     }

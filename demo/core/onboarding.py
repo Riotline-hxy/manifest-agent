@@ -252,23 +252,52 @@ def seed_guest(store: Store) -> None:
     store.push_inbox("明天那一步不急。今天想说的话，我都在。", "checkin")
     store.c.execute("UPDATE inbox SET created_at=?", (at(13, 9),))
 
-    # 过去三晚的日终整理（与 core/digest.py 写入的结构一致）
+    # 过去几晚的日终整理（与 core/digest.py 写入的结构一致）：首页那句话 + 小光笔记本里的一页
+    none = {"added": 0, "updated": 0, "deleted": 0, "guesses": 0, "user_lines": 2}
     digests = [
+        (5, "听自己的录音会有点尴尬，可你和 Mia 聊得比想象中顺。", ["和 Mia 聊了十分钟"], none, [],
+         {"title": "录音里的陌生声音", "quote": "录音里的我：这是谁？？我平时就是这个声音吗",
+          "body": "你第一次听自己的英文录音，问这是谁。可就在同一天，你和 Mia 用英语聊了十分钟，比你想的顺。别人耳朵里的你，好像比你自己听到的要好一点。"}),
+        (8, "Mia 说你口音自然了，这句我也替你记着。", ["Mia 说口音更自然"], none, [],
+         {"title": "Mia 说的那一句", "quote": "Mia 说我口音比上次自然",
+          "body": "周末和 Mia 练了二十分钟，她说你的口音比上次自然。你在旁边写：被看见的感觉很好。好像有人认真在听的时候，你就会说得更好一点。"}),
+        (10, "你是先开口的那个人了，这一天我想多记一会儿。", ["小组里第一次主动提问"],
+         {**none, "added": 1}, [{"op": "ADD", "text": "在小组讨论里常常想好了却没说出口", "kind": "event", "status": "active"}],
+         {"title": "先开口的那个人", "quote": "有点紧张，但说完发现大家都在认真听",
+          "body": "小组讨论里，你第一次主动提了问题。一周前你还说，常常想好了却没说出口。你说当时有点紧张，可说完发现大家都在认真听。我把这一页折了个角。"}),
         (11, "你说中断的时候更想被陪着找原因，我记下了，下次就这样陪你。", ["选了「一起找原因」", "把第一句话练顺"],
          {"added": 1, "updated": 0, "deleted": 0, "guesses": 0, "user_lines": 6},
-         [{"op": "ADD", "text": "中断时更希望被陪着找原因，不想被催", "kind": "preference", "status": "active"}]),
+         [{"op": "ADD", "text": "中断时更希望被陪着找原因，不想被催", "kind": "preference", "status": "active"}],
+         {"title": "凌晨一点的猫咪视频", "quote": "我：今晚一定早睡。也是我：凌晨一点在看猫咪视频",
+          "body": "你说今晚一定早睡，结果凌晨一点还在看猫。白天你在小组里提了问题，晚上又告诉我，中断的时候想被陪着找原因，不想被催。看猫那一会儿，大概也是你给自己留的一口气。"}),
         (12, "面试官那一笑，我猜你心里松了一大口气吧。", ["面试官笑了一下", "对着镜子练开场"],
          {"added": 0, "updated": 1, "deleted": 0, "guesses": 0, "user_lines": 4},
          [{"op": "UPDATE", "text": "跟熟悉的朋友一起练口语时不紧张，面对陌生人也在慢慢放松",
-           "old": "跟熟悉的朋友一起练口语时不紧张", "kind": "insight", "status": ""}]),
+           "old": "跟熟悉的朋友一起练口语时不紧张", "kind": "insight", "status": ""}],
+         {"title": "镜子里的开场白", "quote": "面试官笑了一下，我没那么紧张了",
+          "body": "面试前，你对着镜子把第一句话练了一遍。面试官笑了一下，你记下的是「没那么紧张了」，没写「我表现得很好」。你总把做到的说小一点，那我就替你多记一笔。"}),
         (13, "你居然自然醒了，还顺手读完一篇英文文稿，昨天状态真不错。", ["自然醒", "读完一篇文稿"],
          {"added": 0, "updated": 0, "deleted": 0, "guesses": 1, "user_lines": 3},
-         [{"op": "ADD", "text": "可能其实会说，更怕的是说错", "kind": "insight", "status": "guess"}]),
+         [{"op": "ADD", "text": "可能其实会说，更怕的是说错", "kind": "insight", "status": "guess"}],
+         {"title": "自然醒的早上", "quote": "早上居然自然醒了",
+          "body": "你一直说早上很难进入状态，今天却自然醒了，还顺手读完一篇英文文稿。两周前跟读播客，你读了三分钟，声音很小。现在读完一整篇，你都没觉得这值得说一说。"}),
     ]
-    for d, summary, hl, stats, ops in digests:
-        store.save_digest(at(d, 3)[:10], summary, hl, stats, ops, True)
+    for d, summary, hl, stats, ops, page in digests:
+        store.save_digest(at(d, 3)[:10], summary, hl, stats, ops, True, page)
         store.c.execute("UPDATE digest SET created_at=? WHERE day=?", (at(d + 1, 3, 10), at(d, 3)[:10]))
     store.set_profile({"last_digest_day": at(13, 3)[:10]})
+    store.set_profile({"portrait": {"text": "一个总是想好了才开口的人，这两周开始先开口了。", "by": "digest", "updated_at": at(13, 3)}})
+    # 小光的发现：小光翻笔记本时注意到的（core/finds.py 写的结构）
+    store.set_profile({"finds_at": at(13, 4), "finds": [
+        {"id": "fd_seed_1", "at": at(13, 4), "text": "你说得最顺的几次，身边都有一个认真在听的人。",
+         "evidence": [f"{md(5)} 给室友讲了一个英文词", f"{md(8)} Mia 说你口音比上次自然", f"{md(10)} 小组里提问，大家都在认真听"]},
+        {"id": "fd_seed_2", "at": at(13, 4), "text": "晚上九点以后的你，比白天勇敢一点。",
+         "evidence": [f"{md(3)} 晚上九点，你记下课上被老师夸", f"{md(10)} 夜里十点，你跟小光说主动提问的事", "你说过晚上 9–11 点最有精神"]},
+        {"id": "fd_seed_3", "at": at(10, 4), "text": "你很少说「我做到了」。面试那天，你写的是「没那么紧张了」。",
+         "evidence": [f"{md(6)} 录完自我介绍，你写「没那么难听」", f"{md(12)} 面试后你写「没那么紧张了」"]},
+        {"id": "fd_seed_4", "at": at(7, 4), "text": "让你开心的事，常常是有人记得你：少糖的奶茶，Mia 的那句话。",
+         "evidence": [f"{md(0)} 室友带奶茶，还记得你要少糖", f"{md(8)} Mia 说你口音比上次自然"]},
+    ]})
     store.bump("report_open", 0)
 
     # 两张成长轨迹看板：主线「自信与表达」，加一张「心灵平静」（文档里的首个主题示例）

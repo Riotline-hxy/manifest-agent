@@ -53,6 +53,7 @@ DEFAULT_PROFILE = {
     "digest_on": True,      # 例行任务「夜里整理记忆」的开关
     "notebook": {},         # 小光的笔记本：夜里整理时更新的、关于 TA 的长期笔记 {text, updated_at}
     "portrait": {},         # 「小光眼中的你」一句话 {text, by: digest|user, updated_at}
+    "finds": [],            # 小光的发现：小光翻笔记本时注意到的事 [{id, text, evidence[], at}]（core/finds.py）
     "insight_fb": {},       # 小光的发现：TA 点的「像我」yes /「不太像」no，按发现 id
     "last_digest_day": "", "current_wish": "", "cheer": {},
     "last_proactive_kind": "",   # 上一条主动消息聊的是哪种（chat / plan / feature / cheer），下一条换一种
@@ -194,6 +195,9 @@ class Store:
         mcols = {r["name"] for r in self.c.execute("PRAGMA table_info(memory)")}
         if "cat" not in mcols:   # 「了解你」的六个大类（core/portrait.py）；空着就按 kind 猜
             self.c.execute("ALTER TABLE memory ADD COLUMN cat TEXT DEFAULT ''")
+        dcols = {r["name"] for r in self.c.execute("PRAGMA table_info(digest)")}
+        if "page" not in dcols:   # 小光笔记本里这一晚的一页 {title, body, quote}
+            self.c.execute("ALTER TABLE digest ADD COLUMN page TEXT DEFAULT ''")
         kcols = {r["name"] for r in self.c.execute("PRAGMA table_info(kick_run)")}
         if "guess" not in kcols:   # 两分钟启动：小光对这件事的理解、这一步从什么时候开始算
             self.c.execute("ALTER TABLE kick_run ADD COLUMN guess TEXT DEFAULT ''")
@@ -291,14 +295,16 @@ class Store:
             d["highlights"] = loads(d["highlights"], [])
             d["stats"] = loads(d["stats"], {})
             d["ops"] = loads(d["ops"], [])
+            d["page"] = loads(d.get("page") or "", {}) or {}
             out.append(d)
         return out
 
-    def save_digest(self, day: str, summary: str, highlights: list, stats: dict, ops: list, by_model: bool) -> None:
+    def save_digest(self, day: str, summary: str, highlights: list, stats: dict, ops: list, by_model: bool,
+                    page: dict | None = None) -> None:
         with self.lock:
-            self.c.execute("INSERT OR REPLACE INTO digest(day, summary, highlights, stats, ops, by_model, created_at) "
-                           "VALUES(?,?,?,?,?,?,?)", (day, summary, dumps(highlights), dumps(stats), dumps(ops),
-                                                     1 if by_model else 0, iso()))
+            self.c.execute("INSERT OR REPLACE INTO digest(day, summary, highlights, stats, ops, by_model, created_at, page) "
+                           "VALUES(?,?,?,?,?,?,?,?)", (day, summary, dumps(highlights), dumps(stats), dumps(ops),
+                                                       1 if by_model else 0, iso(), dumps(page) if page else ""))
 
     def memories(self, status: str | None = None, limit: int = 200, statuses: tuple | None = None) -> list[dict]:
         if statuses:

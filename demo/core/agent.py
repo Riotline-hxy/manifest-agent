@@ -19,7 +19,7 @@ import re
 from datetime import timedelta
 import threading
 
-from . import academy, acts, growth, guide, journey, kickstart, llm, lookup, memory, nudges, router, tasks, town, voice
+from . import academy, acts, finds, growth, guide, journey, kickstart, llm, lookup, memory, nudges, router, tasks, town, voice
 from .scenes import CHAT_HOW, SCENES
 from .store import Store
 from .util import clip, day_key, now, parse_iso, tokens
@@ -147,7 +147,7 @@ TOOLS = [
             "kind": {"type": "string", "enum": ["identity", "intent", "preference", "boundary", "insight", "event"]}},
             "required": ["text"]}}},
     {"type": "function", "function": {
-        "name": "update_notebook", "description": "TA 让你往你的笔记本里加、改、删内容时使用（笔记本 TA 在「我的空间 → 夜里整理」里能看到）",
+        "name": "update_notebook", "description": "TA 让你往你的笔记本里加、改、删内容时使用。改的是笔记本里「整理好的要点」（关于 TA 的长期笔记，TA 在「我的空间 → 了解你 → 小光记得的」里能看到）；每晚写的那一页是夜里整理自动写的，不用这个工具",
         "parameters": {"type": "object", "properties": {
             "action": {"type": "string", "enum": ["add", "replace", "remove"]},
             "text": {"type": "string", "description": "add / replace：要写进去的内容，短句"},
@@ -410,6 +410,9 @@ def system_prompt(store: Store, retrieved: list[dict]) -> str:
     nb = (p.get("notebook") or {}).get("text") or ""
     if nb:
         s += "\n\n## 你的笔记本（你每天夜里整理的、关于 TA 的长期笔记）\n" + nb
+    yes = finds.liked(store)
+    if yes:
+        s += "\n\n## 你注意到、TA 也说「像我」的事（自然地用上，别一条条念）\n" + "\n".join(f"- {t}" for t in yes[:6])
     edge = (now() - timedelta(hours=HISTORY_HOURS)).date().isoformat()
     # 宠物和徽章已经下架：旧小结里提到它们的那几天不再放进来，免得小光还以为它们在
     older = [d for d in store.digests(14) if d["day"] < edge and not town.RETIRED.search(d["summary"] or "")][:7]

@@ -91,15 +91,16 @@
 .act .w { font-size: 11.5px; color: var(--text-3); }
 
 /* ---------- 主题面板 ---------- */
-.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
-.theme-card { position: relative; text-align: left; border-radius: 18px; border: 2px solid var(--line); overflow: hidden; transition: transform .2s var(--spring), border-color .2s; background: var(--surface); }
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); grid-auto-rows: 1fr; gap: 12px; }   /* 每张一样高 */
+.theme-card { position: relative; display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; text-align: left; border-radius: 18px; border: 2px solid var(--line); overflow: hidden; transition: transform .2s var(--spring), border-color .2s; background: var(--surface); }
 .theme-card:hover { transform: translateY(-3px); }
 .theme-card.on { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 .theme-card .prev { position: relative; height: 84px; }
 .theme-card .prev .b { position: absolute; left: 14px; bottom: 12px; width: 30px; height: 30px; border-radius: 50%; }
 .theme-card .prev .l1, .theme-card .prev .l2 { position: absolute; right: 14px; height: 7px; border-radius: 4px; }
 .theme-card .prev .l1 { top: 22px; width: 60px; } .theme-card .prev .l2 { top: 36px; width: 40px; }
-.theme-card .cap { padding: 9px 12px 11px; }
+.theme-card .prev { flex: none; }
+.theme-card .cap { flex: 1; padding: 9px 12px 11px; }
 .theme-card .cap b { display: block; font-size: 14px; }
 .theme-card .cap small { font-size: 11.5px; color: var(--text-3); font-weight: 700; }
 .swatches { display: flex; gap: 10px; flex-wrap: wrap; }

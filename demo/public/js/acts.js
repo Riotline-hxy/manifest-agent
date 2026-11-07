@@ -12,7 +12,7 @@ import { openKick } from "./kick.js";
 import { adjustSheet } from "./rest.js";
 import { askNotify } from "./tasks.js";
 
-const GO_LABEL = { plan: "去看看", goodnews: "去看看", panel: "去看看", space: "去看看", notebook: "看看笔记本", town: "去看看" };
+const GO_LABEL = { plan: "去看看", goodnews: "去看看", panel: "去看看", space: "去看看", notebook: "看看要点", town: "去看看" };
 
 function open(o = {}) {
   if (o.kick) return openKick({ task: o.task || "" });
@@ -22,7 +22,7 @@ function open(o = {}) {
 }
 
 function goTo(where) {
-  if (where === "notebook") { state.spaceTab = "digest"; go("space"); return; }
+  if (where === "notebook") { state.spaceTab = "memory"; state.spaceOpen = "notes"; go("space"); return; }   // 笔记本里整理好的要点
   go(where);
 }
 
