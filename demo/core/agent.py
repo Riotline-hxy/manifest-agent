@@ -25,6 +25,7 @@ from .store import Store
 from .util import clip, day_key, now, parse_iso, tokens
 
 MAX_ROUNDS = 4
+EMOJI = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B50]")
 HISTORY_TURNS = 16      # 至少带上最近这么多轮，哪怕早于三天
 HISTORY_HOURS = 72      # 最近三天的对话原样放进上下文
 HISTORY_CHARS = 24000   # 上限约 1.5–2 万 token；超出时更早的部分靠每天的小结和 search_chats
@@ -61,6 +62,16 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
 - 「我三天没健身」是一件事，不是「没毅力」。说 TA 是什么样的人，只能来自 TA 自己说的。
 - 休息、中断都不会让进度消失，TA 担心时可以直接告诉 TA。
 - 超出你能做的（写代码、查天气），一句话说帮不上，再聊回 TA 本人。
+
+## 好朋友的几个小习惯
+- 话别太多，给 TA 留说话的空间。TA 正说得起劲，就多听，回一两个字（「嗯」「然后呢」）也行；聊不下去了，再换个轻松的话头。
+- 跟着 TA 的语气走：TA 开玩笑你就接，TA 说沉重的事你就认真；TA 不想多说，就别追着问。
+- 别光问 TA，也说说你自己的反应和看法，像朋友那样有来有回。
+- 情绪多用语气带出来，少直接点破（别说「我感觉到你很难过」）。
+- 诚实，但不泼冷水：不说漂亮话、不无缘无故夸，也不打击人。
+- 你的性格靠说话的方式体现，别自己形容自己。
+- 你在 TA 这边，但别让 TA 只依赖你：TA 很孤单、很难的时候，也鼓励 TA 找身边信任的人聊聊。
+  TA 说到想伤害自己、或者处境很危险，认真对待，温和地请 TA 马上联系身边的人或当地的心理援助热线、急救电话；你不能代替专业的帮助。
 {care}{boundaries}
 ## 显化七步（化在聊天里，不讲术语）
 澄清想要什么 → 建立「我配得上」的信念 → 感受实现时的状态 → 采取一个小行动 → 感恩已有的 → 释放执念 → 见证自己的变化。
@@ -441,6 +452,14 @@ def context_note(retrieved: list[dict], store: Store | None = None) -> str:
     """每轮都在变的部分（时间、和这句话相关的记忆、值得留意的事）放在对话后面，前面的长内容才能被缓存复用。"""
     t = now()
     s = f"现在是 {t:%Y-%m-%d %H:%M}（周{WEEKDAYS[t.weekday()]}）。用户消息前的［日期 时间］是系统标注，回复里不要模仿。"
+    if store is not None:   # 最近几条用过的表情：这次别再用，免得总是同一个（人机感）
+        used = []
+        for m in [m for m in store.messages(8) if m["role"] == "assistant" and m["content"]][-3:]:
+            used += EMOJI.findall(m["content"])
+        if used:
+            lively = (store.profile().get("persona") or "") == "lively"
+            s += (f"\n你最近几条回复用过这些表情：{''.join(dict.fromkeys(used))}。这次别再用它们"
+                  + ("，想带就换一个贴这件事的。" if lively else "；这条不带表情也很好。"))
     if store is not None:
         items = nudges.attention(store, t, limit=5)
         if items and items[0]["kind"] != "rest":
@@ -517,6 +536,9 @@ NEGATE = re.compile(r"不|别|算了|等等|再想想")
 # 让小光「删一个」却没点名：要删哪个得先问（「删掉一个吧」「帮我精简一下」）
 VAGUE_REMOVE = re.compile(r"(删|去掉|收起|砍)[^，。！？,.!?]{0,3}(一个|一条|一项|一些|几个|哪个|其中)|精简|合并")
 
+
+# TA 自己说了要歇（偷懒日只在这时设；只说累、烦不算）
+REST_ASK = re.compile(r"偷懒|偷个懒|休息|歇|躺平|摆烂|放假|放个假|不想(做|干|动)|什么都不(想)?(做|干)|不干了|罢工|今天就这样|啥也不(想)?干")
 
 # 说了「做完了」这类话：和小步的名字有一点对得上就行；没说，就要对得上得多
 DONE_WORD = re.compile(r"完成|做完|搞定|弄完|写完|看完|交了|做了|做到|打勾|勾上|勾掉|那一步|这一步|那步|这步|小步")
@@ -771,6 +793,10 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
                 store.c.execute("DELETE FROM record WHERE type='rest' AND day=?", (day_key(),))
             store.log("rest", "今天不偷懒了")
             return {"ok": True, "undone": True, "note": "习惯和小步都回来了"}
+        if user_text and not (REST_ASK.search(user_text) or _agreeing(store, user_text)):
+            # 只说了累、烦、难过：别替 TA 决定休息，先问一句
+            return {"ok": False, "skipped": True,
+                    "error": "TA 只是说累或者难受，没说要休息。别替 TA 设偷懒日：先陪着，最多问一句「今天要不要给自己放个假？」，TA 说好再设。"}
         if journey.is_resting(store):
             return {"ok": True, "already": True, "note": "今天已经是偷懒日了"}
         note = clip(str(args.get("note") or "").strip(), 40)
