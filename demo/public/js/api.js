@@ -49,6 +49,7 @@ export const api = {
   sceneDiscard: (run_id) => post("/api/scene/discard", { run_id }),
   kickHome: () => get("/api/kick"),
   kick: (action, body = {}) => post("/api/kick", { action, ...body }),
+  flow: (action, body = {}) => post("/api/flow", { action, ...body }),     // 许个愿 / 让愿望落地（core/flows.py）
   sceneCancel: () => post("/api/scene/cancel"),
   growth: () => get("/api/growth"),
   town: (action, payload = {}) => post("/api/town", { action, ...payload }),

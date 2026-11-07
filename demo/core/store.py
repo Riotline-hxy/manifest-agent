@@ -45,7 +45,7 @@ DEFAULT_PROFILE = {
     "care_style": "",       # nudge | analyze | quiet | ""
     "pace": "gentle",       # gentle | steady
     "persona": "gentle",    # 小光的性格：gentle 温柔 | clear 有条理 | lively 活泼
-    # 陪伴偏好（「聊聊现在的你」里确认的，设置里能改）：都是一句短话，空着就是没选。只是参考，不会自己开提醒
+    # 陪伴偏好（设置里选，以前「聊聊现在的你」里也能确认）：都是一句短话，空着就是没选。只是参考，不会自己开提醒
     "chat_style": "",       # 聊天时希望小光怎么陪：如「多听你说，不急着给建议」
     "remind_pref": "",      # 想坚持的事希望多久被提醒一次：每天 / 每周几次 / 每周一次 / 暂时不需要提醒
     "energy_time": "",      # 一天里比较有精神的时候：早上 / 下午 / 晚上 / 不太固定
@@ -56,7 +56,7 @@ DEFAULT_PROFILE = {
     "last_week_page": "",   # 笔记本：最近一次试着写定稿的那一周（周一的日期）
     "finds": [],            # 小光的发现：小光翻笔记本时注意到的事 [{id, text, evidence[], at}]（core/finds.py）
     "insight_fb": {},       # 小光的发现：TA 点的「像我」yes /「不太像」no，按发现 id
-    "relearn_end": {},      # 「聊聊现在的你」结束页：这一次模型给的看到的你和第一小步，保存时不再调（core/relearn.py）
+    "flow_end": {},         # 「许个愿」「让愿望落地」答完那一下算好的结尾（小光的话、卡片、会改的东西），保存时照着它存，不再调模型（core/flows.py）
     "topic": {},            # 正在聊的点子话题 {id, at}：30 分钟没再聊就算结束（core/topics.py）
     "last_digest_day": "", "current_wish": "", "cheer": {},
     "last_proactive_kind": "",   # 上一条主动消息聊的是哪种（chat / plan / feature / cheer），下一条换一种
@@ -207,6 +207,9 @@ class Store:
         if "guess" not in kcols:   # 两分钟启动：小光对这件事的理解、这一步从什么时候开始算
             self.c.execute("ALTER TABLE kick_run ADD COLUMN guess TEXT DEFAULT ''")
             self.c.execute("ALTER TABLE kick_run ADD COLUMN mark TEXT DEFAULT ''")
+        hcols = {r["name"] for r in self.c.execute("PRAGMA table_info(habit)")}
+        if "cue" not in hcols:   # 习惯挂在每天哪个时候做（「让愿望落地」里定的：起床后 / 睡前……）
+            self.c.execute("ALTER TABLE habit ADD COLUMN cue TEXT DEFAULT ''")
         tcols = {r["name"] for r in self.c.execute("PRAGMA table_info(town_item)")}
         if "rot" not in tcols:   # 大建筑可以转 90°
             self.c.execute("ALTER TABLE town_item ADD COLUMN rot INTEGER DEFAULT 0")

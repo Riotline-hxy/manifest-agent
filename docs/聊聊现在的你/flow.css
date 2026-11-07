@@ -1,0 +1,17 @@
+/* 原型自己的几块；对话层、卡片、愿望卡、插图配色都直接用 App 的 css/tune.css */
+body { overflow: hidden; }
+.tune { z-index: 5; }
+.mini { flex: none; width: 34px; height: 31px; margin-top: 2px; }
+.mini svg { width: 100%; height: 100%; display: block; }
+.tb-seven { display: flex; gap: 7px; margin-top: 3px; font-size: 11.5px; font-weight: 800; color: var(--text-4); letter-spacing: .04em; flex-wrap: wrap; }
+.tb-seven span { transition: color .3s; }
+.tb-seven span.on { color: var(--accent); font-weight: 900; }
+.breathe { display: grid; place-items: center; height: 110px; }
+.breathe i { width: 64px; height: 64px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, color-mix(in srgb, var(--accent) 55%, #fff), color-mix(in srgb, var(--accent) 30%, transparent) 70%);
+  box-shadow: 0 0 40px color-mix(in srgb, var(--accent) 40%, transparent); animation: breathe 4.4s ease-in-out infinite; }
+@keyframes breathe { 0%, 100% { transform: scale(.72); opacity: .7; } 50% { transform: scale(1.15); opacity: 1; } }
+.wc-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; font-weight: 800; color: var(--text-3); }
+.wc-row .ill { width: 42px; height: 28px; }
+.ifthen .first b { font-size: 14.5px; line-height: 1.55; font-weight: 800; }
+.kick-stub { margin-top: 8px; padding: 12px 14px; border-radius: 16px; background: var(--accent-soft); font-size: 14px; font-weight: 700; line-height: 1.7; }
+.plan-list s { color: var(--text-4); }

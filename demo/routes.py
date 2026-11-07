@@ -5,7 +5,7 @@ the only source of the user id.
 """
 from __future__ import annotations
 
-from core import academy, acts, admin, portrait, auth, digest, metrics, webpush, growth, journey, kickstart, llm, onboarding, report, scenes, scheduler, tasks, town, trial
+from core import academy, acts, admin, portrait, auth, digest, flows, metrics, webpush, growth, journey, kickstart, llm, onboarding, report, scenes, scheduler, tasks, town, trial
 from core.store import Store
 from core.util import clip, day_key, iso
 from core.api import VERSION, ApiError, bootstrap, public_user
@@ -641,6 +641,44 @@ def scene_discard(h, u, b, q):
         return 200, {"ok": True}
 
 
+FLOW_LLM = {"suggest", "finish"}
+
+
+def flow_api(h, u, b, q):
+    """许个愿 / 让愿望落地（core/flows.py）：开始 / 要建议 / 答完 / 保存。问题和分支都在前端。"""
+    act = str(b.get("action") or "")
+    if act in FLOW_LLM:
+        key = "flow:" + u["id"]
+        if auth.too_many(key, 60):
+            raise ApiError(429, "点得有点快，歇一会儿再试")
+        auth.note_fail(key)
+    rid = str(b.get("run_id") or "")
+    with Store(u["id"]) as st:
+        try:
+            if act == "start":
+                return 200, flows.start(st, str(b.get("scene") or ""), str(b.get("wish_id") or ""))
+            if act == "suggest":
+                return 200, flows.suggest(st, rid, str(b.get("kind") or ""), str(b.get("wish_id") or ""),
+                                          str(b.get("ref") or ""), str(b.get("label") or ""))
+            if act == "finish":
+                first = (st.get_scene(rid) or {}).get("status") == "open"
+                out = flows.finish(st, rid, b.get("answers") if isinstance(b.get("answers"), dict) else {})
+                if first:     # 练习经验答完就给，存不存都算；在结尾改了答案再答完，不重复给
+                    run = st.get_scene(rid)
+                    out["xp"] = growth.award(st, "practice", ref="scene:" + rid, note="完成练习：" + scenes.SCENES[run["scene"]]["title"])
+                    out["state"] = bootstrap(st)
+                return 200, out
+            if act == "save":
+                keys = [str(k) for k in b.get("keys") or [] if isinstance(k, str)][:6] if isinstance(b.get("keys"), list) else []
+                out = flows.save(st, rid, keys)
+                return 200, {**out, "state": bootstrap(st)}
+        except KeyError:
+            raise ApiError(404, "这次的练习找不到了")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        raise ApiError(400, "未知操作")
+
+
 def kick_home(h, u, b, q):
     """两分钟启动：最近做过的事、没做完的那一次。"""
     with Store(u["id"]) as st:
@@ -926,6 +964,7 @@ ROUTES = {
     ("POST", "/api/scene/cancel"): (scene_cancel, True),
     ("POST", "/api/scene/save"): (scene_save, True),
     ("POST", "/api/scene/discard"): (scene_discard, True),
+    ("POST", "/api/flow"): (flow_api, True),
     ("GET", "/api/kick"): (kick_home, True),
     ("POST", "/api/kick"): (kick_api, True),
     ("POST", "/api/proactive/now"): (proactive_now, True),

@@ -8,11 +8,11 @@ import { openKick } from "../kick.js";
 import { openTune } from "../tune.js";
 
 const META = {
-  relearn: ["compass", "var(--c-violet)"], seven_steps_lite: ["steps", "var(--c-orange)"],
+  seven_steps_lite: ["star", "var(--c-orange)"], relearn: ["sprout", "var(--c-violet)"],
   kickstart: ["footsteps", "var(--c-mint)"], meditation: ["wind", "var(--c-sky)"], gratitude: ["heart", "var(--c-pink)"],
   topic_blank_day: ["sun", "var(--c-lemon)"], topic_manual: ["book", "var(--c-sky)"], topic_parallel: ["sparkles", "var(--c-violet)"],
 };
-const GROUPS = [["聊聊", "答几个小问题，小光更懂你"], ["日常", "几分钟就能做完"], ["话题", "不知道聊什么，点一个"]];
+const GROUPS = [["愿望", "一个让你更相信，一个让它做得成"], ["日常", "几分钟就能做完"], ["话题", "不知道聊什么，点一个"]];
 
 export function renderIdeas(root) {
   const ideas = state.data.ideas || [];
@@ -63,7 +63,7 @@ export function renderIdeas(root) {
     const idea = ideas.find((i) => i.id === b.dataset.idea);
     if (!idea) return;
     if (idea.kind === "kick") openKick();
-    else if (idea.kind === "tune") openTune();
+    else if (idea.kind === "tune") openTune(idea.scene);
     else if (idea.kind === "topic") {          // 话题：去对话，替你发出那句话，小光照话题陪你聊
       state.autoSend = idea.send;
       state.pendingTopic = idea.topic;

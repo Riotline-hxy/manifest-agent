@@ -1,5 +1,5 @@
 // 我的空间：档案 · 了解你（小光眼中的你、「小光记得的」入口、小光的发现）· 夜里整理（小光的笔记本，一周一页）· 时间线 · 设置。
-// 「聊聊现在的你」不封在这里，它是点子里的体验；这里只看结果（记忆、设置里的陪伴偏好），随时改。
+// 点子里的练习不封在这里；这里只看结果（记忆、设置里的陪伴偏好），随时改。
 import { api } from "../api.js";
 import { state, setData, go } from "../store.js";
 import { esc, toast, sheet, h, confirmSheet, fmtDay, icon, tile } from "../ui.js";
@@ -501,12 +501,12 @@ async function confirmLogout() {
   if (await confirmSheet("退出登录？", "下次用用户名和密码就能回来，记录都在。", "退出", "back")) logout();
 }
 
-// 陪伴偏好：在「聊聊现在的你」里确认的三样，这里看、改、清空（再点一下选中的就是不设）
+// 陪伴偏好：三样，这里看、改、清空（再点一下选中的就是不设）
 const PREFS = [["chat_style", "聊天时，希望我"], ["remind_pref", "想坚持的事，多久提醒一次"], ["energy_time", "一天里比较有精神的时候"]];
 
 function prefLine(p) {
   const parts = [p.chat_style, p.remind_pref && `提醒：${p.remind_pref}`, p.energy_time && `${p.energy_time}比较有精神`].filter(Boolean);
-  return parts.join(" · ") || "还没选，可以去点子里「聊聊现在的你」";
+  return parts.join(" · ") || "还没选，点一下挑一挑";
 }
 
 function prefsSheet(root) {

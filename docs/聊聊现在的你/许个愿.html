@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="mist">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>许个愿 · 原型</title>
+<link rel="stylesheet" href="../../demo/public/css/fonts.css">
+<link rel="stylesheet" href="../../demo/public/css/base.css">
+<link rel="stylesheet" href="../../demo/public/css/components.css">
+<link rel="stylesheet" href="../../demo/public/css/chat.css">
+<link rel="stylesheet" href="../../demo/public/css/tune.css">
+<link rel="stylesheet" href="flow.css">
+<script src="icons.js"></script>
+<script src="shared.js"></script>
+<script src="ill2.js"></script>
+<script src="flow.js"></script>
+<script src="flows_ends2.js"></script>
+</head>
+<body>
+<script>
+// 原型里假设 TA 已经有一个愿望（正式版用 TA 自己的记录）
+const WISH = { title: "敢开口说英语", days: 23, steps: 7, checks: 18, moments: 4,
+  quote: "第一次在课上用英语提问，声音在抖但说完了", vision: "能在小组讨论里自然地用英语说出自己的想法" };
+const AREAS = [
+  { v: "body", label: "身体与作息", hint: "睡好、动起来", ill: "body", react: "身体顾好了，别的都会轻一点。" },
+  { v: "study", label: "学习与成长", hint: "学得进去、做得完", ill: "study", react: "好，想在哪儿长出一点本事呢。" },
+  { v: "people", label: "关系与表达", hint: "敢开口、多联系", ill: "people", react: "和人有关的愿望，最暖了。" },
+  { v: "mood", label: "心情与内在", hint: "少点焦虑、多点轻松", ill: "mood", react: "好，先让心里舒服一点。" },
+  { v: "life", label: "生活与自由", hint: "想过的日子", ill: "life", react: "想过的日子，我们好好想想。" },
+];
+const WANTS = { body: ["每天 12 点前睡", "每周运动三次", "好好吃早饭"], study: ["期末不挂科", "每天专心学一小时", "把论文写完"],
+  people: ["敢在课上发言", "多和家人联系", "交到一个聊得来的朋友"], mood: ["少一点焦虑", "对自己温柔一点", "睡前不再想东想西"],
+  life: ["存下一笔旅行基金", "学会做五道菜", "周末不再躺一整天"] };
+const DAYS = { body: ["早上不用闹钟也自然醒", "白天不再犯困", "镜子里的气色变好了"], study: ["打开书就能静下心", "轻轻松松走出考场", "做完一件事心里很踏实"],
+  people: ["举手说话不再心跳加速", "和家里的电话变多了", "周末有人约我出去"], mood: ["晚上躺下很快就睡着", "事情多也不慌", "对自己说话温柔了"],
+  life: ["订好了想去的旅行", "周末过得满满当当", "做的菜被朋友夸了"] };
+const FUTURE = ["谢谢你那时候开始了", "别急，你会走到的", "你比你以为的更有办法"];
+const MOMENTS = [
+  { v: "g1", label: "录了一段 30 秒的自我介绍", hint: "做完的小步 · 11月2日", icon: "check" },
+  { v: "g2", label: "第一次在课上用英语提问，声音在抖但说完了", hint: "你留下的瞬间 · 11月4日", icon: "heart" },
+  { v: "g3", label: "和 Mia 用英语聊了十分钟", hint: "做完的小步 · 11月6日", icon: "check" },
+];
+const HEART = [
+  { v: "still", label: "还是很想要", ill: "steadyfeel", react: "那就接着往前走。" },
+  { v: "more", label: "更想要了", ill: "happy", react: "更想要了，真好。" },
+  { v: "far", label: "有点远了", ill: "drift", react: `远一点也没关系。你当初写下的样子是「${WISH.vision}」，它还在那儿。` },
+  { v: "unsure", label: "说不清", ill: "calm", react: "说不清也没关系，愿望不用每天都清清楚楚。" },
+];
+const ONWARD = ["我已经在路上了", "慢一点也是在走", "想起来就再出发"];
+const theme = new URLSearchParams(location.search).get("theme") || "mist";
+const opt = (list, v) => list.find((o) => o.v === v);
+const asRows = (list, icon) => list.map((t, i) => ({ v: "o" + i, label: t, icon }));
+
+runFlow({
+  title: "许个愿",
+  sub: "说出它，看见它，相信它",
+  state: { total: 5 },
+  first: "pick",
+  steps: {
+    pick: { type: "cards", skip: false, q: "今天想许一个新愿，还是给已有的愿望再添点信心？",
+      opts: [{ v: "keep", label: WISH.title, hint: "给它添点信心", ill: "wish", react: "好，我们先看看它走到哪了。" },
+             { v: "new", label: "一个新的愿望", hint: "许一个新的", ill: "newwish", react: "好，许一个新的。" }],
+      next: (st) => { st.total = st.a.pick === "keep" ? 4 : 5; return st.a.pick === "keep" ? "look" : "area"; } },
+    // ---------- 新的愿望：哪一块 → 具体想要 → 那一天 → 未来的你说 ----------
+    area: { type: "cards", q: "想让生活的哪一块变好？", opts: AREAS, custom: "比如：想更会照顾自己", next: "want" },
+    want: { type: "text", q: "具体一点，你想要的是……", sub: "像已经在路上那样说就好。点一个也行。",
+      chips: (st) => WANTS[st.a.area] || ["每天早点睡", "敢开口说话", "少一点焦虑"], ph: "写下你想要的",
+      react: "好，我记下了。", next: "day" },
+    day: { type: "rows", q: "如果它真的实现了，那一天会有什么不一样？",
+      opts: (st) => asRows(DAYS[st.a.area] || ["早上醒来心情很好", "做完了一直想做的事", "身边的人说我变了"], "sparkles"),
+      custom: "写下那一天的样子", react: (v, st, text) => "嗯，我好像也看见了。", next: "words" },
+    words: { type: "rows", q: "到那时，你最想对现在的自己说什么？", opts: asRows(FUTURE, "quote"), custom: "写给现在的自己", next: null },
+    // ---------- 已有的愿望：看一眼走过的路 → 最有感觉的一刻 → 现在的心情 → 留一句话 ----------
+    look: { type: "info", q: `「${WISH.title}」已经走了 ${WISH.days} 天。`,
+      body: `<div class="stats"><span>做完 <b>${WISH.steps}</b> 个小步</span><span>打卡 <b>${WISH.checks}</b> 次</span><span>留下 <b>${WISH.moments}</b> 个瞬间</span></div>
+        <p class="quote">你写过：「${WISH.quote}」</p>`, next: "moment" },
+    moment: { type: "rows", q: "这一路，最让你有感觉的是哪一刻？", opts: MOMENTS, custom: "写下那一刻", react: "这一刻，我也记得。", next: "heart" },
+    heart: { type: "cards", q: "现在想起这个愿望，你心里……", opts: HEART, next: "onward" },
+    onward: { type: "rows", q: "给接着往前走的自己，留一句话吧。", opts: asRows(ONWARD, "quote"), custom: "写给自己", next: null },
+  },
+  ending: async (st, ui) => {
+    const { xg, me, dock } = ui;
+    const a = st.a, l = st.l;
+    if (a.pick === "keep") {
+      const e = ENDS.keep[`${a.moment}|${a.heart || "still"}`] || { say: "你记得的那一刻，我也替你记着。" };
+      await xg(e.say, { think: 1300 });
+      const row = await xg(`<div class="wcard"><small>给愿望添了点信心</small><b>${esc(WISH.title)}</b>
+          <p class="wc-line"><em>走过的</em>${WISH.days} 天 · ${WISH.steps} 个小步 · 打卡 ${WISH.checks} 次</p>
+          ${l.moment ? `<p class="wc-line"><em>最有感觉的一刻</em>${esc(l.moment)}</p>` : ""}
+          ${l.onward ? `<span class="vow">「${esc(l.onward)}」</span>` : ""}</div>
+        ${keeps([{ html: "把这张卡留在愿望的轨迹上", to: "蜕变计划" }])}
+        <div class="tb-acts"><button class="btn btn-good" data-done>存好</button><button class="btn btn-ghost" data-land>让它落地</button></div>`, { wide: true });
+      return endActions(row, ui);
+    }
+    const area = a.area || "body", w = (WANTS[area] || []).indexOf(a.want), p = a.day ? +a.day.slice(1) : -1;
+    const hit = w >= 0 && p >= 0 && ENDS.new[`${area}|${w}|${p}`];
+    const e = hit || { title: (a.want || "我的新愿望").slice(0, 12), day: `我${l.day || "过上了想要的日子"}。`,
+      say: "记下了。（原型里自己写的不调模型，正式版会现写）" };
+    await xg(e.say, { think: 1300 });
+    const row = await xg(`<div class="wcard"><small>我的愿望</small><b>${esc(e.title)}</b>
+        <p class="wc-line"><em>那一天</em>${esc(e.day)}</p>
+        ${l.words ? `<p class="wc-line"><em>未来的你说</em></p><span class="vow">「${esc(l.words)}」</span>` : ""}</div>
+      ${keeps([{ html: `把这张愿望卡放进蜕变计划`, to: "蜕变计划" }])}
+      <div class="tb-acts"><button class="btn btn-good" data-done>存好</button><button class="btn btn-ghost" data-land>给它定第一件事</button></div>`, { wide: true });
+    endActions(row, ui);
+  },
+});
+
+function endActions(row, ui) {
+  const { xg, me, dock } = ui;
+  if (!row) return;
+  ui.bar("勾了的才存", `<button class="tb-skip" data-again>再来一遍</button>`);
+  dock.querySelector("[data-again]").onclick = () => document.querySelector(".tb-x").click();
+  row.querySelector("[data-land]").onclick = () => { location.href = `让愿望落地.html?theme=${theme}`; };
+  row.querySelector("[data-done]").onclick = async () => {
+    row.querySelector(".tb-acts").remove();
+    ui.bar("", "", { canBack: false });
+    me("存好");
+    await xg("存好了，在蜕变计划里随时能看到它。");
+  };
+}
+</script>
+</body>
+</html>

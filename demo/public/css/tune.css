@@ -1,4 +1,4 @@
-/* 聊聊现在的你（tune.js）：对话样子的全屏层。消息气泡用 chat.css 的 .msg，这里只有它自己的几块 */
+/* 许个愿 / 让愿望落地（tune.js）：对话样子的全屏层。消息气泡用 chat.css 的 .msg，这里只有它自己的几块 */
 .tune { position: fixed; inset: 0; z-index: 250; display: grid; grid-template-rows: auto 1fr auto; background: var(--bg);
   opacity: 0; transform: translateY(16px); transition: opacity .3s var(--ease), transform .35s var(--spring); }
 .tune::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(70% 40% at 50% 0%, var(--accent-soft), transparent 70%); }
@@ -49,7 +49,7 @@
 
 /* 选项：一张张带插图的卡片，放在小光的话下面 */
 .ils { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px; margin-top: 2px; }
-.il { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 8px; min-height: 116px; padding: 12px 12px 11px;
+.il { display: flex; flex-direction: column; justify-content: flex-start; align-items: flex-start; gap: 8px; min-height: 116px; padding: 12px 12px 11px;
   border-radius: 18px; background: var(--surface); border: 1.5px solid var(--line); text-align: left;
   box-shadow: 0 8px 22px -18px rgba(30,20,60,.35); transition: transform .3s var(--spring), border-color .2s, box-shadow .2s, background .2s, opacity .25s;
   animation: tb-in .5s var(--spring) backwards; animation-delay: calc(var(--i) * 60ms + 60ms); }
@@ -65,20 +65,57 @@
 .ils.dim .il { pointer-events: none; }
 .ils.dim .il:not(.on) { opacity: .36; transform: scale(.97); }
 .ils.three .il .ill { width: 100%; height: 66px; }
+/* 答过的题：没选的那几张还能点，点了就从这一题重新走 */
+.ils.dim.past .il, .rowcs.dim.past .rowc, .tb-chips.dim.past .chip { pointer-events: auto; cursor: pointer; }
+.ils.dim.past .il:not(.on):hover, .rowcs.dim.past .rowc:not(.on):hover { opacity: .75; }
+.tb-chips.dim .chip { pointer-events: none; }
+.tb-chips.dim .chip:not(.on) { opacity: .4; }
+.tb-chips .chip.on { border-color: var(--accent); color: var(--accent); }
 
-/* 结束页 */
-.firsts { display: grid; gap: 8px; }
-.first { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 18px; background: var(--surface); border: 1.5px solid var(--line); text-align: left;
-  transition: border-color .2s, background .2s; animation: tb-in .5s var(--spring) backwards; animation-delay: calc(var(--i) * 80ms); }
-.first > span { flex: 1; min-width: 0; }
-.first b { display: block; font-size: 15.5px; }
-.first small { display: block; margin-top: 2px; font-size: 13px; font-weight: 700; color: var(--text-3); line-height: 1.5; }
-.first i { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line-2); display: grid; place-items: center; }
-.first.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
-.first.on i { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
-.first i .ic-svg { width: 13px; height: 13px; stroke-width: 3.4; }
-.tb-under { display: flex; align-items: center; gap: 6px; margin: 0 0 0 4px; font-size: 12.5px; font-weight: 800; color: var(--text-3); }
-.tb-under .ic-svg { width: 14px; height: 14px; }
+/* 小光那句话下面的小字 */
+.bub-sub { display: block; margin-top: 4px; font-size: 13.5px; font-weight: 700; color: var(--text-3); line-height: 1.55; }
+/* 文字卡片：TA 自己的记录、小光的建议（可带进度条） */
+.rowcs { display: grid; gap: 8px; }
+.rowc { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: var(--surface); border: 1.5px solid var(--line); text-align: left;
+  transition: border-color .2s, background .2s, opacity .25s; animation: tb-in .45s var(--spring) backwards; animation-delay: calc(var(--i) * 60ms + 60ms); }
+.rowc > .ic-svg { flex: none; width: 18px; height: 18px; color: var(--accent); }
+.rowc > span { flex: 1; min-width: 0; }
+.rowc b { display: block; font-size: 14.5px; line-height: 1.4; }
+.rowc small { display: block; margin-top: 1px; font-size: 12px; font-weight: 700; color: var(--text-3); }
+.rowc .prog { flex: none; width: 56px; height: 6px; border-radius: 9px; background: var(--surface-3); overflow: hidden; }
+.rowc .prog i { display: block; height: 100%; border-radius: 9px; background: var(--good); }
+.rowc.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.rowcs.dim .rowc { pointer-events: none; }
+.rowcs.dim .rowc:not(.on) { opacity: .36; }
+/* 「我自己写」：虚线边，和别的卡片区分开 */
+.il.mine, .rowc.mine { border-style: dashed; background: transparent; box-shadow: none; }
+.rowc.mine > .ic-svg { color: var(--text-3); }
+/* 这周的样子：只是给 TA 看的一块，不像可以点的卡片 */
+.rowcs.wk { gap: 0; padding: 4px 14px; border-radius: 16px; background: color-mix(in srgb, var(--surface) 60%, transparent); border: 1px dashed var(--line-2); }
+.rowcs.wk .rowc { padding: 8px 0; border: 0; border-radius: 0; background: none; animation: none; }
+.rowcs.wk .rowc + .rowc { border-top: 1px dashed var(--line); }
+.rowcs.wk .rowc b { font-size: 13.5px; }
+.rowcs.wk .rowc > .ic-svg { width: 15px; height: 15px; color: var(--text-3); }
+.tb-note { margin: 0 0 0 4px; font-size: 12.5px; font-weight: 700; color: var(--text-3); line-height: 1.6; }
+/* 写一句的例子 */
+.tb-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+/* 走过的路：几个数 + TA 自己写过的一句 */
+.stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.stats span { padding: 7px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); font-size: 13.5px; font-weight: 800; }
+.stats b { color: var(--accent); font-size: 16px; margin-right: 2px; }
+.quote { margin: 0; padding: 10px 14px; border-left: 3px solid var(--accent); border-radius: 4px 14px 14px 4px; background: var(--surface); font-size: 14px; font-weight: 700; line-height: 1.6; color: var(--text-2); }
+
+/* 结尾：愿望卡 / 这周的打算 */
+.wcard { position: relative; overflow: hidden; display: grid; gap: 6px; padding: 18px 18px 16px; border-radius: 22px; border: 1.5px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  background: radial-gradient(90% 120% at 100% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%), var(--surface); animation: tb-in .55s var(--spring); }
+.wcard > small { font-size: 12px; font-weight: 900; letter-spacing: .1em; color: var(--accent); }
+.wcard > b { font-size: 21px; line-height: 1.35; }
+.wc-line { margin: 0; font-size: 14px; line-height: 1.65; color: var(--text-2); }
+.wc-line em { font-style: normal; font-size: 12px; font-weight: 900; color: var(--text-3); margin-right: 6px; }
+.vow { display: inline-block; margin-top: 2px; font-size: 16.5px; color: var(--accent); }
+.plan-list { display: grid; gap: 6px; margin-top: 4px; }
+.plan-list p { margin: 0; display: flex; gap: 8px; align-items: baseline; font-size: 14.5px; font-weight: 700; line-height: 1.55; }
+.plan-list p .ic-svg { flex: none; width: 15px; height: 15px; color: var(--good); transform: translateY(2px); }
 .keeps { display: grid; padding: 6px 14px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); }
 .keep { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 14px; cursor: pointer; }
 .keep + .keep { border-top: 1px dashed var(--line); }
@@ -96,9 +133,17 @@
 .tb-hint { flex: 1; font-size: 12.5px; font-weight: 800; color: var(--text-4); }
 .tb-skip { font-size: 13px; font-weight: 800; color: var(--text-3); padding: 6px 2px; }
 .tb-skip:hover { color: var(--text); }
+.tb-back { display: inline-flex; align-items: center; gap: 2px; flex: none; height: 34px; padding: 0 12px 0 6px; border-radius: 12px;
+  font-size: 13px; font-weight: 800; color: var(--text-3); background: var(--surface); border: 1px solid var(--line); }
+.tb-back svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.tb-back:hover { color: var(--text); }
 .tb-composer { flex: 1; display: flex; align-items: center; padding: 4px 14px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line-2); }
 .tb-composer input { flex: 1; min-width: 0; height: 40px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 15px; outline: none; }
 .tb-composer input::placeholder { color: var(--text-4); }
+.tb-composer { padding-right: 5px; }
+.tb-send { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); flex: none; }
+.tb-send .ic-svg { width: 18px; height: 18px; }
+.tb-go { height: 42px; padding: 0 22px; font-size: 14.5px; }
 
 @media (max-width: 700px) {
   .tb-top { padding: 12px 14px 8px; }
@@ -108,7 +153,5 @@
   .ils.three { grid-template-columns: repeat(3, 1fr); }
   .ils.three .il { padding: 11px 9px 10px; }
   .il { min-height: 110px; }
-  .first { padding: 11px 12px; }
-  .first b { font-size: 15px; }
 }
-@media (prefers-reduced-motion: reduce) { .il, .first, .il.on .ill { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .il, .rowc, .wcard, .il.on .ill { animation: none; } }

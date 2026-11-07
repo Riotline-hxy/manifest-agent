@@ -4,17 +4,17 @@ from __future__ import annotations
 from . import academy, cheer, finds, weekly, growth, journey, kickstart, portrait, scenes, scheduler, tasks, topics, town
 from .store import Store
 
-VERSION = "3.14.0"
+VERSION = "3.15.0"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
 IDEAS = [
-    {"id": "relearn", "title": "聊聊现在的你", "scene": "relearn", "kind": "tune", "minutes": 2, "cta": "开始聊聊",
-     "group": "聊聊", "prompt": "最近的我有些变化，想和你重新聊聊。",
-     "desc": "说说现在的你，我们从一个今天就能做的小步开始。"},
-    {"id": "seven_steps_lite", "title": "聊聊你的愿望", "scene": "seven_steps_lite", "minutes": 2,
-     "group": "聊聊", "prompt": "陪我聊聊我最近想实现的愿望。",
-     "desc": "我们一起聊聊，你最近想实现的愿望吧～"},
+    {"id": "seven_steps_lite", "title": "许个愿", "scene": "seven_steps_lite", "kind": "tune", "minutes": 2, "cta": "许个愿",
+     "group": "愿望", "prompt": "想许一个愿望，或者给已有的愿望添点信心。",
+     "desc": "说出想要的，看见它实现的那一天；或者看看走过的路，给它添点信心。"},
+    {"id": "relearn", "title": "让愿望落地", "scene": "relearn", "kind": "tune", "minutes": 2, "cta": "调一调",
+     "group": "愿望", "prompt": "这周的计划有点卡，想调一调。",
+     "desc": "看看这周做得怎么样，把卡住的那一件调到做得成。"},
     {"id": "kickstart", "title": "两分钟启动", "scene": "", "kind": "kick", "minutes": 2,
      "group": "日常", "prompt": "有件事想做，但一直开始不了。",
      "desc": "把任务变得不靠意志也能做。"},

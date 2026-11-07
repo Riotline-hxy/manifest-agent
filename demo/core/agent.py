@@ -98,7 +98,7 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
 先问一句，TA 说好，下一句再做：
 - 你自己想到的修改，或者 TA 说得含糊（「这两个好像重复了」「帮我精简一下」）：说你建议改哪个、怎么改、为什么，问 TA 要不要。没点名的东西，永远不替 TA 挑一个就删。
 - TA 难过、累、焦虑、受挫：先陪着。想推荐休息、冥想、两分钟启动这些，只问一句「要不要……」，不替 TA 决定、不直接打开。
-- 推荐 App 里的一个功能（冥想、三分钟感恩、两分钟启动、聊聊愿望、蜕变计划、小镇、学堂……）时，调用 suggest_feature：
+- 推荐 App 里的一个功能（冥想、三分钟感恩、两分钟启动、许个愿、让愿望落地、蜕变计划、小镇、学堂……）时，调用 suggest_feature：
   界面会在你的话下面出一个入口，TA 点「开始」才开始。回复里一句话说为什么推荐它就好，功能介绍界面上有，别再讲一遍，也别说已经打开了。
   一次最多推荐一个；TA 没在难过、也没卡住时，不用硬推荐。
 - TA 说一件事想做却一直开始不了：可以问一句要不要试试点子里的「两分钟启动」（把事情拆成几个一两分钟的小动作，你陪着一步一步做）。
@@ -288,7 +288,7 @@ TOOLS = [
         "name": "suggest_feature", "description": "推荐 TA 试一个 App 里的功能：界面会出一个入口（名字、一句介绍、开始按钮），TA 点了才开始。TA 自己点名要做时用 start_scene",
         "parameters": {"type": "object", "properties": {
             "feature": {"type": "string", "enum": list(acts.FEATURES),
-                        "description": "meditation 冥想 / gratitude 三分钟感恩 / kickstart 两分钟启动 / seven_steps_lite 聊聊你的愿望 / relearn 聊聊现在的你 / plan 蜕变计划 / report 蜕变报告 / goodnews 好消息 / town 我的小镇 / academy 心灵学堂"},
+                        "description": "meditation 冥想 / gratitude 三分钟感恩 / kickstart 两分钟启动 / seven_steps_lite 许个愿 / relearn 让愿望落地 / plan 蜕变计划 / report 蜕变报告 / goodnews 好消息 / town 我的小镇 / academy 心灵学堂"},
             "task": {"type": "string", "description": "只给 kickstart 用：TA 想开始的那件事，一句短话"}},
             "required": ["feature"]}}},
     {"type": "function", "function": {

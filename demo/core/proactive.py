@@ -26,8 +26,8 @@ FEATURE_WHY = {
     "kickstart": "有一个小步放了好几天还没开始",
     "meditation": "最近事情有点多",
     "gratitude": "最近记的小确幸不多",
-    "seven_steps_lite": "还没好好聊过想要的愿望",
-    "relearn": "很久没聊聊最近的自己",
+    "seven_steps_lite": "还没许过一个自己的愿望",
+    "relearn": "还没回头看过这周的计划做得怎么样",
     "town": "攒的金币够盖一样新东西了",
 }
 

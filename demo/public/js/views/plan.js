@@ -301,7 +301,7 @@ function habitRow(hb, J, i) {
   return `<div class="hrow ${hb.today ? "done" : ""} ${hb.skipped && !hb.today ? "skipped" : ""}" style="--i:${i}">
     <button class="check" data-hcheck="${esc(hb.id)}" aria-pressed="${hb.today}" aria-label="${hb.today ? "撤销今天的打卡" : "今天做了"}：${esc(hb.title)}">${icon("check")}</button>
     <div class="h-main"><div class="h-t">${esc(hb.title)}</div>
-      <div class="h-s">${esc(hb.freq_text)} · 本周 ${hb.week}/${hb.need}${met && hb.freq === "weekly" ? ` <span class="pill good">这周做到了</span>` : ""}${hb.skipped && !hb.today ? ` <span class="pill">${icon("moon")}今天先休息</span>` : ""}</div></div>
+      <div class="h-s">${esc(hb.freq_text)}${hb.cue ? ` · ${esc(hb.cue)}` : ""} · 本周 ${hb.week}/${hb.need}${met && hb.freq === "weekly" ? ` <span class="pill good">这周做到了</span>` : ""}${hb.skipped && !hb.today ? ` <span class="pill">${icon("moon")}今天先休息</span>` : ""}</div></div>
     <div class="h-week" aria-label="本周打卡">${dots}</div>
     ${hb.today || resting ? "" : `<button class="icon-btn sm ${hb.skipped ? "on" : ""}" data-hskip="${esc(hb.id)}" aria-label="${hb.skipped ? "取消：今天先不做" : "今天先不做"}：${esc(hb.title)}" title="${hb.skipped ? "取消今天先不做" : "今天先不做"}">${icon("moon")}</button>`}
     <button class="icon-btn sm" data-hedit="${esc(hb.id)}" aria-label="编辑习惯">${icon("settings")}</button>
@@ -436,7 +436,7 @@ function dayCard(root, M, ds, kind = "") {
       html += e.moments.map((m) => `<article class="j-m" data-id="${esc(m.id)}">
         <p class="j-m-t">${esc(m.text)}</p>
         ${m.feeling ? `<p class="j-m-f">当时的感受：${esc(m.feeling)}</p>` : ""}
-        <div class="j-m-meta">${m.mood ? `<span class="pill">${esc(m.mood)}</span>` : ""}${m.source === "chat" ? `<span class="pill">${icon("chat")}来自和小光的对话</span>` : m.source === "scene" ? `<span class="pill">${icon("sparkles")}聊聊你的愿望</span>` : ""}
+        <div class="j-m-meta">${m.mood ? `<span class="pill">${esc(m.mood)}</span>` : ""}${m.source === "chat" ? `<span class="pill">${icon("chat")}来自和小光的对话</span>` : m.source === "scene" ? `<span class="pill">${icon("sparkles")}许个愿</span>` : ""}
           <span class="sp"></span><button class="btn btn-quiet btn-sm" data-edit>${icon("edit")}编辑</button><button class="btn btn-quiet btn-sm" data-del>${icon("trash")}删除</button></div>
       </article>`).join("");
       if (good.length) html += `<div class="j-good"><div class="lbl">那天的好消息</div>${good.map((r) => `<p>${icon("star")}${esc(r.text)}</p>`).join("")}</div>`;

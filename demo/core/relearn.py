@@ -1,230 +1,335 @@
-"""「聊聊现在的你」：简单说说现在的自己，小光给出今天就能开始的第一小步，带 TA 一起往好里走。
+"""「让愿望落地」（scene id 沿用 relearn）：看看这周做得怎么样，把卡住的那一件调到做得成。管「做」，不建愿望、不讨论愿望本身。
 
-界面在 public/js/tune.js：对话样子的全屏层，小光问一句，插图卡片放在小光的话下面，点一张变成 TA 说的话。
-走的还是点子场景那一套（core/scenes.py，review=True）：答题时什么都不写；答完那一下调一次模型，拿「看到的你」
-和两个第一小步（存在 profile.relearn_end 里，保存时不再调）；结束页勾选的才存。
-
-四题：state 最近的状态 / dir 想在哪儿看到一点进步 / energy 现在能拿出多少劲 / accomp 这一路怎么陪你。
-存到哪：
-  第一小步 → 蜕变计划的小步（今天）；方向不是已有的愿望时，小光起的新愿望名（TA 勾了才建）；
-  最近的状态 → 一条近况记忆（再做一次就更新那一条）；陪你的方式 → 陪伴偏好（「推我一把」顺带把中断时改成轻轻提醒）；
-  还有什么想让我先知道的 → 一条记忆。
+问题和卡片在前端 public/js/flows.js，跟着 TA 的回答走：
+  这周觉得怎么样？（下面先放这周的样子：习惯打卡进度、放着没动的小步、下一个里程碑）
+  - 有点卡 / 太满了 / 我自己写 → 是哪一件（先放下哪一件）→ 想怎么调：改小一点 / 换个时间 / 这周先停一停 / 我自己写
+  - 顾不上 → 只留一件最想保住的 → 改小一点，其余的习惯这周先停一停
+  - 挺顺的 → 再加一点（小光给两个新小步）/ 保持现在就好
+  计划还是空的愿望：直接「给它定第一件事」。
+每一题都能跳过、都能自己写；小光的建议旁边都有「不用了」。
+模型只在 TA 要建议时调（改小一点 / 再加一件 / 第一件事，suggest）；结尾的话是写好的，不调模型。
+结尾「这周的打算」列出改了什么，勾了「改到蜕变计划里」才改；换到固定时候的习惯，多一行「每天 HH:MM 提醒我」，默认不勾。
+流程本身在 core/flows.py。
 """
 from __future__ import annotations
 
-from . import journey, llm
+from datetime import date, timedelta
+
+from . import journey, llm, tasks
 from .store import Store
-from .util import clip, now
+from .util import clip, day_key, iso, now
 
-# 选项的 ill 是前端 tune.js 里的插图名
-STEPS = [
-    {"key": "state", "q": "最近的你，更像哪一种？", "short": "最近", "opts": [
-        {"v": "busy", "label": "忙忙碌碌", "hint": "事情一件接一件", "ill": "busy", "react": "最近事情不少呀。"},
-        {"v": "steady", "label": "按自己的节奏", "hint": "和平时差不多", "ill": "steady", "react": "有自己的节奏，挺好。"},
-        {"v": "change", "label": "正在变化", "hint": "有些事不一样了", "ill": "change", "react": "变化的时候，正好重新开始。"},
-        {"v": "slow", "label": "想慢下来", "hint": "有点累了", "ill": "slow", "react": "好，那我们不着急。"}]},
-    {"key": "dir", "q": "接下来，最想在哪儿看到一点进步？", "short": "想变好的", "opts": [
-        {"v": "body", "label": "作息和身体", "hint": "睡好、动起来", "ill": "body", "react": "身体顾好了，别的都轻松一点。"},
-        {"v": "study", "label": "学习和工作", "hint": "做得进去、做得完", "ill": "study", "react": "好，我们找个好下手的地方。"},
-        {"v": "mood", "label": "心情和状态", "hint": "少点焦虑、多点轻松", "ill": "mood", "react": "好，先让自己舒服一点。"},
-        {"v": "people", "label": "和人相处", "hint": "敢开口、多联系", "ill": "people", "react": "好，从一句话开始就行。"}]},
-    {"key": "energy", "q": "现在，你能拿出多少劲？", "short": "劲头", "opts": [
-        {"v": "seed", "label": "一点点就好", "hint": "两分钟就够", "ill": "pot1", "react": "那就从很小的一步开始。"},
-        {"v": "sprout", "label": "每天一小会", "hint": "十分钟左右", "ill": "pot2", "react": "好，每天一小会，刚刚好。"},
-        {"v": "more", "label": "可以多一点", "hint": "半小时左右", "ill": "pot3", "react": "好，那我们来点实在的。"}]},
-    {"key": "accomp", "q": "这一路，我怎么陪你比较好？", "short": "陪你的方式", "opts": [
-        {"v": "listen", "label": "先听我说", "hint": "不急着给建议", "ill": "listen", "react": "好，你说的时候我先听着。"},
-        {"v": "untangle", "label": "陪我理一理", "hint": "乱的时候一起捋", "ill": "untangle", "react": "好，乱的时候我们一起捋。"},
-        {"v": "push", "label": "推我一把", "hint": "给办法，也提醒我", "ill": "push", "react": "好，该推的时候我会推你一下。"},
-        {"v": "cheer", "label": "给我打打气", "hint": "说说我做到了什么", "ill": "cheer", "react": "好，你做到的事我都会说给你听。"}]},
+TITLE = "让愿望落地"
+LLM_TIMEOUT = 15
+MAX_HABITS = 4        # 「这周的样子」最多列几个习惯
+MAX_STEPS = 2         # 和几个放着没动的小步
+
+# 习惯：挂在每天都会经过的时刻（执行意图）；小步：哪天做
+WHEN_HABIT = [
+    {"v": "wake", "label": "起床后", "hint": "08:00 左右", "ill": "sunrise", "time": "08:00"},
+    {"v": "lunch", "label": "午饭后", "hint": "13:00 左右", "ill": "bowl", "time": "13:00"},
+    {"v": "after", "label": "下课或下班后", "hint": "18:30 左右", "ill": "bag", "time": "18:30"},
+    {"v": "bed", "label": "睡前", "hint": "22:00 左右", "ill": "night", "time": "22:00"},
 ]
-# 「陪你的方式」→ 陪伴偏好里存的说法（和设置里一样，是 scenes.CHAT_STYLES 里「你」的那种说法，小光的提示按它找做法）
-CHAT = {"listen": "多听你说，不急着给建议", "untangle": "和你一起把事情想清楚", "push": "帮你想想具体可以怎么做",
-        "cheer": "给你一些鼓励和信心"}
-ENERGY_HOW = {"seed": "一点点就好（两分钟就够）", "sprout": "每天一小会（十分钟左右）", "more": "可以多一点（半小时左右）"}
-EXTRA = {"q": "还有什么想让我先知道的？", "ph": "可以不写。比如：最近在备考，晚上 11 点以后别找我"}
-MARK = "最近的状态："
-LLM_TIMEOUT = 20
+WHEN_STEP = [
+    {"v": "today", "label": "今天", "hint": "趁现在还记得", "ill": "sunrise"},
+    {"v": "tomorrow", "label": "明天", "hint": "给自己留一晚", "ill": "night"},
+    {"v": "weekend", "label": "这个周末", "hint": "时间宽一点", "ill": "life"},
+]
 
-PROMPT = """你是「{name}」，TA 的朋友，陪 TA 一点点变成想成为的人。{tone}
-TA 刚在「聊聊现在的你」里简单说了说现在的自己，想从这里开始，看到一点进步。下面是 TA 选的。
+SMALLER = """你是「{name}」。{tone}
+TA 想把计划里的一件事先改小一点，好让它这周做得成。下面是这件事。
+给两个更小的版本，每个不超过 16 字，具体到数量或时长，都比原来明显容易，两个要不一样。
+两个都必须还是这件事本身：习惯就给更轻的做法（频率另算，别写「每天」「每周几次」），一次性的小步就给做成它的第一下（像「先给 Mia 发条消息问问」）。
+只输出 JSON：{{"opts":["",""]}}"""
 
-做三件事：
-1. see：一句话说出你看到的现在的 TA，不超过 34 字，对 TA 说（用「你」），把 TA 的状态和想变好的方向连起来，像朋友随口一说。
-2. steps：两个今天就能开始的第一小步，都冲着 TA 想变好的方向，大小照 TA 现在的劲头：
-   - 一点点就好：两分钟内能做完，几乎不费劲；
-   - 每天一小会：十分钟左右；
-   - 可以多一点：半小时左右，今天就能开始。
-   两个都按这个大小来：选了「可以多一点」，就别给「念一句」「一分钟」这种很小的动作。
-   TA 最近很忙，就挑不占时间的；想慢下来，就挑让人放松的做法。
-   每个 title 不超过 14 字，具体到一个动作（像「今晚 12 点前把手机放远」）；why 不超过 24 字，说为什么先从这一步开始。两个要不一样。
-3. wish：方向不是 TA 已有的愿望时，给这个方向起一个愿望名（不超过 8 字，像「睡得早一点」「少一点焦虑」）；是已有的愿望就留空。
+ADD = """你是「{name}」。{tone}
+TA 这周的愿望进行得挺顺，想再加一点。下面是 TA 的愿望和现在的计划。
+给两个这周就能做的新小步，每个不超过 16 字，比现在的稍微难一点但做得到，具体到一件事，两个要不一样，也别和现在的计划重复。
+只输出 JSON：{{"opts":["",""]}}"""
 
-不说教，不喊口号，不用「不是……而是……」、破折号，不说「加油」「你一定可以」「旅程」「蜕变」。
-只输出 JSON：{{"see":"","steps":[{{"title":"","why":""}},{{"title":"","why":""}}],"wish":""}}"""
+FIRST = """你是「{name}」。{tone}
+TA 刚有了一个愿望，计划还是空的，想先定第一件事。下面是这个愿望。
+给两个这周就能做的第一件事，每个不超过 16 字，小到不用下决心，具体到一个动作，两个要不一样。
+只输出 JSON：{{"opts":["",""]}}"""
 
-# 模型不在时的第一小步：按方向和劲头挑，说得通用一点
-FALLBACK = {
-    "wish": {"seed": ("为「{w}」做两分钟", "先让它今天出现一下"), "sprout": ("为「{w}」做十分钟", "每天一小会，最容易接着来"),
-             "more": ("为「{w}」留出半小时", "今天认真往前推一次")},
-    "body": {"seed": ("今晚早十分钟放下手机", "睡好了，别的都轻松一点"), "sprout": ("饭后慢慢走十分钟", "动一动，身体先松下来"),
-             "more": ("今晚十一点前躺下", "先把睡眠拉回来")},
-    "study": {"seed": ("写下明天最要紧的一件事", "先知道从哪下手"), "sprout": ("手机放远，专心做十分钟", "先练一次坐得住"),
-              "more": ("留出半小时只做一件事", "认真推进一次")},
-    "mood": {"seed": ("慢慢深呼吸十次", "先让身体松一点"), "sprout": ("睡前写三行今天的小事", "写下来，心里轻一点"),
-             "more": ("出门走半小时，不看手机", "换个环境，脑子缓一缓")},
-    "people": {"seed": ("给一个朋友发句问候", "联系一下，关系就热一点"), "sprout": ("和一个人好好聊十分钟", "从一次真聊开始"),
-               "more": ("约一个朋友见一面", "见面比消息近得多")},
-}
-FALLBACK_WISH = {"body": "睡好一点", "study": "做事更专注", "mood": "多一点轻松", "people": "敢开口多联系"}
-FALLBACK_SEE = "好，我们就从这里开始。"
+FALLBACK = {"smaller_habit": ["先只做两分钟", "先做原来的一半"], "smaller_step": ["先花两分钟开个头", "先把要用的东西准备好"],
+            "add": ["比平时多做一点点", "找个人说说这周的进展"], "first": ["花两分钟想想从哪开始", "写下这周想做的一件事"]}
 
 
-def _opt(key: str, v: str, wish: dict | None = None) -> dict | None:
-    if key == "dir" and v == "wish":
-        return {"v": "wish", "label": clip(wish["title"], 10), "hint": "接着你的愿望", "ill": "wish", "react": "好，接着往前走。"} if wish else None
-    step = next(s for s in STEPS if s["key"] == key)
-    return next((o for o in step["opts"] if o["v"] == v), None)
+def _days_ago(ts: str) -> int:
+    try:
+        return max(0, (now().date() - date.fromisoformat(str(ts)[:10])).days)
+    except ValueError:
+        return 0
 
 
-def render(store: Store, st: dict) -> dict:
-    """给前端的一题：方向那题，有愿望就把现在的愿望放第一个（顶掉「和人相处」）。"""
-    if st.get("key") == "dir":
-        w = journey.current(store)
-        if w:
-            st["opts"] = [_opt("dir", "wish", w)] + st["opts"][:3]
-    if st.get("index") == 0:
-        st["intro"] = "说说现在的你，我们从这里开始。"
-    return st
-
-
-def replies(step: dict) -> dict:
-    out = {o["v"]: o["react"] for o in step["opts"]}
-    if step["key"] == "dir":
-        out["wish"] = "好，接着往前走。"
+def _items(store: Store, wid: str) -> list[dict]:
+    """这周的样子：这个愿望的习惯（本周打卡进度）+ 放得最久、还没做的小步。"""
+    out = []
+    for h in journey.habits(store, wid)[:MAX_HABITS]:
+        out.append({"v": "h:" + h["id"], "kind": "habit", "label": h["title"], "freq": h["freq_text"], "cue": h.get("cue") or "",
+                    "hint": f"习惯 · {h['freq_text']} · 本周 {h['week']}/{h['need']}", "prog": round(min(1, h["week"] / h["need"]), 2)})
+    for s in store.c.execute("SELECT * FROM step WHERE status='todo' AND wish_id=? ORDER BY created_at LIMIT ?", (wid, MAX_STEPS)):
+        n = _days_ago(s["created_at"])
+        out.append({"v": "s:" + s["id"], "kind": "step", "label": s["title"],
+                    "hint": f"小步 · 放了 {n} 天" if n >= 2 else "小步 · 还没做"})
     return out
 
 
-def norm(step: dict, v) -> str:
-    """只收选项里有的值（方向题多一个 wish）；别的当作跳过。"""
-    ok = {o["v"] for o in step["opts"]} | ({"wish"} if step["key"] == "dir" else set())
-    return v if isinstance(v, str) and v in ok else ""
+def _milestone(store: Store, wid: str) -> dict | None:
+    today = day_key()
+    for m in journey.milestones(store, wid):
+        if m["status"] != "done":
+            if m["due_day"] and m["due_day"] >= today:
+                return {"title": m["title"], "days": (date.fromisoformat(m["due_day"]) - now().date()).days}
+            if not m["due_day"]:
+                return {"title": m["title"], "days": None}
+    return None
 
 
-def _answers(a: list) -> dict:
-    return {s["key"]: (a[i] if i < len(a) else "") for i, s in enumerate(STEPS)}
+def ctx(store: Store, wish_id: str = "") -> dict:
+    ws = journey.wishes(store)
+    cur = journey.current(store) if ws else None
+    ws.sort(key=lambda w: w["id"] != (cur or {}).get("id"))
+    return {"wishes": [{"id": w["id"], "title": w["title"], "items": _items(store, w["id"]), "ms": _milestone(store, w["id"])}
+                       for w in ws],
+            "pick": wish_id if any(w["id"] == wish_id for w in ws) else "",
+            "when": {"habit": WHEN_HABIT, "step": WHEN_STEP}}
 
 
-def ending(store: Store, answers: list) -> dict:
-    """调一次模型：{see, steps: [{title, why}] × 2, wish}。模型不在就按方向和劲头给一条通用的路。"""
+# ---------------------------------------------------------------- 小光给建议（TA 要的时候才调） ----
+
+def _ask(store: Store, system: str, user: str) -> list[str]:
     from .scenes import TONE
     p = store.profile()
-    a = _answers(answers)
-    w = journey.current(store)
-    d = a["dir"] if a["dir"] and (a["dir"] != "wish" or w) else ("wish" if w else "body")
-    e = a["energy"] or "seed"
-    st, dr = _opt("state", a["state"]), _opt("dir", d, w)
-    wishes = [x["title"] for x in journey.wishes(store)][:4]
-    user = "\n".join([
-        f"TA 的称呼：{p.get('nickname') or '（没填）'}",
-        "TA 已有的愿望：" + ("、".join(f"「{t}」" for t in wishes) + (f"（现在主要在做「{w['title']}」）" if w else "") if wishes else "（还没有）"),
-        f"最近的状态：{st['label'] + '，' + st['hint'] if st else '（没选）'}",
-        f"想变好的方向：{'接着已有的愿望「' + w['title'] + '」' if d == 'wish' else dr['label'] + '（' + dr['hint'] + '）'}",
-        f"现在的劲头：{ENERGY_HOW[e]}",
-    ])
-    system = PROMPT.format(name=p.get("agent_name") or "小光", tone=TONE.get(p.get("persona") or "gentle", TONE["gentle"]))
+    system = system.format(name=p.get("agent_name") or "小光", tone=TONE.get(p.get("persona") or "gentle", TONE["gentle"]))
     out = llm.complete_json([{"role": "system", "content": system}, {"role": "user", "content": user}],
-                            timeout=LLM_TIMEOUT, reasoning="none") or {}   # TA 在等：不思考
-    steps = []
-    for x in out.get("steps") or []:
-        if isinstance(x, dict) and str(x.get("title") or "").strip():
-            steps.append({"title": clip(str(x["title"]).strip().rstrip("。"), 16), "why": clip(str(x.get("why") or "").strip(), 30)})
-    see = clip(str(out.get("see") or "").strip(), 50)
-    wish = "" if d == "wish" else clip(str(out.get("wish") or "").strip().strip("「」"), 10)
-    by_model = len(steps) >= 2 and bool(see)
-    if not by_model:
-        t, why = FALLBACK[d][e]
-        alt = FALLBACK[d]["seed" if e != "seed" else "sprout"]
-        steps = [{"title": t.format(w=clip(w["title"], 8) if w else ""), "why": why},
-                 {"title": alt[0].format(w=clip(w["title"], 8) if w else ""), "why": alt[1]}]
-        see = FALLBACK_SEE
-    if d != "wish" and not wish:
-        wish = FALLBACK_WISH.get(d, "")
-    return {"see": see, "steps": steps[:2], "dir": d, "wish": wish, "wish_id": w["id"] if (w and d == "wish") else "",
-            "by_model": by_model}
+                            timeout=LLM_TIMEOUT, reasoning="none") or {}
+    opts = []
+    for x in out.get("opts") or []:
+        t = clip(str(x or "").strip().strip("「」").rstrip("。"), 20)
+        if t and t not in opts:
+            opts.append(t)
+    return opts[:2]
 
 
-def review(store: Store, run_id: str, answers: list) -> dict:
-    """结束页：小光看到的你、两个第一小步、会存下的东西。模型的结果按这次 run 缓存，保存时不再调。"""
-    cache = store.profile().get("relearn_end") or {}
-    end = cache if cache.get("run") == run_id and cache.get("steps") else {**ending(store, answers), "run": run_id}
-    if end is not cache:
-        store.set_profile({"relearn_end": end})
-    a = _answers(answers)
-    items = [{"key": "step", "title": "第一小步", "text": end["steps"][0]["title"], "choices": end["steps"], "to": "蜕变计划 · 今天"}]
-    if end["dir"] != "wish" and end["wish"]:
-        it = {"key": "wish", "title": "新的愿望", "text": end["wish"], "new": True, "to": "蜕变计划"}
-        if len(journey.wishes(store)) >= journey.MAX_ACTIVE:
-            it.update(off=True, note=f"愿望已经有 {journey.MAX_ACTIVE} 个了，先在蜕变计划里收起一个")
-        items.append(it)
-    st = _opt("state", a["state"])
-    if st:
-        items.append({"key": "state", "title": "最近", "text": st["label"], "to": "记忆"})
-    ac = _opt("accomp", a["accomp"])
-    if ac:
-        items.append({"key": "accomp", "title": "陪你的方式", "text": ac["label"], "to": "设置"})
-    w = journey.current(store)
-    return {"kind": "tune", "say": end["see"], "items": items, "extra": EXTRA,
-            "wish": w["title"] if (w and end["dir"] == "wish") else ""}
+def _wish(store: Store, wid: str) -> dict:
+    w = journey.get_wish(store, wid)
+    if not w or w.get("archived"):
+        raise ValueError("这个愿望找不到了")
+    return w
 
 
-def save(store: Store, run_id: str, answers: list, chosen: list, extra: str = "") -> dict:
-    rv = review(store, run_id, answers)
-    allowed = {it["key"]: it for it in rv["items"] if not it.get("off")}
-    picks = {}
-    for it in chosen[:8]:
-        k = str((it or {}).get("key") or "")
-        if k in allowed:
-            picks[k] = str(it.get("text") or "").strip()
-    extra = clip((extra or "").strip(), 200)
-    if not picks and not extra:
-        raise ValueError("还没有选中要保存的内容")
-    end = store.profile().get("relearn_end") or {}
-    a = _answers(answers)
-    wrote, step = [], None
-    target = end.get("wish_id") or ""
-    if "wish" in picks:
-        name = end.get("wish") or allowed["wish"]["text"]
-        hit = next((w for w in journey.wishes(store) if journey.is_dup(name, [w["title"]])), None)
-        made = hit or journey.add_wish(store, name, journey.guess_category(name))
-        target = made["id"]
-        if not hit:
-            wrote.append({"type": "wish", "label": "新的愿望", "text": made["title"], "where": "蜕变计划"})
-    if "step" in picks:
-        choice = next((c for c in end.get("steps", []) if c["title"] == picks["step"]), end["steps"][0])
-        step = store.add_step(choice["title"], choice["why"], wish_id=target)
-        store.log("plan", "聊聊现在的你：第一小步「" + choice["title"] + "」")
-        wrote.append({"type": "step", "label": "第一小步", "text": choice["title"], "where": "蜕变计划"})
-    if "state" in picks:
-        o = _opt("state", a["state"])
-        t = now()
-        text = f"{t.month}月{t.day}日说，{MARK}{o['label']}（{o['hint']}）"
-        old = store.c.execute("SELECT id FROM memory WHERE source='scene:relearn' AND status!='archived' AND text LIKE ? "
-                              "ORDER BY created_at DESC LIMIT 1", (f"%{MARK}%",)).fetchone()
-        if old:
-            store.update_memory(old["id"], text=text, status="active", reason="scene:relearn")
+def _find(store: Store, wid: str, v: str) -> dict | None:
+    return next((it for it in _items(store, wid) if it["v"] == v), None)
+
+
+def _ease(store: Store, v: str) -> dict | None:
+    """习惯还能降一档频率时，多给一个「频率降一档」。"""
+    if not v.startswith("h:"):
+        return None
+    r = store.c.execute("SELECT * FROM habit WHERE id=?", (v[2:],)).fetchone()
+    e = journey.ease_habit(dict(r)) if r else None
+    return {"freq": e[0], "per_week": e[1], "text": journey.freq_text({"freq": e[0], "per_week": e[1]})} if e else None
+
+
+def suggest(store: Store, kind: str, wid: str, ref: str = "", label: str = "") -> dict:
+    """改小一点（ref 是计划里的一件，或者 TA 自己写的 label）/ 再加一件 / 第一件事：两个建议。模型不在就给通用的。"""
+    w = _wish(store, wid)
+    if kind == "smaller":
+        it = _find(store, wid, ref) if ref else None
+        if it:
+            what = (f"习惯「{it['label']}」（{it['freq']}，{it['hint'].split(' · ')[-1]}）" if it["kind"] == "habit"
+                    else f"一次性的小步「{it['label']}」（{it['hint'].split(' · ')[-1]}）")
         else:
-            store.add_memory(text, "event", "scene:relearn")
-        wrote.append({"type": "memory", "label": "最近", "text": o["label"], "where": "记忆"})
-    if "accomp" in picks:
-        patch = {"chat_style": CHAT[a["accomp"]]}
-        if a["accomp"] == "push":
-            patch["care_style"] = "nudge"
-        store.set_profile(patch)
-        wrote.append({"type": "profile", "label": "陪你的方式", "text": _opt("accomp", a["accomp"])["label"], "where": "陪伴偏好"})
-    if extra:
-        store.add_memory("想让小光知道：" + extra, "insight", "scene:relearn")
-        wrote.append({"type": "memory", "label": "想让我知道的", "text": extra, "where": "记忆"})
-    store.set_profile({"relearn_end": {}})
-    reply = rv["say"] + (f"\n\n「{step['title']}」放进今天的计划了。" if step else "")
+            label = clip(label.strip(), 30)
+            if not label:
+                raise ValueError("先说说是哪一件")
+            what = f"一件 TA 自己说的事「{label}」"
+        opts = _ask(store, SMALLER, f"愿望：「{w['title']}」\n这件事：{what}")
+        if len(opts) < 2:
+            opts = FALLBACK["smaller_habit" if it and it["kind"] == "habit" else "smaller_step"]
+        e = _ease(store, ref) if it else None
+        return {"opts": opts, "ease": e["text"] if e else ""}
+    if kind == "add":
+        plan = "；".join(f"{it['label']}（{it['hint']}）" for it in _items(store, wid)) or "（还没有）"
+        done = [r[0] for r in store.c.execute("SELECT title FROM step WHERE wish_id=? AND status='done' ORDER BY done_at DESC LIMIT 3", (wid,))]
+        opts = _ask(store, ADD, f"愿望：「{w['title']}」\n现在的计划：{plan}\n最近做完的小步：{'、'.join(done) or '（还没有）'}")
+        return {"opts": opts if len(opts) >= 2 else FALLBACK["add"]}
+    if kind == "first":
+        opts = _ask(store, FIRST, f"愿望：「{w['title']}」\n实现那天的样子：{w.get('vision_text') or '（没写）'}")
+        return {"opts": opts if len(opts) >= 2 else FALLBACK["first"]}
+    raise ValueError("不认识的建议")
+
+
+# ---------------------------------------------------------------- 答完：这周的打算 ----
+
+def clean(store: Store, a: dict) -> dict:
+    s = lambda k, n=24: clip(str(a.get(k) or "").strip(), n)   # noqa: E731
+    w = _wish(store, s("wish", 40))
+    out = {"wish": w["id"]}
+    for k in ("feel", "which", "how", "small", "when", "more", "add", "first"):
+        out[k] = s(k, 40)
+        out[k + "_label"] = s(k + "_label", 30)
+    return out
+
+
+def _next_monday() -> str:
+    d = now().date()
+    return (d + timedelta(days=7 - d.weekday())).isoformat()
+
+
+def _due(when: str) -> str | None:
+    """小步「哪天做」：今天 / 明天 / 这个周末（周六；已经是周末就今天）。"""
+    d = now().date()
+    day = {"today": d, "tomorrow": d + timedelta(days=1), "weekend": d + timedelta(days=max(0, 5 - d.weekday()))}.get(when)
+    return day.isoformat() if day else None
+
+
+def ending(store: Store, a: dict) -> dict:
+    """按 TA 走的那条路，算出「这周的打算」：卡片上的几行、真正要改的（ops）、小光写好的一句话。不调模型。"""
+    w = _wish(store, a["wish"])
+    items = _items(store, w["id"])
+    it = next((x for x in items if x["v"] == a["which"]), None)
+    if not it and a["which"] == "custom" and a["which_label"]:
+        it = {"v": "custom", "kind": "other", "label": a["which_label"]}
+    lines, ops, remind, now_step = [], [], None, None
+    say = "这周就照这个来。"
+    q = lambda t: f"「{t}」"   # noqa: E731
+
+    if a["first"] and a["first"] != "none" and a["first_label"]:
+        lines.append(f"第一件事：{q(a['first_label'])}")
+        ops.append({"op": "step_add", "title": a["first_label"]})
+        now_step = a["first_label"]
+        say = "第一件事有了，它就开始了。"
+    elif a["feel"] == "smooth":
+        if a["more"] == "add" and a["add"] and a["add"] != "none" and a["add_label"]:
+            lines.append(f"新的小步：{q(a['add_label'])}")
+            ops.append({"op": "step_add", "title": a["add_label"]})
+            now_step = a["add_label"]
+            say = "顺的时候多走一步，刚刚好。"
+        else:
+            say = "这周照现在的来，挺好。有变化随时回来调。"
+    elif it:
+        kind, label = it["kind"], it["label"]
+        how = "small" if a["feel"] == "none" else a["how"]
+        if how == "pause":
+            if kind == "habit":
+                lines.append(f"{q(label)}这周先停一停")
+                ops.append({"op": "habit_pause", "id": it["v"][2:]})
+            elif kind == "step":
+                lines.append(f"{q(label)}下周再做")
+                ops.append({"op": "step_due", "id": it["v"][2:], "due": _next_monday()})
+            else:
+                return {"say": "好，这周先放一放，不算放弃。", "card": None, "keeps": [], "acts": [], "ops": []}
+            say = "停一停不算退，下周再接上。"
+        elif how == "time":
+            wh = next((x for x in WHEN_HABIT if x["v"] == a["when"]), None) if kind == "habit" else \
+                next((x for x in WHEN_STEP if x["v"] == a["when"]), None)
+            text = wh["label"] if wh else a["when_label"]
+            if text:
+                if kind == "habit":
+                    lines.append(f"{q(label)}放到{text}")
+                    ops.append({"op": "habit_cue", "id": it["v"][2:], "cue": text})
+                    if wh:
+                        remind = {"title": clip(f"该{label}了", 30), "time": wh["time"]}
+                elif kind == "step":
+                    due = _due(a["when"])
+                    lines.append(f"{q(label)}放到{text}" if wh else f"{q(label)}：{text}")
+                    ops.append({"op": "step_due", "id": it["v"][2:], "due": due} if due else
+                               {"op": "step_why", "id": it["v"][2:], "why": f"打算：{text}"})
+                    if a["when"] == "today":
+                        now_step = label
+                else:
+                    lines.append(f"{q(label)}放到{text}")
+                    ops.append({"op": "step_add", "title": label, "due": _due(a["when"])})
+                    if a["when"] in ("today", ""):
+                        now_step = label
+                say = "有个固定的时候，就不用每天想着了。"
+        elif how == "small" and a["small"] and a["small"] != "keep":
+            if a["small"] == "ease" and kind == "habit":
+                e = _ease(store, it["v"])
+                if e:
+                    lines.append(f"{q(label)}改成{e['text']}")
+                    ops.append({"op": "habit_freq", "id": it["v"][2:], "freq": e["freq"], "per_week": e["per_week"]})
+            elif a["small_label"]:
+                if kind == "habit":
+                    lines.append(f"{q(label)}先改成{q(a['small_label'])}")
+                    ops.append({"op": "habit_title", "id": it["v"][2:], "title": a["small_label"]})
+                else:
+                    lines.append(f"先做：{q(a['small_label'])}（今天）")
+                    ops.append({"op": "step_add", "title": a["small_label"]})
+                    now_step = a["small_label"]
+            if lines:
+                say = "小一点，这周就做得成。"
+        elif how == "custom" and a["how_label"]:
+            lines.append(f"{q(label)}：{a['how_label']}")
+            ops.append({"op": "memory", "text": f"想把「{label}」这样调：{a['how_label']}"})
+            say = "好，就照你说的来。"
+        if a["feel"] == "none":
+            rest = [x for x in items if x["kind"] == "habit" and x["v"] != it["v"]]
+            if rest:
+                lines.append("其余的习惯这周先停一停")
+                ops += [{"op": "habit_pause", "id": x["v"][2:]} for x in rest]
+            if not lines:
+                lines.append(f"这周只保{q(label)}")
+            say = "这周只保这一件，够了。"
+
+    if not lines:
+        return {"say": say if a["feel"] == "smooth" else "好，这周先不改。想调的时候随时回来。", "card": None, "keeps": [], "acts": [],
+                "ops": []}
+    only_memory = all(o["op"] == "memory" for o in ops)
+    keeps = [{"key": "plan", "html": "记下这个打算" if only_memory else "改到蜕变计划里", "to": "记忆" if only_memory else "蜕变计划"}]
+    if remind:
+        keeps.append({"key": "remind", "html": f"每天 {remind['time']} 提醒我", "to": "例行任务", "on": False})
+    return {"say": say, "card": {"small": "这周的打算", "title": w["title"], "list": lines}, "keeps": keeps,
+            "acts": ["save"] + (["now"] if now_step else []), "ops": ops, "remind": remind, "now": now_step or ""}
+
+
+def save(store: Store, a: dict, end: dict, keys: set) -> dict:
+    w = _wish(store, a["wish"])
+    wrote, step = [], None
+    if "plan" in keys:
+        for o in end.get("ops") or []:
+            k = o["op"]
+            if k == "step_add":
+                s = store.add_step(clip(o["title"], 40), why="让愿望落地", wish=w["title"], due_day=o.get("due") or None, wish_id=w["id"])
+                step = step or s
+            elif k == "step_due":
+                with store.lock:
+                    store.c.execute("UPDATE step SET due_day=? WHERE id=? AND wish_id=?", (o["due"], o["id"], w["id"]))
+                if o["due"] == day_key():
+                    step = step or dict(store.c.execute("SELECT * FROM step WHERE id=?", (o["id"],)).fetchone() or {}) or None
+            elif k == "step_why":
+                with store.lock:
+                    store.c.execute("UPDATE step SET why=? WHERE id=? AND wish_id=?", (clip(o["why"], 160), o["id"], w["id"]))
+            elif k == "habit_title":
+                journey.edit_habit(store, o["id"], {"title": o["title"]})
+            elif k == "habit_freq":
+                journey.edit_habit(store, o["id"], {"freq": o["freq"], "per_week": o["per_week"]})
+            elif k == "habit_cue":
+                with store.lock:
+                    store.c.execute("UPDATE habit SET cue=? WHERE id=? AND wish_id=?", (clip(o["cue"], 12), o["id"], w["id"]))
+            elif k == "habit_pause":
+                pause_week(store, o["id"])
+            elif k == "memory":
+                store.add_memory(clip(o["text"], 120), "insight", "scene:relearn")
+        wrote.append({"type": "plan", "label": "这周的打算", "text": "；".join(end["card"]["list"]), "where": "蜕变计划"})
+        store.log("plan", f"让愿望落地：{'；'.join(end['card']['list'])}")
+    if "remind" in keys and end.get("remind"):
+        r = end["remind"]
+        tasks.add(store.uid, r["title"], kind="remind", repeat="daily", time=r["time"], source="scene")
+        wrote.append({"type": "task", "label": "提醒", "text": f"每天 {r['time']}", "where": "例行任务"})
+    reply = "存好了，蜕变计划里已经改好。" if "plan" in keys else ("提醒设好了。" if wrote else "")
     return {"reply": reply, "wrote": wrote, "step": {"id": step["id"], "title": step["title"]} if step else None}
+
+
+def pause_week(store: Store, hid: str) -> None:
+    """这周先停一停：今天到周日都记成「先不做」，不影响进度，下周一自己回来。"""
+    d = now().date()
+    with store.lock:
+        for i in range(7 - d.weekday()):
+            store.c.execute("INSERT OR IGNORE INTO habit_skip(habit_id, day, created_at) VALUES(?,?,?)",
+                            (hid, (d + timedelta(days=i)).isoformat(), iso()))
+    store.log("rest", "有个习惯这周先停一停")

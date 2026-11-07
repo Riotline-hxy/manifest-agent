@@ -2,16 +2,16 @@
 
 两种结束方式：
 - 答完就写（gratitude）：最后一题答完，直接写进好消息和记忆；
-- 先确认再存（review=True：「聊聊你的愿望」「聊聊现在的你」「遇见更好的自己」）：答题时什么都不写，也不进聊天记录。
-  「聊聊你的愿望」的结束页把能留下的内容列成卡片，用户勾选、可以改，点「保存选中的内容」才写（save）；
-  「聊聊现在的你」的问题、结束页（看到的你 + 第一小步）和存法在 core/relearn.py，界面是 public/js/tune.js；
+- 先确认再存（review=True：「遇见更好的自己」）：答题时什么都不写，也不进聊天记录。
   冥想的结束页问一句「有没有什么让你想记住」：记下感受 / 和小光聊聊 / 直接结束。
   不保存就把这次的回答清掉（discard）。练习经验在答完时就给，存不存都算。
+「许个愿」（seven_steps_lite）和「让愿望落地」（relearn）不走这里一题一题的问法：它们是对话样子的全屏层，
+问题和分支在前端（public/js/flows.js、tune.js），开始、建议、结尾、保存在 core/flows.py。这里只留名字和介绍。
 
 题目字段：q 问题，hint 气泡里的小字；chips 选项；ask {选项: 占位}：选了它才出输入框，答案是输入的文字；
 ph 一直显示的输入框；after 选项放在输入框下面；multi / max 多选；none 算作「没想好」的选项；
 replies {选项: 小光的回应}、reply_any 选了就回应、reply_unknown 回答「不知道」时的回应；
-foot 「显化七步」那行小字里点亮第几个；cta 没有选项、只有一个按钮的页（按钮上的字）；
+cta 没有选项、只有一个按钮的页（按钮上的字）；
 breath 这一页放一颗慢慢呼吸的光；glow 回应时那颗光变暖、亮起来。
 场景上的 calm：冥想的节奏，选了就往下走、不能跳过，问题一行一行慢慢出来；music 背景音乐。
 """
@@ -19,13 +19,10 @@ from __future__ import annotations
 
 import re
 
-from . import journey, llm, relearn
 from .store import Store
-from .util import clip, now
+from .util import clip
 
 SKIP = "（跳过）"
-SEVEN = ["澄清", "信念", "感受", "行动", "感恩", "释放", "见证"]
-KEEP_WISH, NEW_WISH = "是的，还是这个愿望", "我想换一个愿望"
 OTHER = "其他，我想自己说"
 # 自己写的「不知道」「没想好」：和点「暂时不知道」一样，不生成卡片
 UNKNOWN = re.compile(r"(暂时|现在|还|也|真的)*(不知道|不清楚|没想好|想不到|想不出|不确定|说不清楚?|说不准|说不好|没有|无|没|不晓得)"
@@ -57,11 +54,14 @@ FEEL = [{"key": "write", "label": "我想记下刚才的感受"}, {"key": "talk"
 ENERGY = ["早上", "下午", "晚上", "不太固定"]
 
 SCENES = {
+    # 对话样子的两个：问题在前端，流程在 core/flows.py
     "relearn": {
-        "title": "聊聊现在的你", "minutes": 2, "stage": "近况", "icon": "compass", "review": True, "kind": "tune",
-        "desc": "说说现在的你，我们从一个今天就能做的小步开始。",
-        # 界面在 public/js/tune.js（对话样子），问题、存法在 core/relearn.py
-        "steps": [{**s, "replies": relearn.replies(s)} for s in relearn.STEPS],
+        "title": "让愿望落地", "minutes": 2, "stage": "落地", "icon": "sprout", "review": True, "kind": "tune", "flow": True,
+        "desc": "看看这周做得怎么样，把卡住的那一件调到做得成。", "steps": [],
+    },
+    "seven_steps_lite": {
+        "title": "许个愿", "minutes": 2, "stage": "愿望", "icon": "star", "review": True, "kind": "tune", "flow": True,
+        "desc": "说出想要的，看见它实现的那一天；或者看看走过的路，给它添点信心。", "steps": [],
     },
     "gratitude": {
         "title": "三分钟感恩", "minutes": 3, "stage": "感恩",
@@ -93,30 +93,6 @@ SCENES = {
              "q": "再轻轻呼吸一次。\n感受一下你的身体，也留意身边的声音。\n等你准备好了，慢慢睁开眼睛，或者抬起目光。\n欢迎回来。"},
         ],
     },
-    "seven_steps_lite": {
-        "title": "聊聊你的愿望", "minutes": 2, "stage": "七步", "review": True,
-        "desc": "我们一起聊聊，你最近想实现的愿望吧～",
-        "steps": [
-            {"key": "wish", "foot": 0},   # 有没有愿望，问法不同：见 _render_step
-            {"key": "belief", "foot": 1, "q": "想到这个愿望，你觉得自己有机会实现它吗？",
-             "chips": ["我觉得有可能", "有一点期待，但也不太确定", "现在还不太相信", "说不清楚"],
-             "replies": {"现在还不太相信": "没关系，不用现在就相信。我们可以慢慢聊。",
-                         "说不清楚": "没关系，不用现在就相信。我们可以慢慢聊。"}},
-            {"key": "feel", "foot": 2, "q": "想象一下，如果愿望实现了，你会是什么心情？",
-             "chips": ["开心", "放松", "安心", "有成就感", OTHER, "暂时想不到"],
-             "ask": {OTHER: "写下那种心情"}, "none": ["暂时想不到"]},
-            {"key": "try", "foot": 3, "q": "为了这个愿望，接下来你想做些什么？",
-             "ph": "不用很具体，想到什么就写什么。", "chips": ["暂时不知道"], "after": True,
-             "none": ["暂时不知道"], "reply_unknown": "没关系，还没想好也可以。"},
-            {"key": "have", "foot": 4, "q": "为了这个愿望，你觉得自己已经有什么可以依靠的？",
-             "ph": "比如：一段经验、一项能力，或愿意支持你的人。"},
-            {"key": "worry", "foot": 5, "q": "在这件事上，有没有什么想法让你觉得有压力？",
-             "ph": "比如：我觉得自己必须一次就做好。"},
-            {"key": "say", "foot": 6, "q": "聊完这些，你现在最想对自己说什么？",
-             "chips": ["我愿意先试一试", "我可以慢慢来", "我想再给自己一点信心", "写一句自己的话", "现在还想不到"],
-             "ask": {"写一句自己的话": "写给自己的一句话"}, "none": ["现在还想不到"]},
-        ],
-    },
 }
 
 SERVER_ONLY = ("replies", "reply_any", "reply_unknown", "none")
@@ -134,30 +110,19 @@ def is_review(sid: str) -> bool:
 def _render_step(store: Store, scene_id: str, i: int) -> dict:
     sc = SCENES[scene_id]
     st = {k: v for k, v in sc["steps"][i].items() if k not in SERVER_ONLY}
-    if scene_id == "seven_steps_lite" and st.get("key") == "wish":
-        w = journey.current(store)
-        if w:
-            st.update(q=f"你之前写下的愿望是「{w['title']}」。现在，你最想实现的愿望还是这个吗？",
-                      chips=[KEEP_WISH, NEW_WISH], ask={NEW_WISH: "写下你最近想实现的愿望"})
-        else:
-            st.update(q="你最近有什么想实现的愿望？", ph="写下你最近想实现的愿望")
     st["q"] = st.get("q", "").replace("{intent}", store.profile().get("intent_primary") or "想成为的自己")
     st["index"], st["total"] = i, len(sc["steps"])
-    if scene_id == "relearn":
-        st = relearn.render(store, st)
     if sc.get("review"):
         st["optional"], st["plain"] = not sc.get("calm"), True
     if sc.get("calm"):        # 冥想：选了就往下走
         st["calm"] = True
         if st.get("chips"):
             st["auto"] = True
-    if "foot" in st:
-        st["foot"] = {"label": "显化七步", "words": SEVEN, "at": st["foot"]}
     return st
 
 
 def start(store: Store, scene_id: str) -> dict:
-    if scene_id not in SCENES:
+    if scene_id not in SCENES or SCENES[scene_id].get("flow"):    # 许个愿、让愿望落地走 core/flows.py
         raise KeyError(scene_id)
     run = store.start_scene(scene_id)
     store.log("scene", f"开始灵感场景「{SCENES[scene_id]['title']}」")
@@ -170,6 +135,8 @@ def resume(store: Store, run_id: str) -> dict:
     if not run or run["status"] != "open":
         raise KeyError(run_id)
     sid = run["scene"]
+    if SCENES[sid].get("flow"):
+        raise KeyError(run_id)
     return {"run": run, "scene": {"id": sid, "title": SCENES[sid]["title"]},
             "step": _render_step(store, sid, len(run["answers"]))}
 
@@ -211,10 +178,10 @@ def answer(store: Store, run_id: str, value) -> dict:
     sid = run["scene"]
     sc = SCENES[sid]
     steps = sc["steps"]
+    if sc.get("flow") or len(run["answers"]) >= len(steps):
+        raise KeyError(run_id)
     step = steps[len(run["answers"])]
     v = _norm(value, sc.get("review", False))
-    if sid == "relearn":
-        v = relearn.norm(step, v)
     answers = list(run["answers"]) + [v]
     reply = _reply(step, v) if sc.get("review") else ""
     if len(answers) < len(steps):
@@ -240,49 +207,10 @@ def _by_key(sid: str, a: list) -> dict:
     return {s["key"]: (a[i] if i < len(a) else "") for i, s in enumerate(SCENES[sid]["steps"])}
 
 
-def _step(sid: str, key: str) -> dict:
-    return next(s for s in SCENES[sid]["steps"] if s.get("key") == key)
-
-
-def _has(sid: str, by: dict, key: str) -> bool:
-    return not _blank(_step(sid, key), by.get(key))
-
-
-def _seven_target(store: Store, wish_ans: str) -> tuple[dict | None, str]:
-    """第 1 题指向哪个愿望：(已有的愿望, 新愿望的名字)。写的和已有的某个愿望是同一个，就算已有的。"""
-    ws = journey.wishes(store)
-    cur = journey.current(store) if ws else None
-    if not wish_ans or wish_ans in (KEEP_WISH, NEW_WISH) or _blank(_step("seven_steps_lite", "wish"), wish_ans):
-        return cur, ""
-    hit = next((w for w in ws if journey.is_dup(wish_ans, [w["title"]])), None)
-    return (hit, "") if hit else (cur, clip(wish_ans, 30))
-
-
 def review(store: Store, sid: str, a: list, run_id: str = "") -> dict:
-    if sid == "relearn":     # 小光看到的你 + 两个第一小步（core/relearn.py）
-        return relearn.review(store, run_id, a)
-    by = _by_key(sid, a)
-    items = []
     if sid == "meditation":
         return {"kind": "feel", "say": "刚刚的几分钟里，有没有什么让你想记住？", "choices": FEEL,
                 "ph": "写下刚才的感受，一句也好", "to": "会记在「好消息」里"}
-    if sid == "seven_steps_lite":
-        target, new = _seven_target(store, by["wish"])
-        if _has(sid, by, "try"):
-            items.append({"key": "try", "title": "我想试试", "text": by["try"], "to": "小步"})
-        if new:
-            it = {"key": "wish", "title": "新的愿望", "text": new, "to": "蜕变计划"}
-            if len(journey.wishes(store)) >= journey.MAX_ACTIVE:
-                it.update(off=True, note=f"愿望已经有 {journey.MAX_ACTIVE} 个了，先在蜕变计划里收起一个，才放得进新的")
-            items.append(it)
-        if _has(sid, by, "say"):
-            items.append({"key": "say", "title": "我想对自己说", "text": by["say"], "to": "轨迹" if (target or new) else "记忆"})
-        if _has(sid, by, "worry"):
-            items.append({"key": "worry", "title": "我注意到的压力", "text": by["worry"], "to": "记忆"})
-        say = ("聊完啦～这是你接下来想尝试的事：" if _has(sid, by, "try")
-               else "聊完啦～接下来做什么，还可以再想一想。" if items else "聊完啦～谢谢你愿意和我一起想一想。")
-        return {"say": say, "heading": "这次聊到的", "items": items, "extra": None}
-
     raise KeyError(sid)
 
 
@@ -297,20 +225,9 @@ def save(store: Store, run_id: str, chosen: list, extra: str = "", talk: bool = 
     if not run["answers"]:
         raise ValueError("这次聊到的已经处理过了")
     sid = run["scene"]
-    if sid == "meditation":
-        out = _meditation_talk(run["answers"]) if talk else _meditation_note(store, extra)
-    elif sid == "relearn":
-        out = relearn.save(store, run_id, run["answers"], chosen, extra)
-    else:
-        allowed = {it["key"]: it for it in review(store, sid, run["answers"])["items"] if not it.get("off")}
-        picks = {}
-        for it in chosen[:10]:
-            k = str((it or {}).get("key") or "")
-            if k in allowed:
-                picks[k] = clip(str(it.get("text") or "").strip(), 60) or allowed[k]["text"]
-        if not picks:
-            raise ValueError("还没有选中要保存的内容")
-        out = _save_seven(store, run["answers"], picks)
+    if sid != "meditation":     # 许个愿、让愿望落地存在 core/flows.py
+        raise KeyError(run_id)
+    out = _meditation_talk(run["answers"]) if talk else _meditation_note(store, extra)
     store.update_scene(run_id, run["step"], [], "done")
     if out["reply"]:
         store.add_msg("assistant", out["reply"], {"scene": sid, "scene_done": True, "wrote": [w["label"] for w in out["wrote"]]})
@@ -323,55 +240,6 @@ def discard(store: Store, run_id: str) -> None:
     run = store.get_scene(run_id)
     if run and is_review(run["scene"]) and run["answers"]:
         store.update_scene(run_id, run["step"], [], "done" if run["status"] == "done" else "abandoned")
-
-
-def _save_seven(store: Store, answers: list, picks: dict) -> dict:
-    target, _ = _seven_target(store, _by_key("seven_steps_lite", answers)["wish"])
-    wrote, made = [], None
-    if "wish" in picks:
-        hit = next((w for w in journey.wishes(store) if journey.is_dup(picks["wish"], [w["title"]])), None)
-        if hit:
-            target = hit
-        else:
-            made = target = journey.add_wish(store, picks["wish"], journey.guess_category(picks["wish"]))
-            wrote.append({"type": "wish", "label": "新的愿望", "text": made["title"], "where": "蜕变计划"})
-    step = None
-    if "try" in picks:
-        title = clip(picks["try"], 40)
-        have = (journey.existing_titles(store, target["id"])["steps"] if target
-                else [s["title"] for s in store.steps() if s["status"] == "todo"])
-        if journey.is_dup(title, have):
-            wrote.append({"type": "step", "label": "我想试试", "text": title, "where": "小步里已经有了"})
-        else:
-            step = store.add_step(title, why="聊聊你的愿望 · 行动", wish=target["title"] if target else "",
-                                  wish_id=target["id"] if target else "")
-            wrote.append({"type": "step", "label": "我想试试", "text": step["title"],
-                          "where": f"「{target['title']}」的小步" if target else "小步"})
-    if "say" in picks:
-        if target:
-            journey.add_moment(store, target["id"], "对自己说：" + picks["say"], source="scene")
-            wrote.append({"type": "moment", "label": "我想对自己说", "text": picks["say"], "where": f"「{target['title']}」的轨迹"})
-        else:
-            store.add_memory("对自己说过：" + picks["say"], "insight", "scene:seven_steps_lite")
-            wrote.append({"type": "memory", "label": "我想对自己说", "text": picks["say"], "where": "记忆"})
-    if "worry" in picks:
-        store.add_memory((f"想到「{target['title']}」时会有压力：" if target else "有个让自己有压力的想法：") + picks["worry"],
-                         "insight", "scene:seven_steps_lite")
-        wrote.append({"type": "memory", "label": "我注意到的压力", "text": picks["worry"], "where": "记忆"})
-
-    # 固定的话，不调模型：说清放到了哪儿
-    lines = []
-    if made and step:
-        lines.append(f"「{made['title']}」放进愿望里了，第一小步是「{step['title']}」。")
-    elif made:
-        lines.append(f"「{made['title']}」放进愿望里了。第一步想做什么，我们可以慢慢想。")
-    elif step:
-        lines.append(f"「{step['title']}」放进{'「' + target['title'] + '」的' if target else ''}小步里了，做完了跟我说一声。")
-    if "say" in picks:
-        lines.append(f"你对自己说的「{clip(picks['say'], 20)}」，我{'留在轨迹上了' if target else '记下了'}。")
-    if "worry" in picks:
-        lines.append("让你有压力的那个想法，我也记着，想聊的时候随时说。")
-    return {"reply": "".join(lines[:3]), "wrote": wrote}
 
 
 def _meditation_note(store: Store, extra: str) -> dict:
