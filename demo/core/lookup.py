@@ -17,7 +17,7 @@ AREAS = {
     "habits": "所有习惯：频率、本周进度、最近两周哪天打过卡、连续天数、收起的习惯",
     "steps": "小步：待做 / 最近做完 / 放一放的",
     "moments": "轨迹上留下的瞬间（可以用 query 指定愿望）",
-    "good_news": "好消息页：小确幸和内心戏",
+    "good_news": "好消息页：TA 贴上去的开心小事",
     "rest": "最近的偷懒日",
     "memories": "你长期记住的关于 TA 的事，和待确认的猜测",
     "notebook": "你的笔记本",
@@ -134,12 +134,11 @@ def look_up(st, area: str, query: str = "") -> dict:
                      + (f"（感受：{m['feeling']}）" if m["feeling"] else ""))
 
     elif area == "good_news":
-        recs = [r for r in st.records(300) if r["type"] in ("good", "meme")]
+        good = [r for r in st.records(300) if r["type"] == "good"]
         week = (today - timedelta(days=today.weekday())).isoformat()
-        good = [r for r in recs if r["type"] == "good"]
-        L.append(f"小确幸一共 {len(good)} 条，这周 {sum(1 for r in good if r['day'] >= week)} 条；内心戏 {len(recs) - len(good)} 条。")
-        for r in recs[:15]:
-            L.append(f"[{r['id']}] {r['day']} {'小确幸' if r['type'] == 'good' else '内心戏'}：{clip(r['text'], 60)}")
+        L.append(f"好消息一共 {len(good)} 条，这周 {sum(1 for r in good if r['day'] >= week)} 条。")
+        for r in good[:15]:
+            L.append(f"[{r['id']}] {r['day']}：{clip(r['text'], 60)}")
 
     elif area == "rest":
         days = [r["day"] for r in st.records(300) if r["type"] == "rest"]

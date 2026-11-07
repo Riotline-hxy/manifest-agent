@@ -1657,9 +1657,8 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(sum(1 for r in d["records"] if r["type"] == "rest"), 1)
         _, d = c.req("POST", "/api/record", {"type": "rest", "undo": True})
         self.assertEqual(d["journey"]["rest_days"], [])
-        # 内心戏是好消息页的第二种记录；find 不能再新建
-        _, d = c.req("POST", "/api/record", {"type": "meme", "text": "我：早睡。也是我：再刷十分钟"})
-        self.assertEqual(d["record"]["type"], "meme")
+        # 好消息页只记开心的事：内心戏下线了，find 也不能再新建
+        self.assertEqual(c.req("POST", "/api/record", {"type": "meme", "text": "我：早睡。也是我：再刷十分钟"})[0], 400)
         self.assertEqual(c.req("POST", "/api/record", {"type": "find", "text": "x"})[0], 400)
         # 别人动不了
         other, _ = self.member("path_other")
@@ -1697,6 +1696,28 @@ class ApiTest(unittest.TestCase):
         tool = next(d for e, d in ev if e == "tool" and d["name"] == "checkin_habit")
         self.assertEqual(tool["result"]["habit"]["week"], 1)
 
+    def test_old_meme_records_hidden_but_exported(self):
+        from core import agent, cheer, growth, lookup
+        c, uid = self.member("meme_gone")
+        with Store(uid) as st:
+            st.add_record("good", "楼下的猫让我摸了")
+            st.add_record("meme", "今天的我：社恐但嘴硬")             # 下线前存下的内心戏
+            # 今天已经抽到了「记一段内心戏」：只换掉这一件，其他三件不动
+            from core.util import day_key
+            day = day_key()
+            growth._pick(st, day)
+            ids = st.profile()["daily_pick"]["ids"]
+            st.set_profile({"daily_pick": {**st.profile()["daily_pick"], "ids": [ids[0], "meme", ids[2], ids[3]]}})
+            self.assertEqual(growth._pick(st, day)["ids"], [ids[0], "good", ids[2], ids[3]])
+            self.assertEqual([r["type"] for r in st.records()], ["good"])
+            self.assertNotIn("社恐", " ".join(cheer.material(st)))
+            self.assertNotIn("社恐", str(lookup.look_up(st, "good_news")))
+            self.assertNotIn("社恐", str(agent.run_tool(st, "edit_good_news", {"target": "社恐", "action": "remove"}, "删掉")))
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual([r["text"] for r in d["records"]], ["楼下的猫让我摸了"])
+        _, ex = c.req("GET", "/api/export")
+        self.assertIn("今天的我：社恐但嘴硬", [r["text"] for r in ex["records"]])
+
     def test_cheer_you_and_affirmations(self):
         from core import cheer
         c, uid = self.member("cheer")
@@ -1710,7 +1731,7 @@ class ApiTest(unittest.TestCase):
         self.assertNotIn("我身边有爱我的人。", c.req("GET", "/api/bootstrap")[1]["cheer"]["affirm"])   # 关系类只给有关系愿望的人
         with Store(uid) as st:
             st.add_record("good", "楼下的猫让我摸了")
-            st.add_record("meme", "今天的我：社恐但嘴硬")
+            st.add_record("good", "第一次在课上举手了")
             self.fake.json_out = {"text": "这不是小事，而是你在照顾自己。"}
             self.assertIsNone(cheer.refresh(uid))                       # 「不是……而是」的句子不用
             self.fake.json_out = {"text": "这几天你一直在留意身边的小可爱。"}
@@ -2080,8 +2101,8 @@ class ApiTest(unittest.TestCase):
         c, uid = self.onboarded("misc_tools")
         from core import agent, journey
         with Store(uid) as st:
-            meme = agent.run_tool(st, "log_good_news", {"text": "开会时脑子里在想晚饭", "type": "meme"})
-            self.assertEqual(meme["record"]["type"], "meme")
+            first = agent.run_tool(st, "log_good_news", {"text": "开会时脑子里在想晚饭", "type": "meme"})
+            self.assertEqual(first["record"]["type"], "good")                  # 内心戏下线了：老参数也只记成好消息
             agent.run_tool(st, "log_good_news", {"text": "喝到一杯好喝的拿铁"})
             out = agent.run_tool(st, "edit_good_news", {"target": "拿铁", "action": "change", "text": "喝到一杯超好喝的燕麦拿铁"}, "改一下")
             self.assertTrue(out["ok"], out)

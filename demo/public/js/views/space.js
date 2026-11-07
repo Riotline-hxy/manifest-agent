@@ -32,7 +32,7 @@ export function renderSpace(root) {
           <p>陪伴第 ${d.counts?.days || 1} 天 · 正在靠近「${esc(p.intent_primary || "还没想好")}」</p>
           <div class="me-stats">
             <span><b class="num">${mems.filter((m) => m.status === "active").length}</b>件事</span>
-            <span><b class="num">${d.counts?.good || 0}</b>颗星</span>
+            <span><b class="num">${d.counts?.good || 0}</b>件好事</span>
             <span><b class="num">${d.counts?.done || 0}</b>个小步</span>
             <span><b class="num">${t ? builtCount(t) : 0}</b>栋房子</span>
           </div>

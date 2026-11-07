@@ -28,7 +28,7 @@ FEATURES = {
                   "desc": "把开不了头的事拆成一两分钟的小动作，我陪你一步步做", "open": {"kick": True}},
     "plan": {"title": "蜕变计划", "icon": "flag", "color": "var(--c-orange)", "desc": "看看愿望、里程碑和这周的习惯", "open": {"go": "plan"}},
     "report": {"title": "蜕变报告", "icon": "sparkles", "color": "var(--c-violet)", "desc": "这两周、这一个月的变化，都在这里", "open": {"go": "plan"}},
-    "goodnews": {"title": "好消息", "icon": "star", "color": "var(--c-lemon)", "desc": "你记下的每件小好事，是夜空里的一颗星", "open": {"go": "goodnews"}},
+    "goodnews": {"title": "好消息", "icon": "star", "color": "var(--c-lemon)", "desc": "你记下的每件小开心，都是幸福墙上的一张便利贴", "open": {"go": "goodnews"}},
     "town": {"title": "我的小镇", "icon": "home", "color": "var(--c-mint)", "desc": "用攒下的金币盖点什么", "open": {"go": "town"}},
     "academy": {"title": "心灵学堂", "icon": "book", "color": "var(--c-coral)", "desc": "团队写的小文章，几分钟读完", "open": {"go": "academy"}},
 }
@@ -207,7 +207,7 @@ def view(st, name: str, args: dict, result: dict, snap: dict) -> list[dict]:
                       undo=undo if changes else None, **extra)]
     if name == "log_good_news":
         r = result.get("record") or {}
-        return [_slip("star", "var(--c-lemon)", "记进内心戏" if r.get("type") == "meme" else "记进好消息",
+        return [_slip("star", "var(--c-lemon)", "贴进好消息",
                       clip(r.get("text") or "", 30), go="goodnews", undo=undo, **extra)]
     if name == "edit_good_news":
         if result.get("removed"):

@@ -26,7 +26,7 @@ AI_WORDS = ("旅程", "见证", "闪闪发光", "值得被", "每一步都", "�
             "记录显示", "统计", "系统", "你是一个", "你真的很棒", "为你骄傲", "加油哦", "温柔地", "勇敢地", "光芒", "绽放")
 NOT_BUT = re.compile(r"不是.{0,14}而是")
 QUOTE = re.compile(r"「([^」]{2,40})」")
-LABEL = {"good": "小确幸", "meme": "内心戏", "rest": "休息日", "find": "新发现"}
+LABEL = {"good": "小确幸", "rest": "休息日", "find": "新发现"}
 
 PROMPT = """你是陪伴者「小光」。夜里你翻着自己的笔记本，想写下一两件关于 TA 的、TA 自己可能都没注意到的事。
 这些会放在 TA 的「我的空间 → 了解你 → 小光的发现」里，是整个页面最想让 TA 看的部分：要让 TA 读完心里动一下，
@@ -120,7 +120,7 @@ def liked(st) -> list[str]:
 def _user_corpus(st, since: str) -> tuple[list[str], str]:
     lines = [r[0] for r in st.c.execute("SELECT content FROM msg WHERE role='user' AND created_at>=? ORDER BY created_at",
                                         (since,)) if r[0] and len(r[0]) <= 1200]
-    extra = [r[0] for r in st.c.execute("SELECT text FROM record WHERE created_at>=?", (since,))]
+    extra = [r[0] for r in st.c.execute("SELECT text FROM record WHERE created_at>=? AND type!='meme'", (since,))]
     extra += [r[0] for r in st.c.execute("SELECT text || ' ' || COALESCE(feeling,'') FROM moment WHERE day>=?", (since[:10],))]
     extra += [r[0] for r in st.c.execute("SELECT text FROM memory WHERE status='active'")]
     return lines, "\n".join(lines + [e or "" for e in extra])
@@ -157,7 +157,7 @@ def material(st) -> tuple[str, str, int]:
         out += ["", "## 笔记本里每晚写的（新的在前）"] + pages
     recs = [r for r in st.records(80) if (r.get("created_at") or "") >= since]
     if recs:
-        out += ["", "## TA 记下的（小确幸、内心戏、休息日）"] + [
+        out += ["", "## TA 记下的（小确幸、休息日）"] + [
             f"- {_md(r['created_at'])} {r['created_at'][11:16]} [{LABEL.get(r['type'], r['type'])}] {r['text']}" for r in recs]
     done = [s for s in st.steps(200) if s["status"] == "done" and (s.get("done_at") or "") >= since]
     if done:

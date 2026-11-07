@@ -71,8 +71,8 @@ def material(st: Store) -> list[str]:
     out = []
     for r in st.c.execute("SELECT day, text, feeling FROM moment WHERE day>=? ORDER BY day", (since,)):
         out.append(f"{r['day'][5:]} 在计划里记下：{r['text']}" + (f"（感受：{r['feeling']}）" if r["feeling"] else ""))
-    for r in st.c.execute("SELECT day, type, text FROM record WHERE day>=? AND type IN ('good','meme','find') ORDER BY day", (since,)):
-        out.append(f"{r['day'][5:]} {'内心戏' if r['type'] == 'meme' else '小确幸'}：{r['text']}")
+    for r in st.c.execute("SELECT day, type, text FROM record WHERE day>=? AND type IN ('good','find') ORDER BY day", (since,)):
+        out.append(f"{r['day'][5:]} 小确幸：{r['text']}")
     for r in st.c.execute("SELECT title, done_at FROM step WHERE status='done' AND substr(done_at,1,10)>=?", (since,)):
         out.append(f"{r['done_at'][5:10]} 完成小步：{r['title']}")
     for r in st.c.execute("SELECT h.title, COUNT(*) n FROM habit_log l JOIN habit h ON h.id=l.habit_id WHERE l.day>=? GROUP BY h.id", (since,)):

@@ -451,8 +451,11 @@ class Store:
                            (rid, type_, clip(text, 200), day or day_key(), iso()))
         return dict(self.c.execute("SELECT * FROM record WHERE id=?", (rid,)).fetchone())
 
-    def records(self, limit: int = 500) -> list[dict]:
-        return [dict(r) for r in self.c.execute("SELECT * FROM record ORDER BY day DESC, created_at DESC LIMIT ?", (limit,))]
+    def records(self, limit: int = 500, legacy: bool = False) -> list[dict]:
+        """好消息(good) / 休息日(rest) / 旧的新发现(find)。内心戏(meme) 2026-11 下线：旧的还在库里，
+        只在导出数据时带上（legacy=True），页面、小光和夜里整理都不再看到。"""
+        where = "" if legacy else " WHERE type!='meme'"
+        return [dict(r) for r in self.c.execute(f"SELECT * FROM record{where} ORDER BY day DESC, created_at DESC LIMIT ?", (limit,))]
 
     # ---- transcript ---------------------------------------------------------
     def add_msg(self, role: str, content: str, meta: dict | None = None, at: str | None = None) -> dict:

@@ -422,7 +422,7 @@ function dayCard(root, M, ds, kind = "") {
     for (const d of list) {
       const e = fresh.get(d) || { steps: [], habits: [], ms: [], moments: [] };
       const dueMs = (w.milestones || []).filter((m) => m.status !== "done" && m.due_day === d);
-      const good = recs.filter((r) => r.day === d && ["good", "meme", "find"].includes(r.type));
+      const good = recs.filter((r) => r.day === d && ["good", "find"].includes(r.type));
       const rest = (J.rest_days || []).includes(d);
       const any = countOf(e) || dueMs.length || good.length || rest;
       if (!any && kind) continue;
@@ -439,7 +439,7 @@ function dayCard(root, M, ds, kind = "") {
         <div class="j-m-meta">${m.mood ? `<span class="pill">${esc(m.mood)}</span>` : ""}${m.source === "chat" ? `<span class="pill">${icon("chat")}来自和小光的对话</span>` : m.source === "scene" ? `<span class="pill">${icon("sparkles")}聊聊你的愿望</span>` : ""}
           <span class="sp"></span><button class="btn btn-quiet btn-sm" data-edit>${icon("edit")}编辑</button><button class="btn btn-quiet btn-sm" data-del>${icon("trash")}删除</button></div>
       </article>`).join("");
-      if (good.length) html += `<div class="j-good"><div class="lbl">那天的好消息</div>${good.map((r) => `<p>${icon(r.type === "meme" ? "chat" : "star")}${esc(r.text)}</p>`).join("")}</div>`;
+      if (good.length) html += `<div class="j-good"><div class="lbl">那天的好消息</div>${good.map((r) => `<p>${icon("star")}${esc(r.text)}</p>`).join("")}</div>`;
     }
     body.innerHTML = html || `<p class="muted">这里还没有记录。</p>`;
     body.querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => {

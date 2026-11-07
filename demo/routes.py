@@ -432,9 +432,9 @@ def step(h, u, b, q):
 
 
 def record(h, u, b, q):
-    """好消息页：小确幸(good) / 内心戏(meme)。蜕变计划：休息日(rest，可撤销)。find 只保留旧数据的展示。"""
+    """好消息页：只记开心的事(good)。蜕变计划：休息日(rest，可撤销)。find 只保留旧数据的展示，内心戏(meme) 已下线。"""
     type_ = b.get("type")
-    if type_ not in ("good", "meme", "rest"):
+    if type_ not in ("good", "rest"):
         raise ApiError(400, "类型不对")
     with Store(u["id"]) as st:
         if type_ == "rest" and b.get("undo"):
@@ -449,14 +449,14 @@ def record(h, u, b, q):
             return 200, {"xp": None, **bootstrap(st)}
         r = st.add_record(type_, text)
         xp = None
-        if type_ in ("good", "meme"):
-            xp = growth.award(st, "good", ref="rec:" + r["id"], note="小确幸" if type_ == "good" else "内心戏")
+        if type_ == "good":
+            xp = growth.award(st, "good", ref="rec:" + r["id"], note="小确幸")
         else:   # 偷懒日：每日任务里行动那项先暂停，另外两件做到了就能拿全勤
             daily = growth.settle_daily(st)
             if daily:
                 xp = {"ok": True, "amount": 0, "coins": sum(d["coins"] for d in daily), "daily": daily}
         st.log("rest" if type_ == "rest" else "record",
-               {"good": "记下一件小确幸", "meme": "记下一段内心戏", "rest": "今天偷个懒：" + text.replace("今天偷个懒：", "")}[type_])
+               {"good": "记下一件小确幸", "rest": "今天偷个懒：" + text.replace("今天偷个懒：", "")}[type_])
         return 200, {"xp": xp, "record": r, **bootstrap(st)}
 
 
@@ -880,6 +880,7 @@ def export(h, u, b, q):
     """Data portability: everything we store about you, as JSON."""
     with Store(u["id"]) as st:
         return 200, {"user": public_user(u), "exported_at": iso(), **bootstrap(st),
+                     "records": st.records(100000, legacy=True),     # 连同已经下线的内心戏
                      "memories": st.memories(limit=10000), "messages": st.messages(10000),
                      "kick_memory": kickstart.entries(st, limit=10000)}
 

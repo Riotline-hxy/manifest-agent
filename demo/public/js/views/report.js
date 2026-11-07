@@ -117,7 +117,7 @@ function slides(r) {
         ${r.facts.rest ? `<div><b class="num" data-c="${r.facts.rest}">0</b><span>天休息</span></div>` : ""}</div>
         <p>休息的那几天，什么都没有被清零。</p>` },
   ];
-  if (firstGood) out.push({ tone: "c", html: `<div class="s-art jar">${jarSVG(r.facts.good)}</div><div class="s-k">第一颗星</div><h2 class="quote">「${esc(firstGood.title)}」</h2><p>${esc(firstGood.text)}</p>` });
+  if (firstGood) out.push({ tone: "c", html: `<div class="s-art jar">${jarSVG(r.facts.good)}</div><div class="s-k">第一件好事</div><h2 class="quote">「${esc(firstGood.title)}」</h2><p>${esc(firstGood.text)}</p>` });
   if (theme) out.push({ tone: "d", html: `<div class="s-k">你写下的好事里，反复出现的是</div><h2 class="huge">${esc(theme.title)}</h2><p>它也许比你以为的更重要。</p>` });
   if (r.surprise) out.push({ tone: "e", html: `<div class="s-k">你可能没注意到</div><h2 class="mid">${esc(r.surprise)}</h2>` });
   if (n.text) out.push({ tone: "f", html: `<div class="s-k">小光写给你</div><p class="s-letter">${esc(n.text)}</p>` });

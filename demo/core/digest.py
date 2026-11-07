@@ -127,7 +127,7 @@ def run(st: Store, day: str | None = None, use_model: bool = True) -> dict:
         for m in existing) or "（无）"
     lines = [f"日期：{day}", "", "## 对话"] + (mat["convo"] or ["（没有聊天）"])
     if mat["records"]:
-        lines += ["", "## 记录"] + [f"- [{ {'good': '小确幸', 'meme': '内心戏', 'rest': '休息日', 'find': '新发现'}.get(r['type'], r['type'])}] {r['text']}"
+        lines += ["", "## 记录"] + [f"- [{ {'good': '小确幸', 'rest': '休息日', 'find': '新发现'}.get(r['type'], r['type'])}] {r['text']}"
                                    for r in mat["records"]]
     if mat["done"]:
         lines += ["", "## 完成的小步"] + [f"- {s['title']}" for s in mat["done"]]

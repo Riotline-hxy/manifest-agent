@@ -154,10 +154,10 @@ def _old_steps(st) -> dict:
 
 
 def _good_time(st) -> dict:
-    rows = [r[0] for r in st.c.execute("SELECT created_at FROM record WHERE type IN ('good','meme')")]
+    rows = [r[0] for r in st.c.execute("SELECT created_at FROM record WHERE type='good'")]
     ts = [t for t in (parse_iso(s) for s in rows) if t]
     base = {"id": "goodtime", "icon": "star", "color": "var(--c-lemon)", "q": "我通常在什么时候记下开心的事？",
-            "have": len(ts), "need": 10, "unit": "件小确幸或内心戏"}
+            "have": len(ts), "need": 10, "unit": "件开心的小事"}
     if len(ts) < 10:
         return base
     part, n = Counter(_part(t.hour) for t in ts).most_common(1)[0]

@@ -84,7 +84,7 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
 
 直接调用工具，做完在回复里用半句话带上结果（「偷懒日已设置」「打勾啦 ✓」「每天 22:00 提醒你」），再接你的反应。工具返回的规则和说明（暂停了什么、进度扣不扣）不用复述，TA 问了再说。不要再问「要我帮你记吗」：
 - 今天想躺平 / 休息 / 偷懒 → log_lazy_day；说不偷懒了 → log_lazy_day(undo=true)
-- 讲了一件开心的小事（抢到排骨、天气很好）→ log_good_news（内心戏 type=meme）；改、删已有的好消息 → edit_good_news
+- 讲了一件开心的小事（抢到排骨、天气很好）→ log_good_news；改、删已有的好消息 → edit_good_news。好消息页只放开心的事：TA 在吐槽、难过、碎碎念时不记进去，先陪 TA 聊
 - 做完了计划里的一步 → complete_step；做了某个习惯里的事（「今天去健身了」）→ checkin_habit，可以顺带说这周还差几次
 - 「记一下 / 记住」→ remember；提到你的「笔记本」、让你加改删 → update_notebook；更正以前的事（「我现在不喜欢寿司了」）→ correct_memory
 - 「每天 X 点提醒我」「每周日陪我复盘」→ schedule_task；关、开、删、改时间 → edit_task
@@ -265,16 +265,14 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {
             "step_id": {"type": "string"}, "title": {"type": "string", "description": "不知道 id 时用标题匹配"}}}}},
     {"type": "function", "function": {
-        "name": "log_good_news", "description": "在好消息页记一条：小确幸（再小也算）或内心戏",
-        "parameters": {"type": "object", "properties": {"text": {"type": "string"},
-                                                       "type": {"type": "string", "enum": ["good", "meme"]}}, "required": ["text"]}}},
+        "name": "log_good_news", "description": "在好消息页贴一条已经发生的开心小事（再小也算，写成一句诗也行）。吐槽、难过的事不记",
+        "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}},
     {"type": "function", "function": {
         "name": "edit_good_news", "description": "改或删好消息页里已有的一条（页面上自己改不了）",
         "parameters": {"type": "object", "properties": {
             "target": {"type": "string", "description": "那条的原话、关键词或 [id]"},
             "action": {"type": "string", "enum": ["change", "remove"]},
-            "text": {"type": "string", "description": "改成什么"},
-            "type": {"type": "string", "enum": ["good", "meme"], "description": "改成小确幸 / 内心戏"}},
+            "text": {"type": "string", "description": "改成什么"}},
             "required": ["target", "action"]}}},
     {"type": "function", "function": {
         "name": "log_lazy_day", "description": "用户今天想偷懒 / 休息：记成偷懒日，当天的习惯和小步都暂停，所有进度都保留",
@@ -759,13 +757,12 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         text = clip(str(args.get("text") or ""), 200)
         if not text:
             return {"ok": False, "error": "内容为空"}
-        kind = "meme" if args.get("type") == "meme" else "good"
-        r = store.add_record(kind, text)
-        xp = growth.award(store, "good", ref="rec:" + r["id"], note="好消息" if kind == "good" else "内心戏")
-        store.log("record", "收下一条好消息" if kind == "good" else "记下一段内心戏")
+        r = store.add_record("good", text)
+        xp = growth.award(store, "good", ref="rec:" + r["id"], note="好消息")
+        store.log("record", "收下一条好消息")
         return {"ok": True, "record": r, "xp": xp, "count": store.counts()["good"]}
     if name == "edit_good_news":
-        rows = [dict(r) for r in store.c.execute("SELECT * FROM record WHERE type IN ('good','meme') ORDER BY day DESC, created_at DESC LIMIT 300")]
+        rows = [dict(r) for r in store.c.execute("SELECT * FROM record WHERE type='good' ORDER BY day DESC, created_at DESC LIMIT 300")]
         for r in rows:
             r["title"] = r["text"]
         r = journey._pick(rows, str(args.get("target") or ""))
@@ -780,8 +777,6 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         text = clip(str(args.get("text") or "").strip(), 200)
         if text and text != r["text"]:
             fields["text"] = text; changed.append("改成「" + clip(text, 30) + "」")
-        if args.get("type") in ("good", "meme") and args["type"] != r["type"]:
-            fields["type"] = args["type"]; changed.append("挪到" + ("小确幸" if args["type"] == "good" else "内心戏"))
         if not fields:
             return {"ok": False, "error": "没有要改的内容"}
         with store.lock:

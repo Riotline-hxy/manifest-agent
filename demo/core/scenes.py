@@ -459,10 +459,9 @@ def _save_relearn(store: Store, picks: dict, extra: str) -> dict:
     if extra:
         if ai:
             known = {m["text"] for m in store.memories(limit=300)}
-            for type_, label in (("good", "小确幸"), ("meme", "内心戏")):
-                for text in ai[type_]:
-                    store.add_record(type_, text)
-                    wrote.append({"type": "record", "label": label, "text": text, "where": "好消息"})
+            for text in ai["good"]:
+                store.add_record("good", text)
+                wrote.append({"type": "record", "label": "小确幸", "text": text, "where": "好消息"})
             for m in ai["memories"]:
                 if m["text"] not in known:
                     store.add_memory(m["text"], m["kind"], "scene:relearn")
@@ -484,15 +483,15 @@ TA 刚和你做完「聊聊现在的你」，下面是 TA 勾选确认、愿意�
    挑一两点具体的，说说你看到的、现在的 TA（别逐条复述）；TA 选了陪伴方式的话，最后一句说以后你会怎么陪 TA。
    提醒频率只是记下的偏好，现在没有开任何提醒：别说「我会每周提醒你」「每周陪你聊」这类做不到的承诺。
    只用下面的内容，不编造；不说教；不用「不是……而是……」、破折号、「加油」「你一定可以」「我理解你的感受」。
-2. 「TA 还想让你知道的」不是空的，就把它整理到三处（保留原意，不添内容）：
-   - good：已经发生、让 TA 开心的小事（小确幸），用 TA 自己的口吻，每条不超过 40 字；
-   - meme：TA 的心情、吐槽、碎碎念（内心戏），用 TA 自己的口吻，每条不超过 40 字；
+2. 「TA 还想让你知道的」不是空的，就把它整理到两处（保留原意，不添内容）：
+   - good：已经发生、让 TA 开心的小事（小确幸），用 TA 自己的口吻，每条不超过 40 字。会贴在 TA 的好消息墙上，只放开心的事；
+     心情不好、吐槽、碎碎念不放这里（在 reply 里接住就好）；
    - memories：以后陪伴用得上的长期信息（新的喜好、习惯、在意的人和事），省略主语的一句话，不写名字，
      像「最近迷上了蛋挞」「周末常去公园拍照」，不超过 40 字，kind 只能是 preference / identity / event / insight。
    一句话可以既是小确幸、又藏着一个喜好（「今天吃到超好吃的寿司，我真的好爱寿司」→ good 一条 + memories 一条）；
-   同一件事不要同时放进 good 和 meme。不值得记的就不放；空着就都给空列表。
+   不值得记的就不放；空着就都给空列表。
 
-只输出 JSON：{{"reply":"...","good":[],"meme":[],"memories":[{{"text":"...","kind":"preference"}}]}}"""
+只输出 JSON：{{"reply":"...","good":[],"memories":[{{"text":"...","kind":"preference"}}]}}"""
 
 MEM_KINDS = ("preference", "identity", "event", "insight")
 
@@ -514,7 +513,7 @@ def _relearn_ai(store: Store, picks: dict, extra: str) -> dict | None:
         if isinstance(m, dict) and str(m.get("text") or "").strip():
             mems.append({"text": clip(str(m["text"]).strip().rstrip("。.；;"), 60),
                          "kind": m.get("kind") if m.get("kind") in MEM_KINDS else "insight"})
-    return {"reply": clip(str(out["reply"]).strip(), 160), "good": texts("good", 2), "meme": texts("meme", 2),
+    return {"reply": clip(str(out["reply"]).strip(), 160), "good": texts("good", 2),
             "memories": mems if extra else []}
 
 

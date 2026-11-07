@@ -9,8 +9,8 @@ import { actsBlock, liveAct } from "../acts.js";
 import { startScene } from "../scene.js";
 import { openKick } from "../kick.js";
 import { openLazy, isResting } from "../rest.js";
+import { openGoodNote } from "./goodnews.js";
 
-const GOOD_PH = { good: "今天有什么让你嘴角上扬的小事？", meme: "此刻脑子里在上演什么？吐槽、碎碎念都可以" };
 
 const HINTS = [
   ["帮我记住我喜欢吃寿司", "memory"], ["我三天没健身了", "moon"], ["你对我了解多少？", "eye"],
@@ -89,7 +89,7 @@ export function renderChat(root) {
       <div class="composer"><div class="composer-in">
         <div class="hints">${HINTS.map(([t, ic]) => `<button class="chip" data-fill="${esc(t)}">${icon(ic)}${esc(t)}</button>`).join("")}</div>
         <div class="inbox">
-          <button class="ib" data-act="good" title="记一条好消息">${icon("star")}</button>
+          <button class="ib" data-act="good" title="记一件好事">${icon("star")}</button>
           <textarea rows="1" placeholder="给${esc(p.agent_name || "小光")}发消息" aria-label="消息"></textarea>
           <button class="ib ${isResting() ? "on" : ""}" data-act="lazy" title="${isResting() ? "今天在偷懒" : "今天偷个懒"}">${icon("moon")}</button>
           <button class="send" aria-label="发送">${icon("send")}</button>
@@ -239,34 +239,12 @@ export function renderChat(root) {
 
   root.querySelector("[data-act=good]").addEventListener("click", (e) => quickGood(e.currentTarget));
   root.querySelector("[data-act=lazy]").addEventListener("click", () => openLazy({ onDone: () => { setAgentMood("tired", { hold: 60000 }); renderChat(root); } }));
+  // 记一件好事：和好消息页同一个弹层。「心情不太好？」就把写了的字放进输入框，直接和小光聊
   function quickGood(btn) {
-    let kind = "good";
-    const body = h("div", { class: "qg", html: `<div class="tabs qg-tabs"><button class="on" data-k="good">${icon("star")}小确幸</button><button data-k="meme">${icon("chat")}内心戏</button><span class="ind"></span></div>
-      <textarea class="field" rows="3" maxlength="200" placeholder="${GOOD_PH.good}"></textarea>` });
-    const input = body.querySelector("textarea");
-    const tabs = body.querySelector(".tabs");
-    const place = () => { const on = tabs.querySelector("button.on"); Object.assign(tabs.querySelector(".ind").style, { left: on.offsetLeft + "px", width: on.offsetWidth + "px" }); };
-    tabs.querySelectorAll("[data-k]").forEach((b) => b.addEventListener("click", () => {
-      kind = b.dataset.k; input.placeholder = GOOD_PH[kind];
-      tabs.querySelectorAll("[data-k]").forEach((x) => x.classList.toggle("on", x === b)); place(); input.focus();
-    }));
-    const s = sheet({
-      title: "记一笔好消息", sticker: "star", body,
-      footer: [h("button", { class: "btn btn-main", onclick: async () => {
-        const t = input.value.trim();
-        if (!t) return input.focus();
-        try {
-          const out = await api.record(kind, t);
-          s.close();
-          setData(out);
-          celebrate();
-          flyGain(btn, out.xp);
-          burstAt(btn, 30);
-          toast(kind === "meme" ? "收下这段内心戏了" : "收下了，星空里又亮了一颗");
-        } catch (e) { toast(e.message, "err"); }
-      } }, "记下来")],
+    openGoodNote({
+      from: btn,
+      onSaved: () => celebrate(),
+      onTalk: (t) => { ta.value = t || ta.value; state.composerDraft = ta.value; grow(); ta.focus(); },
     });
-    requestAnimationFrame(place);
-    setTimeout(() => input.focus(), 60);
   }
 }

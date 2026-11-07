@@ -28,7 +28,7 @@ _UNCAPPED = -(-(LEVEL_CAP - LEVEL_BASE) // LEVEL_STEP)  # 前 31 级还没到 50
 
 SOURCES = {
     "action": {"label": "行动", "cap": SOURCE_CAP, "amount": 10, "hint": "完成小步、习惯打卡或到达里程碑"},
-    "good": {"label": "记录", "cap": SOURCE_CAP, "amount": 6, "hint": "小确幸、内心戏或计划里的瞬间"},
+    "good": {"label": "记录", "cap": SOURCE_CAP, "amount": 6, "hint": "好消息或计划里的瞬间"},
     "practice": {"label": "练习", "cap": SOURCE_CAP, "amount": 12, "hint": "场景 / 冥想 / 感恩"},
     "checkin": {"label": "陪伴", "cap": SOURCE_CAP, "amount": 8, "hint": "每天来聊一次"},
 }
@@ -39,7 +39,7 @@ COIN_EVENTS = {
     "step": ("action", 10),      # 完成一个小步
     "habit": ("action", 8),      # 习惯打卡
     "ms": ("milestone", 30),     # 到达里程碑
-    "rec": ("record", 4),        # 小确幸 / 内心戏
+    "rec": ("record", 4),        # 好消息（以前的内心戏也是这个前缀）
     "moment": ("record", 5),     # 轨迹上的瞬间
     "scene": ("practice", 10),   # 做完一次练习
     "kick": ("practice", 10),    # 两分钟启动走完一条路线（也算一次练习）
@@ -52,7 +52,6 @@ FIRST_GIFT = 40                 # = 小木屋的价钱
 DAILY = {
     "act": {"slot": "core", "label": "完成 1 个小步或打一次卡", "hint": "愿望里的小步、习惯、里程碑都算", "xp": 5, "coins": 10, "go": "plan", "act": True},
     "good": {"slot": "record", "label": "记下一件小确幸", "hint": "今天让你嘴角上扬的一件小事", "xp": 5, "coins": 8, "go": "goodnews"},
-    "meme": {"slot": "record", "label": "记一段内心戏", "hint": "脑子里冒出来的想法、吐槽都算", "xp": 5, "coins": 8, "go": "goodnews"},
     "moment": {"slot": "record", "label": "在愿望的轨迹上留下一个瞬间", "hint": "为愿望做了什么、当时什么感受", "xp": 5, "coins": 8, "go": "plan", "needs": "wish"},
     "pick": {"slot": "explore", "label": "做今天推荐的练习", "hint": "点子页最上面那张", "xp": 8, "coins": 12, "go": "ideas", "weight": 3},
     "practice": {"slot": "explore", "label": "做 1 次练习", "hint": "冥想、感恩、聊聊愿望，挑一个", "xp": 8, "coins": 12, "go": "ideas"},
@@ -60,11 +59,12 @@ DAILY = {
     "plan": {"slot": "explore", "label": "给愿望想一个新的小步", "hint": "自己加，或者让小光帮你想", "xp": 8, "coins": 12, "go": "plan", "needs": "few_steps", "weight": 3},
     "reflect": {"slot": "explore", "label": "写一段阶段回望", "hint": "蜕变计划里的「阶段回望」", "xp": 8, "coins": 12, "go": "plan", "needs": "moments"},
     "act3": {"slot": "stretch", "label": "今天做到 3 件行动", "hint": "小步、打卡、里程碑加起来", "xp": 10, "coins": 18, "go": "plan", "act": True},
-    "record2": {"slot": "stretch", "label": "记下 2 件好事", "hint": "小确幸、内心戏、瞬间都算", "xp": 10, "coins": 18, "go": "goodnews"},
+    "record2": {"slot": "stretch", "label": "记下 2 件好事", "hint": "好消息、愿望轨迹上的瞬间都算", "xp": 10, "coins": 18, "go": "goodnews"},
     "wish2": {"slot": "stretch", "label": "在 2 个愿望上都往前走一步", "hint": "两个愿望各做一件", "xp": 10, "coins": 18, "go": "plan", "act": True, "needs": "wishes2"},
     "habit2": {"slot": "stretch", "label": "给 2 个不同的习惯打卡", "hint": "习惯在蜕变计划的「今天」里", "xp": 10, "coins": 18, "go": "plan", "act": True, "needs": "habits2"},
 }
 SLOTS = ("core", "record", "explore", "stretch")
+RETIRED = {"meme": "good"}      # 下线的任务 → 同一格里顶上的那个（当天已经定好的四件事不用整个重排）
 DAILY_BONUS = {"xp": 10, "coins": 20}
 
 
@@ -187,7 +187,7 @@ def _facts(st, day: str) -> dict:
     return {
         "act": len(act), "wishes": len(wishes - {""}),
         "habits": len({ref.split(":")[1] for ref in act if ref.startswith("habit:")}),
-        "good": types.count("good"), "meme": types.count("meme"), "moment": types.count("moment"), "records": len(types),
+        "good": types.count("good"), "moment": types.count("moment"), "records": len(types),
         "practice": len(scenes), "scenes": scenes,
         "read": st.c.execute("SELECT COUNT(*) FROM article_read WHERE at LIKE ?", (like,)).fetchone()[0],
         "steps_added": st.c.execute("SELECT COUNT(*) FROM step WHERE created_at LIKE ?", (like,)).fetchone()[0],
@@ -197,7 +197,7 @@ def _facts(st, day: str) -> dict:
 
 def _done(tid: str, f: dict, scene: str) -> bool:
     return {
-        "act": f["act"] >= 1, "good": f["good"] >= 1, "meme": f["meme"] >= 1, "moment": f["moment"] >= 1,
+        "act": f["act"] >= 1, "good": f["good"] >= 1, "moment": f["moment"] >= 1,
         "pick": scene in f["scenes"], "practice": f["practice"] >= 1, "read": f["read"] >= 1,
         "plan": f["steps_added"] >= 1, "reflect": f["reflect"] >= 1,
         "act3": f["act"] >= 3, "record2": f["records"] >= 2, "wish2": f["wishes"] >= 2, "habit2": f["habits"] >= 2,
@@ -223,6 +223,9 @@ def _pick(st, day: str) -> dict:
     """今天的四件事 + 今天推荐的练习。每天第一次用到时定下来存好，当天不会变（加了习惯、做完推荐的练习也不变）。"""
     p = st.profile()
     cur = p.get("daily_pick") or {}
+    if any(t in RETIRED for t in cur.get("ids", [])):
+        cur = {**cur, "ids": [RETIRED.get(t, t) for t in cur["ids"]]}
+        st.set_profile({"daily_pick": cur})
     from .scenes import SCENES
     if cur.get("day") == day and all(t in DAILY for t in cur.get("ids", [])) and cur.get("scene") in SCENES:
         return cur
@@ -443,7 +446,7 @@ def state(st, consume: bool = True) -> dict:
 def rules_text() -> str:
     from . import town
     pool = "、".join(v["label"] for k, v in DAILY.items() if v["slot"] != "core")
-    return ("经验：完成一小步、习惯打卡或到达里程碑 +10（行动），记一件小确幸、一段内心戏或在蜕变计划里留下一个瞬间 +6，"
+    return ("经验：完成一小步、习惯打卡或到达里程碑 +10（行动），记一件好消息或在蜕变计划里留下一个瞬间 +6，"
             "完成一次显化练习 +12，每天第一次来聊 +8（陪伴）。四类每类每天最多 30，真实的事每天最多 120；同一件事不重复计分。"
             f"等级只升不降：从 Lv n 升到 n+1 要 {LEVEL_BASE} + {LEVEL_STEP}×(n-1) 经验，最多 {LEVEL_CAP}（每天拿满大约三天一级）；老用户以前到过的等级保底。"
             "金币：完成小步 +10、习惯打卡 +8、到达里程碑 +30、好消息 +4、瞬间 +5、做完练习 +10，每类每天有上限；"

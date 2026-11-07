@@ -51,39 +51,55 @@ details summary::-webkit-details-marker { display: none; }
 .fold { margin-top: 0; }
 .fold summary .ic-svg { color: var(--good); }
 
-/* ===================================================== 好消息 ===== */
-.night-sky { position: relative; height: 280px; overflow: hidden; border-radius: var(--r-xl); margin-bottom: 18px; background: radial-gradient(40% 60% at 80% 20%, rgba(169,155,255,.25), transparent 70%), linear-gradient(180deg, var(--sky-a), var(--sky-b)); }
-.night-sky::before { content: ""; position: absolute; inset: 0; background-image: radial-gradient(rgba(255,255,255,.4) 1px, transparent 1.4px); background-size: 46px 46px; opacity: .22; }
-.sky-field { position: absolute; inset: 0; right: 170px; }
-.star { position: absolute; width: var(--s); height: var(--s); transform: translate(-50%, -50%); animation: star-in .7s var(--spring) backwards; animation-delay: calc(var(--i) * 25ms); }
-.star::before { content: ""; position: absolute; inset: 0; background: #ffe9a3; clip-path: polygon(50% 0, 61% 38%, 100% 50%, 61% 62%, 50% 100%, 39% 62%, 0 50%, 39% 38%); filter: drop-shadow(0 0 8px rgba(255,220,120,.95)); animation: twinkle 3.2s ease-in-out infinite; animation-delay: var(--d); }
-.star:hover::before, .star.open::before { background: #fff; animation: none; transform: scale(1.4); }
-.star.new::before { animation: star-new 1.6s var(--spring); }
-@keyframes star-in { from { transform: translate(-50%, -50%) scale(0); } }
-@keyframes star-new { 0% { transform: scale(0) rotate(-90deg); } 60% { transform: scale(2.4) rotate(20deg); } 100% { transform: scale(1); } }
-.star .tip { position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translateX(-50%) translateY(6px) scale(.94); width: max-content; max-width: 220px; padding: 8px 12px; border-radius: 14px; background: #fffdf6; color: #2a2620; font-size: 12.5px; font-weight: 700; line-height: 1.5; text-align: left; box-shadow: 0 8px 24px rgba(0,0,0,.3); opacity: 0; pointer-events: none; transition: all .2s var(--spring); z-index: 3; }
-.star .tip b { display: block; font-size: 11px; color: #8a7a4a; }
-.star:hover .tip, .star.open .tip { opacity: 1; transform: translateX(-50%); }
-.sky-count { position: absolute; right: 22px; top: 50%; transform: translateY(-50%); text-align: center; color: #fff; }
-.sky-jar { width: 110px; height: 120px; margin: 0 auto 4px; animation: bob 4s ease-in-out infinite; --jar-glass: rgba(255,255,255,.12); --jar-edge: rgba(255,255,255,.5); }
-.sky-count .num { font-size: 36px; color: #ffe08a; line-height: 1; }
-.sky-count small { display: block; color: rgba(255,255,255,.7); font-weight: 800; }
-.sky-empty { position: absolute; left: 30px; top: 50%; transform: translateY(-50%); color: rgba(255,255,255,.75); font-weight: 700; }
-.compose { margin-bottom: 26px; }
-.compose-acts { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
-.compose-hint { flex: 1; font-size: 12.5px; font-weight: 700; }
-.news-kind { margin-bottom: 12px; }
-.news-kind button { display: inline-flex; align-items: center; gap: 6px; }
-.news-kind .ic-svg { width: 15px; height: 15px; }
-.news-filter { display: flex; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
-.news-filter .chip small { margin-left: 4px; opacity: .65; font-weight: 800; }
-.news-item.meme .nt { display: inline-block; padding: 7px 12px; border-radius: 4px 14px 14px 14px; background: var(--surface-2); font-weight: 600; }
-.news-day { font-size: 12.5px; font-weight: 900; color: var(--text-3); margin: 22px 0 10px; }
-.news-list { display: grid; gap: 8px; }
-.news-item { display: flex; align-items: center; gap: 13px; padding: 11px 14px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); animation: rise .5s var(--spring) backwards; animation-delay: calc(var(--i) * 40ms); }
-[data-theme="paper"] .news-item, [data-theme="peach"] .news-item, [data-theme="mist"] .news-item { border-color: transparent; box-shadow: var(--shadow); }
-.news-item .nt { font-size: 15px; font-weight: 700; }
-.news-item .nm { font-size: 12px; color: var(--text-4); margin-top: 3px; font-weight: 700; }
+/* ===================================================== 好消息：幸福墙 ===== */
+.news .page-head { align-items: center; }
+.news-add { flex: none; }
+.news-jar { display: flex; align-items: center; gap: 18px; padding: 20px 26px; margin-bottom: 30px; border-radius: var(--r-xl); border: 1px solid var(--line);
+  background: radial-gradient(60% 150% at 100% 50%, color-mix(in srgb, var(--c-lemon) 15%, transparent), transparent 72%), var(--surface); }
+[data-theme="paper"] .news-jar, [data-theme="peach"] .news-jar, [data-theme="mist"] .news-jar { border-color: transparent; box-shadow: var(--shadow); }
+.nj-say { flex: 1; min-width: 0; }
+.nj-say b { font-size: 18px; line-height: 1.4; }
+.nj-say p { margin: 6px 0 0; font-size: 14px; font-weight: 700; color: var(--text-3); }
+.nj-count { flex: none; display: flex; align-items: center; gap: 12px; }
+.nj-art { width: 62px; height: 68px; animation: bob 4s ease-in-out infinite; }
+.nj-count .num { display: block; font-size: 32px; line-height: 1; color: var(--accent); }
+.nj-count small { display: block; margin-top: 4px; font-size: 12.5px; font-weight: 800; color: var(--text-3); }
+.wall-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+.wall-head h2 { flex: 1; margin: 0; font-size: 19px; }
+.wall-head span { font-size: 12.5px; font-weight: 800; color: var(--text-4); }
+/* 一张便利贴：主题色淡淡地染一层，顶上一截半透明胶带，歪一点点；摸一下就放正 */
+.wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 24px 18px; padding-top: 10px; }
+.note { position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: 14px; min-height: 168px; padding: 28px 22px 16px;
+  border-radius: 5px 5px 14px 14px; background: color-mix(in srgb, var(--tint) 17%, var(--surface)); text-align: left;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--tint) 30%, transparent), 0 12px 24px -16px rgba(0,0,0,.45);
+  transform: rotate(var(--tilt)); transition: transform .3s var(--spring), box-shadow .3s;
+  animation: note-in .55s var(--spring) backwards; animation-delay: calc(var(--i) * 40ms); }
+.note::before { content: ""; position: absolute; top: -9px; left: 50%; width: 66px; height: 20px; border-radius: 2px;
+  transform: translateX(-50%) rotate(calc(var(--tilt) * -2)); background: rgba(255,255,255,.5); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.note p { margin: 0; font-size: 16.5px; font-weight: 700; line-height: 1.75; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.note time { font-size: 12.5px; font-weight: 800; color: var(--text-3); }
+.note:hover { transform: rotate(0) translateY(-3px); box-shadow: 0 1px 0 color-mix(in srgb, var(--tint) 30%, transparent), 0 18px 30px -18px rgba(0,0,0,.5); }
+.note.fresh { animation: note-stick .8s var(--spring) backwards; }
+@keyframes note-in { from { opacity: 0; transform: translateY(14px) rotate(var(--tilt)) scale(.96); } }
+@keyframes note-stick { 0% { opacity: 0; transform: translateY(-34px) rotate(-7deg) scale(1.08); } 55% { opacity: 1; transform: translateY(4px) rotate(calc(var(--tilt) + 1deg)) scale(.99); } }
+/* 最后一张：空的便利贴，点它再贴一张 */
+.note-add { align-items: center; justify-content: center; gap: 8px; background: transparent; border: 2px dashed var(--line-2); box-shadow: none;
+  transform: none; color: var(--text-3); font-size: 14px; font-weight: 800; }
+.note-add::before { display: none; }
+.note-add .ic-svg { width: 28px; height: 28px; }
+.note-add:hover { transform: translateY(-2px); border-color: var(--accent); color: var(--accent); box-shadow: none; }
+/* 记一件好事的弹层（对话页的星星也用它） */
+.gn { display: grid; gap: 12px; }
+.gn textarea { resize: none; font-size: 16px; line-height: 1.7; border-radius: 16px; padding: 14px 16px; }
+.gn-talk { justify-self: start; display: inline-flex; align-items: center; gap: 6px; padding: 2px; font-size: 13px; font-weight: 800; color: var(--text-3); }
+.gn-talk .ic-svg { width: 15px; height: 15px; }
+.gn-talk:hover { color: var(--accent); }
+.gn-low { display: grid; gap: 10px; padding: 12px 14px; border-radius: 14px; background: var(--surface-2); animation: rise .35s var(--spring); }
+.gn-low[hidden], .gn-low:not([hidden]) ~ .gn-talk { display: none; }
+.gn-low p { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.6; color: var(--text-2); }
+.gn-low > div { display: flex; gap: 8px; flex-wrap: wrap; }
+.gn-low .btn { height: 38px; font-size: 13.5px; }
+.gn-low .ic-svg { width: 15px; height: 15px; }
 
 /* ===================================================== 点子 ===== */
 .feature { display: flex; align-items: center; gap: 20px; padding: 26px 28px; margin-bottom: 26px; background: radial-gradient(80% 120% at 100% 50%, var(--accent-soft), transparent 70%), var(--surface); overflow: hidden; }
@@ -252,6 +268,25 @@ details summary::-webkit-details-marker { display: none; }
 .set-row .sl small { color: var(--text-3); font-size: 12.5px; }
 
 /* ===================================================== 响应式 ===== */
+@media (max-width: 700px) {
+  .news-add { height: 40px; padding: 0 14px; font-size: 14px; }
+  .news .page-head p { font-size: 13px; }
+  /* 手机上：罐子在左，右边一句话 + 「6 张幸福便利贴」 */
+  .news-jar { display: grid; grid-template-columns: 50px 1fr; grid-template-areas: "art say" "art num"; gap: 4px 14px; padding: 14px 18px; margin-bottom: 24px; }
+  .nj-count { display: contents; }
+  .nj-art { grid-area: art; width: 50px; height: 56px; }
+  .nj-say { grid-area: say; }
+  .nj-say b { font-size: 15px; }
+  .nj-say p { display: none; }
+  .nj-count > div:last-child { grid-area: num; display: flex; align-items: baseline; gap: 6px; }
+  .nj-count .num { display: inline; font-size: 22px; }
+  .nj-count small { display: inline; margin: 0; }
+  .wall { grid-template-columns: 1fr 1fr; gap: 18px 12px; }
+  .note { min-height: 132px; padding: 22px 14px 12px; gap: 10px; }
+  .note::before { width: 52px; height: 17px; top: -8px; }
+  .note p { font-size: 14.5px; line-height: 1.65; }
+  .note time { font-size: 11.5px; }
+}
 @media (max-width: 960px) {
   .plan-hero { grid-template-columns: 1fr; }
   .ph-stage { height: 230px; }
@@ -261,8 +296,6 @@ details summary::-webkit-details-marker { display: none; }
   .rep-hero { flex-direction: column-reverse; align-items: flex-start; }
   .rh-pet { width: 150px; }
   .article .paper { padding: 24px 20px; }
-  .sky-field { right: 0; }
-  .sky-count { display: none; }
   .me-town { display: none; }
   .night { flex-direction: column; align-items: flex-start; }
   .set-row { flex-wrap: wrap; }
