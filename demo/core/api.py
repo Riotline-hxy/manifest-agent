@@ -1,17 +1,17 @@
 """Pieces shared by server.py and routes.py."""
 from __future__ import annotations
 
-from . import academy, cheer, finds, weekly, growth, journey, kickstart, portrait, scenes, scheduler, tasks, town
+from . import academy, cheer, finds, weekly, growth, journey, kickstart, portrait, scenes, scheduler, tasks, topics, town
 from .store import Store
 
-VERSION = "3.13.1"
+VERSION = "3.14.0"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
 IDEAS = [
-    {"id": "relearn", "title": "聊聊现在的你", "scene": "relearn", "minutes": 2, "cta": "开始聊聊",
+    {"id": "relearn", "title": "聊聊现在的你", "scene": "relearn", "kind": "tune", "minutes": 2, "cta": "开始聊聊",
      "group": "聊聊", "prompt": "最近的我有些变化，想和你重新聊聊。",
-     "desc": "最近的你有没有一些变化？我们可以重新聊聊你的习惯和喜好。"},
+     "desc": "说说现在的你，我们从一个今天就能做的小步开始。"},
     {"id": "seven_steps_lite", "title": "聊聊你的愿望", "scene": "seven_steps_lite", "minutes": 2,
      "group": "聊聊", "prompt": "陪我聊聊我最近想实现的愿望。",
      "desc": "我们一起聊聊，你最近想实现的愿望吧～"},
@@ -24,7 +24,7 @@ IDEAS = [
     {"id": "gratitude", "title": "三分钟感恩", "scene": "gratitude", "minutes": 3,
      "group": "日常", "prompt": "我想记下三件已经发生的好事。",
      "desc": "小到一杯热水也算。练习的是注意力。"},
-]
+] + topics.ideas()   # 「话题」：点了直接去对话，小光照话题陪你聊；只在点子里，小光不主动推荐
 
 
 class ApiError(Exception):

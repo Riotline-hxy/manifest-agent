@@ -4,6 +4,7 @@ import { state, setData, refresh, go } from "./store.js";
 import { runLesson } from "./lesson.js";
 import { music } from "./music.js";
 import { toast } from "./ui.js";
+import { openTune } from "./tune.js";
 
 // 有明确含义的选项配一个图标方块，其他用数字键（「聊聊」两个练习和冥想只用数字键 + 文字）
 const CHIP_ICON = {
@@ -20,6 +21,7 @@ export function toStep(s, title) {
 }
 
 export function startScene(sceneId, { onFinish } = {}) {
+  if (sceneId === "relearn") return openTune();     // 聊聊现在的你：对话样子的一页（tune.js）
   let runId = null, title = "";
   // 背景音乐要在点击的这一下就开始放（手机浏览器的规矩），所以不等接口返回
   const src = (state.data?.scenes || []).find((s) => s.id === sceneId)?.music;

@@ -3,7 +3,8 @@
 两种结束方式：
 - 答完就写（gratitude）：最后一题答完，直接写进好消息和记忆；
 - 先确认再存（review=True：「聊聊你的愿望」「聊聊现在的你」「遇见更好的自己」）：答题时什么都不写，也不进聊天记录。
-  两个「聊聊」的结束页把能留下的内容列成卡片，用户勾选、可以改，点「保存选中的内容」才写（save）；
+  「聊聊你的愿望」的结束页把能留下的内容列成卡片，用户勾选、可以改，点「保存选中的内容」才写（save）；
+  「聊聊现在的你」的问题、结束页（看到的你 + 第一小步）和存法在 core/relearn.py，界面是 public/js/tune.js；
   冥想的结束页问一句「有没有什么让你想记住」：记下感受 / 和小光聊聊 / 直接结束。
   不保存就把这次的回答清掉（discard）。练习经验在答完时就给，存不存都算。
 
@@ -18,7 +19,7 @@ from __future__ import annotations
 
 import re
 
-from . import journey, llm
+from . import journey, llm, relearn
 from .store import Store
 from .util import clip, now
 
@@ -57,33 +58,10 @@ ENERGY = ["早上", "下午", "晚上", "不太固定"]
 
 SCENES = {
     "relearn": {
-        "title": "聊聊现在的你", "minutes": 2, "stage": "近况", "icon": "compass", "review": True,
-        "desc": "最近的你有没有一些变化？我们可以重新聊聊你的习惯和喜好。",
-        "steps": [
-            {"key": "life", "q": "最近，你的生活更像下面哪一种？",
-             "chips": ["忙忙碌碌，有很多事情要处理", "和平时差不多，按自己的节奏过", "正在经历一些变化",
-                       "最近想慢下来，休息一下", "说不太准"],
-             "none": ["说不太准"],
-             "replies": {"忙忙碌碌，有很多事情要处理": "最近有不少事要忙呀，希望这里能让你稍微放松一下。",
-                         "和平时差不多，按自己的节奏过": "好呀，听起来最近的生活有自己的节奏。",
-                         "正在经历一些变化": "听起来最近有些变化。如果你想聊，我愿意听。",
-                         "最近想慢下来，休息一下": "好呀，我们就慢慢来。",
-                         "说不太准": "没关系，也不用急着给最近的生活下定义。"}},
-            {"key": "free", "q": "有一点空闲时间的时候，你最近更想做什么？",
-             "chips": ["安静待着，什么也不做", "看看喜欢的内容，或者做点感兴趣的事", "出门走走，换个环境",
-                       "找朋友聊天或一起玩", "不太固定", OTHER],
-             "ask": {OTHER: "写下你更想做的事"}},
-            {"key": "more", "q": "最近的你，希望生活里多一点什么？", "hint": "可多选", "multi": True, "max": 6,
-             "chips": ["多一点休息和放松", "多一点勇气和行动力", "多一点开心和新鲜感", "多一点陪伴和理解",
-                       "多一点属于自己的时间", OTHER],
-             "ask": {OTHER: "写下你想多一点的"},
-             "reply_any": "好呀，你想要的这些，我们可以慢慢聊。"},
-            {"key": "energy", "q": "一天里，你通常什么时候比较有精神？",
-             "chips": ENERGY + ["暂时说不准"], "none": ["暂时说不准"]},
-            {"key": "chat", "q": "最近和我聊天的时候，你更希望我怎么陪你？", "chips": list(CHAT_STYLES)},
-            {"key": "remind", "q": "如果你有想坚持的事情，希望我多久提醒你一次？",
-             "chips": REMIND + ["还没想好"], "none": ["还没想好"]},
-        ],
+        "title": "聊聊现在的你", "minutes": 2, "stage": "近况", "icon": "compass", "review": True, "kind": "tune",
+        "desc": "说说现在的你，我们从一个今天就能做的小步开始。",
+        # 界面在 public/js/tune.js（对话样子），问题、存法在 core/relearn.py
+        "steps": [{**s, "replies": relearn.replies(s)} for s in relearn.STEPS],
     },
     "gratitude": {
         "title": "三分钟感恩", "minutes": 3, "stage": "感恩",
@@ -165,6 +143,8 @@ def _render_step(store: Store, scene_id: str, i: int) -> dict:
             st.update(q="你最近有什么想实现的愿望？", ph="写下你最近想实现的愿望")
     st["q"] = st.get("q", "").replace("{intent}", store.profile().get("intent_primary") or "想成为的自己")
     st["index"], st["total"] = i, len(sc["steps"])
+    if scene_id == "relearn":
+        st = relearn.render(store, st)
     if sc.get("review"):
         st["optional"], st["plain"] = not sc.get("calm"), True
     if sc.get("calm"):        # 冥想：选了就往下走
@@ -233,6 +213,8 @@ def answer(store: Store, run_id: str, value) -> dict:
     steps = sc["steps"]
     step = steps[len(run["answers"])]
     v = _norm(value, sc.get("review", False))
+    if sid == "relearn":
+        v = relearn.norm(step, v)
     answers = list(run["answers"]) + [v]
     reply = _reply(step, v) if sc.get("review") else ""
     if len(answers) < len(steps):
@@ -246,7 +228,7 @@ def answer(store: Store, run_id: str, value) -> dict:
     store.update_scene(run_id, len(answers), answers, "done")
     if sc.get("review"):
         store.log("scene", f"做完「{sc['title']}」")
-        return {"done": True, "review": review(store, sid, answers)}
+        return {"done": True, "review": review(store, sid, answers, run_id)}
     wrote = finish(store, sid, answers)
     store.log("scene", f"完成「{sc['title']}」，" + "、".join(w["label"] for w in wrote))
     return {"done": True, "wrote": wrote, "summary": summary(sid, answers)}
@@ -276,7 +258,9 @@ def _seven_target(store: Store, wish_ans: str) -> tuple[dict | None, str]:
     return (hit, "") if hit else (cur, clip(wish_ans, 30))
 
 
-def review(store: Store, sid: str, a: list) -> dict:
+def review(store: Store, sid: str, a: list, run_id: str = "") -> dict:
+    if sid == "relearn":     # 小光看到的你 + 两个第一小步（core/relearn.py）
+        return relearn.review(store, run_id, a)
     by = _by_key(sid, a)
     items = []
     if sid == "meditation":
@@ -299,22 +283,7 @@ def review(store: Store, sid: str, a: list) -> dict:
                else "聊完啦～接下来做什么，还可以再想一想。" if items else "聊完啦～谢谢你愿意和我一起想一想。")
         return {"say": say, "heading": "这次聊到的", "items": items, "extra": None}
 
-    for key, title, to in (("life", "最近的生活", "记忆"), ("free", "空闲时想做的事", "记忆"), ("more", "最近希望多一点", "记忆"),
-                           ("energy", "比较有精神的时候", "陪伴偏好"), ("chat", "希望我这样陪你", "陪伴偏好"),
-                           ("remind", "希望被提醒的频率", "陪伴偏好")):
-        if _has(sid, by, key):
-            items.append({"key": key, "title": title, "text": _shown(key, by[key]), "to": to})
-    return {"say": "谢谢你和我聊这些，我更了解现在的你了。" if items else "谢谢你陪我聊这一会儿。",
-            "heading": "这次聊到的", "items": items,
-            "extra": {"q": "还有什么想让我知道的吗？", "hint": "可以是一件小事、一个新的喜好，或者现在的心情。", "ph": "选填"}}
-
-
-def _shown(key: str, v) -> str:
-    if key == "more":
-        return "、".join(x.removeprefix("多一点") for x in (v if isinstance(v, list) else [v]))
-    if key == "chat":
-        return CHAT_STYLES.get(v, (v,))[0]
-    return v
+    raise KeyError(sid)
 
 
 # ---------------------------------------------------------------- 保存 / 不保存 ----
@@ -330,6 +299,8 @@ def save(store: Store, run_id: str, chosen: list, extra: str = "", talk: bool = 
     sid = run["scene"]
     if sid == "meditation":
         out = _meditation_talk(run["answers"]) if talk else _meditation_note(store, extra)
+    elif sid == "relearn":
+        out = relearn.save(store, run_id, run["answers"], chosen, extra)
     else:
         allowed = {it["key"]: it for it in review(store, sid, run["answers"])["items"] if not it.get("off")}
         picks = {}
@@ -337,10 +308,9 @@ def save(store: Store, run_id: str, chosen: list, extra: str = "", talk: bool = 
             k = str((it or {}).get("key") or "")
             if k in allowed:
                 picks[k] = clip(str(it.get("text") or "").strip(), 60) or allowed[k]["text"]
-        extra = clip((extra or "").strip(), 300) if sid == "relearn" else ""
-        if not picks and not extra:
+        if not picks:
             raise ValueError("还没有选中要保存的内容")
-        out = _save_seven(store, run["answers"], picks) if sid == "seven_steps_lite" else _save_relearn(store, picks, extra)
+        out = _save_seven(store, run["answers"], picks)
     store.update_scene(run_id, run["step"], [], "done")
     if out["reply"]:
         store.add_msg("assistant", out["reply"], {"scene": sid, "scene_done": True, "wrote": [w["label"] for w in out["wrote"]]})
@@ -426,102 +396,7 @@ def _meditation_talk(answers: list) -> dict:
     return {"reply": head + "想从哪儿聊起都行。", "wrote": []}
 
 
-# 近况记成记忆。再做一次时更新上一次的那条（旧说法留在修订记录里），不越堆越多。
-NEAR = {"life": ("event", "最近的生活："), "free": ("preference", "有空的时候，最近更想："),
-        "more": ("intent", "最近希望生活里多一点：")}
-PREF_FIELD = {"energy": "energy_time", "chat": "chat_style", "remind": "remind_pref"}
-LABEL = {"life": "最近的生活", "free": "空闲时想做的事", "more": "最近希望多一点",
-         "energy": "比较有精神的时候", "chat": "希望我这样陪你", "remind": "希望被提醒的频率"}
-
-
-def _save_relearn(store: Store, picks: dict, extra: str) -> dict:
-    wrote, patch = [], {}
-    t = now()
-    for key, (kind, mark) in NEAR.items():
-        if key not in picks:
-            continue
-        text = (f"{t.month}月{t.day}日说，" if key == "life" else "") + mark + picks[key]
-        old = store.c.execute("SELECT id FROM memory WHERE source='scene:relearn' AND status!='archived' AND text LIKE ? "
-                              "ORDER BY created_at DESC LIMIT 1", (f"%{mark}%",)).fetchone()
-        if old:
-            store.update_memory(old["id"], text=text, status="active", reason="scene:relearn")
-        else:
-            store.add_memory(text, kind, "scene:relearn")
-        wrote.append({"type": "memory", "label": LABEL[key], "text": picks[key], "where": "记忆"})
-    for key, field in PREF_FIELD.items():
-        if key in picks:
-            patch[field] = clip(picks[key], 30)
-            wrote.append({"type": "profile", "label": LABEL[key], "text": picks[key], "where": "陪伴偏好"})
-    if patch:
-        store.set_profile(patch)
-
-    ai = _relearn_ai(store, picks, extra)
-    if extra:
-        if ai:
-            known = {m["text"] for m in store.memories(limit=300)}
-            for text in ai["good"]:
-                store.add_record("good", text)
-                wrote.append({"type": "record", "label": "小确幸", "text": text, "where": "好消息"})
-            for m in ai["memories"]:
-                if m["text"] not in known:
-                    store.add_memory(m["text"], m["kind"], "scene:relearn")
-                    wrote.append({"type": "memory", "label": "记住一件事", "text": m["text"], "where": "记忆"})
-        else:   # 模型不在：原话先记成一条，夜里整理时还会再看
-            store.add_memory("想让小光知道：" + extra, "insight", "scene:relearn")
-            wrote.append({"type": "memory", "label": "想让我知道的", "text": extra, "where": "记忆"})
-    reply = (ai or {}).get("reply") or _relearn_fallback(picks)
-    return {"reply": reply, "wrote": wrote, "by_model": bool(ai)}
-
-
 TONE = {"gentle": "你说话温柔、慢一点。", "clear": "你说话有条理，温和又清楚。", "lively": "你说话轻快，有点小俏皮。"}
-
-RELEARN_PROMPT = """你是「{name}」，TA 的朋友，记得 TA 说过的话，陪 TA 一点点靠近想成为的人。{tone}
-TA 刚和你做完「聊聊现在的你」，下面是 TA 勾选确认、愿意让你知道的内容。
-
-做两件事：
-1. reply：对 TA 说一段话。2～3 句，不超过 90 字，第二人称，像微信里朋友随口说的。
-   挑一两点具体的，说说你看到的、现在的 TA（别逐条复述）；TA 选了陪伴方式的话，最后一句说以后你会怎么陪 TA。
-   提醒频率只是记下的偏好，现在没有开任何提醒：别说「我会每周提醒你」「每周陪你聊」这类做不到的承诺。
-   只用下面的内容，不编造；不说教；不用「不是……而是……」、破折号、「加油」「你一定可以」「我理解你的感受」。
-2. 「TA 还想让你知道的」不是空的，就把它整理到两处（保留原意，不添内容）：
-   - good：已经发生、让 TA 开心的小事（小确幸），用 TA 自己的口吻，每条不超过 40 字。会贴在 TA 的好消息墙上，只放开心的事；
-     心情不好、吐槽、碎碎念不放这里（在 reply 里接住就好）；
-   - memories：以后陪伴用得上的长期信息（新的喜好、习惯、在意的人和事），省略主语的一句话，不写名字，
-     像「最近迷上了蛋挞」「周末常去公园拍照」，不超过 40 字，kind 只能是 preference / identity / event / insight。
-   一句话可以既是小确幸、又藏着一个喜好（「今天吃到超好吃的寿司，我真的好爱寿司」→ good 一条 + memories 一条）；
-   不值得记的就不放；空着就都给空列表。
-
-只输出 JSON：{{"reply":"...","good":[],"memories":[{{"text":"...","kind":"preference"}}]}}"""
-
-MEM_KINDS = ("preference", "identity", "event", "insight")
-
-
-def _relearn_ai(store: Store, picks: dict, extra: str) -> dict | None:
-    p = store.profile()
-    facts = [f"- {LABEL[k]}：{v}" for k, v in picks.items()]
-    msg = (f"TA 的称呼：{p.get('nickname') or '（没填）'}\n今天：{now():%m月%d日}\n\nTA 确认的：\n" + ("\n".join(facts) or "（没勾选）")
-           + f"\n\nTA 还想让你知道的：{extra or '（没写）'}")
-    out = llm.complete_json([
-        {"role": "system", "content": RELEARN_PROMPT.format(name=p.get("agent_name") or "小光",
-                                                            tone=TONE.get(p.get("persona") or "gentle", TONE["gentle"]))},
-        {"role": "user", "content": msg}], timeout=45, reasoning="none")   # 练习结束页，TA 在等
-    if not out or not str(out.get("reply") or "").strip():
-        return None
-    texts = lambda k, n: [clip(str(x).strip(), 60) for x in (out.get(k) or []) if isinstance(x, str) and str(x).strip()][:n]
-    mems = []
-    for m in (out.get("memories") or [])[:3]:
-        if isinstance(m, dict) and str(m.get("text") or "").strip():
-            mems.append({"text": clip(str(m["text"]).strip().rstrip("。.；;"), 60),
-                         "kind": m.get("kind") if m.get("kind") in MEM_KINDS else "insight"})
-    return {"reply": clip(str(out["reply"]).strip(), 160), "good": texts("good", 2),
-            "memories": mems if extra else []}
-
-
-def _relearn_fallback(picks: dict) -> str:
-    if "chat" in picks:
-        return f"记下了，以后我会照你选的来：{picks['chat']}。想换随时跟我说。"
-    return "记下了，我更了解现在的你了。想改的话，随时跟我说。"
-
 
 # ---------------------------------------------------------------- 答完就写的场景 ----
 

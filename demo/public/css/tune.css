@@ -1,0 +1,114 @@
+/* 聊聊现在的你（tune.js）：对话样子的全屏层。消息气泡用 chat.css 的 .msg，这里只有它自己的几块 */
+.tune { position: fixed; inset: 0; z-index: 250; display: grid; grid-template-rows: auto 1fr auto; background: var(--bg);
+  opacity: 0; transform: translateY(16px); transition: opacity .3s var(--ease), transform .35s var(--spring); }
+.tune::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(70% 40% at 50% 0%, var(--accent-soft), transparent 70%); }
+.tune.in { opacity: 1; transform: none; }
+.tune.out { opacity: 0; transform: translateY(16px); }
+.tune > * { position: relative; }
+.tb-top { display: flex; align-items: center; gap: 12px; width: min(760px, 100%); margin: 0 auto; padding: 16px 20px 10px; }
+.tb-top b { font-size: 15px; }
+.tb-top small { display: block; font-size: 12px; font-weight: 700; color: var(--text-3); }
+.tb-top .grow { flex: 1; min-width: 0; }
+.tb-x { width: 36px; height: 36px; border-radius: 12px; font-size: 26px; line-height: 1; color: var(--text-3); }
+.tb-x:hover { color: var(--text); background: var(--surface-2); }
+.tb-dots { display: flex; gap: 5px; }
+.tb-dots i { width: 18px; height: 6px; border-radius: 9px; background: var(--surface-3); transition: background .3s, width .3s; }
+.tb-dots i.on { background: var(--accent); }
+.tb-dots i.now { width: 26px; background: var(--accent); }
+.tb-thread { overflow-y: auto; overscroll-behavior: contain; }
+.tb-thread .thread-in { padding-top: 8px; }
+.tb-thread .msg .bub { font-size: 15.5px; line-height: 1.6; }
+.tb-thread .msg.wide .col { flex: 1; max-width: min(94%, calc(100% - 44px)); }
+.tb-thread .typing { display: inline-flex; gap: 4px; padding: 4px 2px; }
+.tb-thread .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-4); animation: tb-dot 1s infinite; }
+.tb-thread .typing i:nth-child(2) { animation-delay: .15s; } .tb-thread .typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes tb-dot { 30% { transform: translateY(-4px); opacity: .5; } }
+.tb-xp { display: flex; align-items: center; gap: 6px; padding-left: 4px; font-size: 12.5px; font-weight: 800; color: var(--text-3); }
+.tb-xp .ic-svg { width: 14px; height: 14px; color: var(--accent); }
+
+/* ---------- 插图：柔和的扁平小画，颜色跟着主题 ---------- */
+.ill { --il-s: color-mix(in srgb, var(--c-violet) 72%, var(--text-3)); --il-s2: color-mix(in srgb, var(--c-violet) 32%, var(--surface));
+  --il-f1: color-mix(in srgb, var(--c-violet) 58%, var(--surface)); --il-f2: color-mix(in srgb, var(--c-violet) 20%, var(--surface));
+  width: 84px; height: 56px; overflow: visible; flex: none; }
+/* 森林：紫色在深绿上发闷，换成奶白线条、金色和嫩绿 */
+[data-theme="forest"] .ill { --il-s: rgba(244,241,230,.86); --il-s2: rgba(244,241,230,.32); --il-f1: rgba(247,203,77,.72); --il-f2: rgba(244,241,230,.14); }
+.ill .s, .ill .s2 { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.ill .s { stroke: var(--il-s); }
+.ill .s2 { stroke: var(--il-s2); }
+.ill .dash { stroke-dasharray: 2 7; }
+.ill .f1 { fill: var(--il-f1); }
+.ill .f2 { fill: var(--il-f2); }
+.ill .fp { fill: color-mix(in srgb, var(--c-pink) 62%, var(--surface)); }
+.ill .fm { fill: color-mix(in srgb, var(--c-mint) 62%, var(--surface)); }
+.ill .fm2 { fill: color-mix(in srgb, var(--c-mint) 40%, var(--surface)); }
+.ill .fl { fill: color-mix(in srgb, var(--c-lemon) 72%, var(--surface)); }
+.ill .fs { fill: color-mix(in srgb, var(--c-sky) 48%, var(--surface)); }
+.ill .pot { fill: color-mix(in srgb, var(--c-orange) 42%, var(--surface)); }
+.ill .pot2 { fill: color-mix(in srgb, var(--c-orange) 62%, var(--surface)); }
+.ill .star { fill: #fff; opacity: .92; }
+
+/* 选项：一张张带插图的卡片，放在小光的话下面 */
+.ils { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px; margin-top: 2px; }
+.il { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 8px; min-height: 116px; padding: 12px 12px 11px;
+  border-radius: 18px; background: var(--surface); border: 1.5px solid var(--line); text-align: left;
+  box-shadow: 0 8px 22px -18px rgba(30,20,60,.35); transition: transform .3s var(--spring), border-color .2s, box-shadow .2s, background .2s, opacity .25s;
+  animation: tb-in .5s var(--spring) backwards; animation-delay: calc(var(--i) * 60ms + 60ms); }
+@keyframes tb-in { from { opacity: 0; transform: translateY(12px) scale(.96); } }
+.il:hover { transform: translateY(-2px); box-shadow: 0 14px 26px -18px rgba(30,20,60,.4); }
+.il .ill { width: 72px; height: 48px; }
+.il b { display: block; font-size: 14.5px; line-height: 1.35; }
+.il small { display: block; margin-top: 2px; font-size: 12px; font-weight: 700; color: var(--text-3); }
+.il.on { border-color: color-mix(in srgb, var(--accent) 70%, transparent); background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  box-shadow: 0 0 0 4px var(--accent-soft); }
+.il.on .ill { animation: ill-pop .7s var(--spring); }
+@keyframes ill-pop { 35% { transform: scale(1.12) rotate(-3deg); } 70% { transform: scale(.97); } }
+.ils.dim .il { pointer-events: none; }
+.ils.dim .il:not(.on) { opacity: .36; transform: scale(.97); }
+.ils.three .il .ill { width: 100%; height: 66px; }
+
+/* 结束页 */
+.firsts { display: grid; gap: 8px; }
+.first { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 18px; background: var(--surface); border: 1.5px solid var(--line); text-align: left;
+  transition: border-color .2s, background .2s; animation: tb-in .5s var(--spring) backwards; animation-delay: calc(var(--i) * 80ms); }
+.first > span { flex: 1; min-width: 0; }
+.first b { display: block; font-size: 15.5px; }
+.first small { display: block; margin-top: 2px; font-size: 13px; font-weight: 700; color: var(--text-3); line-height: 1.5; }
+.first i { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line-2); display: grid; place-items: center; }
+.first.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.first.on i { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.first i .ic-svg { width: 13px; height: 13px; stroke-width: 3.4; }
+.tb-under { display: flex; align-items: center; gap: 6px; margin: 0 0 0 4px; font-size: 12.5px; font-weight: 800; color: var(--text-3); }
+.tb-under .ic-svg { width: 14px; height: 14px; }
+.keeps { display: grid; padding: 6px 14px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); }
+.keep { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 14px; cursor: pointer; }
+.keep + .keep { border-top: 1px dashed var(--line); }
+.keep input { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+.keep span { flex: 1; min-width: 0; font-weight: 700; line-height: 1.45; }
+.keep span em { display: block; font-style: normal; font-size: 12px; color: var(--text-3); }
+.keep small { color: var(--text-3); font-size: 12px; font-weight: 800; flex: none; }
+.keep.off { opacity: .55; cursor: default; }
+.tb-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.tb-acts .btn { height: 42px; font-size: 14.5px; }
+
+/* 底下一条：跳过 / 想让我先知道的 */
+.tb-dock { border-top: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 92%, transparent); }
+.tb-dock-in { width: min(760px, 100%); margin: 0 auto; padding: 12px 20px 16px; display: flex; align-items: center; gap: 10px; min-height: 66px; }
+.tb-hint { flex: 1; font-size: 12.5px; font-weight: 800; color: var(--text-4); }
+.tb-skip { font-size: 13px; font-weight: 800; color: var(--text-3); padding: 6px 2px; }
+.tb-skip:hover { color: var(--text); }
+.tb-composer { flex: 1; display: flex; align-items: center; padding: 4px 14px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line-2); }
+.tb-composer input { flex: 1; min-width: 0; height: 40px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 15px; outline: none; }
+.tb-composer input::placeholder { color: var(--text-4); }
+
+@media (max-width: 700px) {
+  .tb-top { padding: 12px 14px 8px; }
+  .tb-dock-in { padding: 10px 14px 14px; }
+  .tb-thread .thread-in { padding: 4px 12px 16px; }
+  .ils { grid-template-columns: 1fr 1fr; }
+  .ils.three { grid-template-columns: repeat(3, 1fr); }
+  .ils.three .il { padding: 11px 9px 10px; }
+  .il { min-height: 110px; }
+  .first { padding: 11px 12px; }
+  .first b { font-size: 15px; }
+}
+@media (prefers-reduced-motion: reduce) { .il, .first, .il.on .ill { animation: none; } }

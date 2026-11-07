@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="mist">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>聊聊现在的你 · 新版本 和 点子里的「话题」</title>
+<link rel="stylesheet" href="../../demo/public/css/fonts.css">
+<link rel="stylesheet" href="../../demo/public/css/base.css">
+<link rel="stylesheet" href="../../demo/public/css/components.css">
+<link rel="stylesheet" href="../../demo/public/css/pages.css">
+<link rel="stylesheet" href="../../demo/public/css/chat.css">
+<link rel="stylesheet" href="tune.css">
+<script src="icons.js"></script>
+<script src="shared.js"></script>
+<script src="ends.js"></script>
+<script src="topics.js"></script>
+<style>
+  body { overflow: auto; height: auto; }
+  .doc { max-width: 1180px; margin: 0 auto; padding: 34px 26px 90px; }
+  .doc > h1 { font-size: 28px; margin: 0 0 8px; }
+  .lead { color: var(--text-2); max-width: 900px; margin: 0 0 8px; line-height: 1.85; font-size: 15px; }
+  .themes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 18px 0 6px; font-size: 13px; font-weight: 800; color: var(--text-3); }
+  .themes button { height: 32px; padding: 0 14px; border-radius: 99px; border: 1.5px solid var(--line-2); background: var(--surface); font-size: 13px; font-weight: 800; }
+  .themes button.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  h2.part { font-size: 21px; margin: 52px 0 6px; display: flex; align-items: center; gap: 10px; }
+  h2.part .tag { font-size: 12px; padding: 2px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
+  .part-sub { color: var(--text-2); margin: 0 0 18px; font-size: 14.5px; line-height: 1.8; max-width: 920px; }
+  .card.pad { padding: 20px 22px; }
+  .tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .tbl th, .tbl td { text-align: left; padding: 10px 10px; border-top: 1px solid var(--line); vertical-align: top; line-height: 1.6; }
+  .tbl th { color: var(--text-3); font-weight: 800; border-top: 0; font-size: 12.5px; }
+  .tbl td:first-child { font-weight: 800; white-space: nowrap; }
+  .tbl .gone td { color: var(--text-3); }
+  .tbl .ills-row { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  .tbl .ills-row span { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--text-2); }
+  .tbl .ill { width: 46px; height: 30px; }
+  ul.tight { margin: 10px 0 0; padding-left: 20px; line-height: 1.85; font-size: 14px; color: var(--text-2); }
+  ul.tight b { color: var(--text); }
+  .variant { margin-top: 26px; }
+  .variant h3 { margin: 0 0 4px; font-size: 18px; display: flex; align-items: center; gap: 10px; }
+  .variant h3 a { margin-left: auto; font-size: 13px; font-weight: 800; color: var(--accent); }
+  .variant > p { margin: 0 0 14px; color: var(--text-2); font-size: 14px; line-height: 1.8; max-width: 920px; }
+  .frames { display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap; }
+  .lbl { font-size: 12px; font-weight: 900; color: var(--text-3); letter-spacing: .04em; margin: 0 0 8px; }
+  .phone { width: 390px; height: 800px; border-radius: 34px; border: 9px solid #1d1b24; overflow: hidden; background: var(--bg); box-shadow: 0 20px 50px -24px rgba(0,0,0,.45); }
+  .phone iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .desk { width: 680px; height: 425px; border-radius: 14px; border: 1px solid var(--line-2); overflow: hidden; background: var(--bg); box-shadow: 0 20px 50px -28px rgba(0,0,0,.4); }
+  .desk iframe { width: 1280px; height: 800px; border: 0; transform: scale(.53125); transform-origin: 0 0; }
+  .pros { display: grid; gap: 8px; margin-top: 14px; max-width: 680px; font-size: 13.5px; line-height: 1.75; color: var(--text-2); }
+  .pros b { color: var(--text); }
+  .pick { margin-top: 18px; padding: 14px 18px; border-radius: 16px; background: var(--accent-soft); color: var(--text); font-size: 14.5px; line-height: 1.8; max-width: 920px; }
+  details.pr { margin-top: 14px; }
+  details.pr summary { cursor: pointer; font-size: 13.5px; font-weight: 800; color: var(--accent); }
+  .ex { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; margin-top: 12px; }
+  .ex .card { padding: 12px 14px; font-size: 13.5px; line-height: 1.7; }
+  .ex .card small { display: block; color: var(--text-3); font-weight: 800; font-size: 12px; margin-bottom: 4px; }
+  .ex .card b { display: block; }
+  .ex .card span { color: var(--text-2); }
+  .ideas-mock { max-width: 640px; padding: 16px 12px 10px; }
+  .ideas-mock .sec-title { padding: 0 12px; }
+  .topic { margin-top: 26px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+  .topic-h { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; }
+  .topic-h b { font-size: 18px; }
+  .topic-h span { display: block; font-size: 13.5px; color: var(--text-2); }
+  .box { padding: 16px 18px; }
+  .box .k { font-size: 12px; font-weight: 900; color: var(--text-3); letter-spacing: .04em; margin: 0 0 8px; }
+  .box + .box { margin-top: 14px; }
+  pre.prompt { margin: 0; white-space: pre-wrap; font: inherit; font-size: 13.5px; line-height: 1.85; color: var(--text); }
+  .run .msg { margin: 8px 0; }
+  .run .msg .bub { font-size: 14.5px; }
+  .run .tool { display: inline-block; margin-top: 4px; font-size: 11.5px; font-weight: 800; color: var(--text-3); }
+  .saves { font-size: 14px; line-height: 1.75; color: var(--text-2); }
+  .how { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 4px; }
+  .how .card { padding: 14px 16px; font-size: 13.5px; line-height: 1.75; color: var(--text-2); }
+  .how .card b { display: block; color: var(--text); font-size: 14.5px; margin-bottom: 4px; }
+  .muted-note { font-size: 12.5px; color: var(--text-3); margin-top: 8px; line-height: 1.7; }
+  @media (max-width: 900px) { .topic, .how { grid-template-columns: 1fr; } .desk { display: none; } }
+</style>
+</head>
+<body>
+<div class="doc">
+  <h1>聊聊现在的你 · 新版本，和点子里的「话题」</h1>
+  <p class="lead">离线原型，还没改 App。两个页面都能点着走一遍；结束页的「第一小步」和下面「话题」的对话，都是用现在的小光（DeepSeek flash，温柔）真跑出来的。
+    样式直接用 App 自己的 CSS，换主题也跟着变。</p>
+  <div class="themes">主题：<span id="themes"></span></div>
+
+  <h2 class="part">一、这个功能是干什么的</h2>
+  <p class="part-sub">简单告诉小光你现在的状态，然后小光带你从一个今天就能做的小步开始，往好里走。做完的感觉应该是：
+    <b>「我已经说了我现在怎么样，接下来想看到一点进步，这个 App 开始带我一起变好了。」</b>
+    所以只问四件事，最后落到一个具体的第一小步上，不停在一页「设置已保存」。</p>
+  <div class="card pad">
+    <table class="tbl">
+      <tr><th>问什么</th><th>选项（插图）</th><th>用在哪</th></tr>
+      <tr><td>最近的你，更像哪一种？</td><td><div class="ills-row" data-ills="0"></div></td><td>存成一条近况记忆；也决定第一小步要不要挑不占时间的、放松的</td></tr>
+      <tr><td>最想在哪儿看到一点进步？</td><td><div class="ills-row" data-ills="1"></div></td><td>已有愿望放第一个（原型里是「敢开口说英语」）；选了别的方向，小光起一个新愿望名，你确认才建</td></tr>
+      <tr><td>现在能拿出多少劲？</td><td><div class="ills-row" data-ills="2"></div></td><td>第一小步的大小：两分钟 / 十几分钟 / 可以大一点</td></tr>
+      <tr><td>这一路我怎么陪你？</td><td><div class="ills-row" data-ills="3"></div></td><td>写进「陪伴偏好」；「推我一把」同时把中断时改成轻轻提醒</td></tr>
+      <tr><td>结束页</td><td colspan="2">小光用一句话说出看到的你，给两个今天就能开始的第一小步（挑一个）；下面列出会存的东西，都可以取消勾选。
+        「存好，开始吧」→ 小步进蜕变计划的「今天」；「现在就做第一步」→ 直接打开「两分钟启动」，任务已经填好。</td></tr>
+      <tr class="gone"><td>拿掉</td><td colspan="2">空闲时想做什么、最近希望多一点什么：这是在了解你这个人，挪去「话题」慢慢聊。性格、提醒频率、有精神的时候：留在设置里</td></tr>
+    </table>
+    <ul class="tight">
+      <li><b>不像做题：</b>选项是一张张带小插图的卡片，没有按键编号、没有厚厚的按钮边；插图吸收了同事版本里直观的那几种（节奏线表示最近的状态、对话泡加一个在听的小圆表示「先听我说」、台阶表示「推我一把」），颜色跟着主题走，手机上两列，卡片比同事的版本小一半。</li>
+      <li><b>有回应：</b>每选一个，小光马上回一句（「最近事情不少呀。」「那就从很小的一步开始。」），不是默默翻页。</li>
+      <li>4 题都能跳过；最后一页确认再存，和点子里别的练习一样。</li>
+    </ul>
+    <details class="pr"><summary>结束页用的提示词，和真模型跑出来的几个例子</summary>
+      <pre class="prompt card pad" style="margin-top:12px" id="endPrompt"></pre>
+      <div class="ex" id="endEx"></div>
+      <p class="muted-note">60 种选法全部跑了一遍，原型里每条路都是真实结果。也看得到还要调的地方：「想认真来一次」有时给的步子还是很小。</p>
+    </details>
+  </div>
+
+  <h2 class="part">二、两种页面，选一个 <span class="tag">可以点</span></h2>
+  <p class="part-sub">内容一样，只是长相不同。左边手机，右边电脑（缩小显示）。点右上角能在新窗口里单独打开。</p>
+
+  <section class="variant">
+    <h3>方案 A · 插图卡片 <a href="A-插图卡片.html" target="_blank" data-open>单独打开 →</a></h3>
+    <p>沿用现在练习页的骨架：小光和气泡在上，按钮在底；中间是插图卡片。选一张，小光的气泡马上换成回应的话；最后一页是「我们从这一步开始」。</p>
+    <div class="frames">
+      <div><p class="lbl">手机 390</p><div class="phone"><iframe data-src="A-插图卡片.html"></iframe></div></div>
+      <div><p class="lbl">电脑 1280（缩小）</p><div class="desk"><iframe data-src="A-插图卡片.html"></iframe></div>
+        <div class="pros"><div><b>好处：</b>和「聊聊你的愿望」「冥想」是同一套页面，做起来最快。</div>
+          <div><b>不足：</b>还是一题一页，做完要关掉这一页才回到计划或对话。</div></div></div>
+    </div>
+  </section>
+
+  <section class="variant">
+    <h3>方案 B · 聊着来 <a href="B-聊着来.html" target="_blank" data-open>单独打开 →</a></h3>
+    <p>直接在对话里：小光问一句，插图卡片就在小光的话下面，点一张变成你说的话，小光回一句接着问。最后小光给出第一小步，存好以后下面的输入框回来，已经是平常的对话了。</p>
+    <div class="frames">
+      <div><p class="lbl">手机 390</p><div class="phone"><iframe data-src="B-聊着来.html"></iframe></div></div>
+      <div><p class="lbl">电脑 1280（缩小）</p><div class="desk"><iframe data-src="B-聊着来.html"></iframe></div>
+        <div class="pros"><div><b>好处：</b>像在和小光聊，不像填表；选过的卡片留在对话里，回头看得到自己是怎么开始的；做完人就在对话里，第一小步也在了。</div>
+          <div><b>不足：</b>要在对话页做一个「引导模式」（卡片放在小光的消息里），比 A 多一点工作量。</div></div></div>
+    </div>
+  </section>
+  <div class="pick">我的倾向是 <b>B</b>：「开始带我一起变好」最好的样子，就是说完自己的状态，小光就在对话里接着陪你做第一步。想先快一点上线，A 可以直接复用现在的练习页。</div>
+
+  <h2 class="part">三、点子里新加一类：话题</h2>
+  <p class="part-sub">参考 Muse 的点子：每个话题是一个配好提示词的小场景，不知道聊什么时点一个就能开始。「了解自己」这类内容从「聊聊现在的你」挪到这里。</p>
+  <div class="how">
+    <div class="card"><b>点一下</b>回到对话，替你发出一句话（就是平常你会说的那种），同时把这个话题的提示词交给小光，你看不到它。</div>
+    <div class="card"><b>聊的时候</b>小光照提示词的节奏聊：一次问一个，跟着你的细节走。话题进行中不会跳去开别的练习（试跑时发现会误开冥想，已经在设计里关掉）。</div>
+    <div class="card"><b>聊完</b>能存的东西（记忆、愿望轨迹上的瞬间、一个小步）都要你点头才存。你换话题、或者 30 分钟没动静，这段提示词就撤掉。</div>
+  </div>
+
+  <p class="lbl" style="margin-top:24px">点子页里会是这样（新的一组「话题」，和现在的「聊聊」「日常」排在一起）</p>
+  <div class="card ideas-mock"><div class="sec-title">话题<span class="more">不知道聊什么，点一个</span></div><div class="rows" id="topicRows"></div></div>
+
+  <div id="topics"></div>
+  <p class="muted-note">试跑说明：临时建了一个用户（称呼「阿青」，温柔，愿望「敢开口说英语」），走的是现在小光真实的一轮对话（同一套人设、记忆和工具），只是在系统提示后面接上话题提示词。
+    「我」说的第二、三句是我替一个假想用户写的。</p>
+
+  <h2 class="part">四、选定以后要改的地方</h2>
+  <ul class="tight">
+    <li><b>聊聊现在的你：</b><code>core/scenes.py</code> 的 relearn 换成上面四题和插图；结束页调一次模型（上面那段提示词）拿「看到的你」和两个第一小步；保存时写记忆、愿望（新的要确认）、小步、陪伴偏好，都是现成的接口。
+      选 B 的话，对话页要加一个「引导模式」：卡片放在小光的消息里，选完变成你的话。</li>
+    <li><b>插图：</b>原型里是手画的 SVG，颜色用主题变量；上线前可以请设计再统一一遍线条粗细。</li>
+    <li><b>话题：</b><code>core/api.py</code> 的点子列表加 group「话题」；点了以后前端带着话题 id 发那句话，<code>core/agent.py</code> 在这段对话里把话题提示词接在系统提示后面，期间不给 <code>start_scene</code>、不走路由。</li>
+    <li>记忆系统不用新建：存东西都走现有的 remember / propose_moment / add_step / 设置，都要用户同意。</li>
+  </ul>
+</div>
+
+<script>
+const THEMES = [["mist", "雾"], ["paper", "纸"], ["peach", "桃"], ["forest", "森林"], ["midnight", "夜"]];
+let theme = new URLSearchParams(location.search).get("theme") || "mist";
+function setTheme(t) {
+  theme = t;
+  document.documentElement.dataset.theme = t;
+  document.getElementById("themes").innerHTML = THEMES.map(([k, l]) => `<button class="${k === t ? "on" : ""}" data-t="${k}">${l}</button>`).join("");
+  document.querySelectorAll("[data-t]").forEach((b) => b.onclick = () => setTheme(b.dataset.t));
+  document.querySelectorAll("iframe[data-src]").forEach((f) => { f.src = `${f.dataset.src}?theme=${t}`; });
+  document.querySelectorAll("a[data-open]").forEach((a) => { a.href = a.getAttribute("href").split("?")[0] + `?theme=${t}`; });
+}
+setTheme(theme);
+
+document.querySelectorAll("[data-ills]").forEach((el) => {
+  el.innerHTML = TUNE.steps[+el.dataset.ills].opts.map((o) => `<span>${ill(o.ill)}${esc(o.label)}</span>`).join("");
+});
+document.getElementById("endPrompt").textContent = END_PROMPT;
+const SHOW = [["busy", "wish", "seed"], ["slow", "body", "seed"], ["change", "study", "tree"], ["steady", "mood", "sprout"]];
+const lab = (i, v) => TUNE.steps[i].opts.find((o) => o.v === v).label;
+document.getElementById("endEx").innerHTML = SHOW.map(([s, d, e]) => {
+  const x = ENDS[`${s}|${d}|${e}`];
+  return `<div class="card"><small>${lab(0, s)} · ${lab(1, d)} · ${lab(2, e)}${x.wish ? ` → 新愿望「${esc(x.wish)}」` : ""}</small>
+    <b>${esc(x.see)}</b>${x.steps.map((y) => `<span>· ${esc(y.title)}：${esc(y.why)}</span>`).join("<br>")}</div>`;
+}).join("");
+
+document.getElementById("topicRows").innerHTML = TOPICS.map((t, k) => `<div class="row" style="--i:${k}">${tile(t.icon, t.color, 46)}
+  <span class="row-main"><b>${esc(t.title)}</b><span>${esc(t.hook)}</span></span><span class="row-go">${icon("arrow")}</span></div>`).join("");
+
+document.getElementById("topics").innerHTML = TOPICS.map((t) => `
+  <section class="topic">
+    <div class="topic-h">${tile(t.icon, t.color, 44)}<div><b>${esc(t.title)}</b><span>${esc(t.hook)}</span></div></div>
+    <div>
+      <div class="card box"><p class="k">点了以后，替你发出的话</p>
+        <div class="msg user" style="margin:0"><div class="bub">${esc(t.send)}</div></div></div>
+      <div class="card box"><p class="k">小光拿到的提示词（你看不到）</p><pre class="prompt">${esc(t.prompt)}</pre></div>
+    </div>
+    <div>
+      <div class="card box run"><p class="k">真模型试跑 · 前三轮</p>
+        ${t.turns.map((x) => `<div class="msg user"><div class="bub">${esc(x.me)}</div></div>
+          <div class="msg assistant"><span class="mini">${mascot("idle")}</span><div class="col"><div class="bub">${esc(x.xg).replace(/\n+/g, "<br>")}</div>
+          ${x.tools.length ? `<span class="tool">调用了：${x.tools.join("、")}</span>` : ""}</div></div>`).join("")}</div>
+      <div class="card box"><p class="k">聊完能存什么</p><p class="saves" style="margin:0">${esc(t.saves)}</p></div>
+    </div>
+  </section>`).join("");
+</script>
+</body>
+</html>

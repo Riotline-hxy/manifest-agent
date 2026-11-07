@@ -157,6 +157,8 @@ export function renderChat(root) {
     const text = ta.value.trim();
     if (!text || live) return;          // 上一轮还没回完（哪怕是在别的页面发的）
     const sentAt = Date.now() - 5000;
+    const topic = state.pendingTopic || "";       // 点子里点了一个话题：这一句带着它发
+    state.pendingTopic = "";
     ta.value = ""; state.composerDraft = ""; grow();
     if (lastDay !== "今天") { list.insertAdjacentHTML("beforeend", `<div class="day"><span>今天</span></div>`); lastDay = "今天"; }
     list.querySelector(".opener")?.remove();
@@ -195,7 +197,7 @@ export function renderChat(root) {
         },
         done: ({ message_id }) => { turn.msgId = message_id; },
         error: () => { setAgentMood("error"); toast("模型服务暂时连不上", "err"); },
-      });
+      }, topic ? { topic } : {});
     } catch (e) {
       turn.acc = turn.acc || "我这边连不上了，稍后再试试。你刚才说的我先留着。";
       setAgentMood("error");

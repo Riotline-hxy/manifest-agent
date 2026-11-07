@@ -42,9 +42,11 @@ class FakeLLM:
         self.json_out = None   # returned by complete_json
         self.seen = []         # captured messages
         self.seen_json = []    # captured complete_json messages
+        self.seen_tools = []   # tool names offered per stream_chat call
 
     def stream(self, messages, tools=None, model=None, reasoning=None, timeout=None):
         self.seen.append(messages)
+        self.seen_tools.append([t["function"]["name"] for t in tools or []])
         script = self.turns.pop(0) if self.turns else [("text", "嗯，我在。")]
         for ev in script:
             yield ev
@@ -79,8 +81,8 @@ class Client:
         except ValueError:
             return r.status, data
 
-    def sse(self, text):
-        status, data, _ = self.req("POST", "/api/chat", {"text": text}, raw=True)
+    def sse(self, text, **extra):
+        status, data, _ = self.req("POST", "/api/chat", {"text": text, **extra}, raw=True)
         events = []
         for block in data.split("\n\n"):
             ev = dict(line.split(": ", 1) for line in block.splitlines() if ": " in line)
@@ -481,10 +483,39 @@ class ApiTest(unittest.TestCase):
         self.assertIn("食堂的汤很好喝；同事帮我带了伞；按时下班了", [x["text"] for x in boot["records"]])
         self.assertIsNone(boot["scene"])
 
+    def test_topic_from_ideas_adds_prompt_for_a_while(self):
+        from datetime import timedelta
+        from core import acts, topics
+        from core.util import iso, now
+        c, uid = self.onboarded("topic")
+        _, boot = c.req("GET", "/api/bootstrap")
+        t = next(i for i in boot["ideas"] if i["id"] == "topic_manual")
+        self.assertEqual((t["kind"], t["group"], t["topic"], t["scene"]), ("topic", "话题", "manual", ""))
+        self.assertNotIn("topic_manual", acts.FEATURES)                     # 话题只在点子里，小光不推
+        self.fake.turns = [[("text", "第 1 条……")], [("text", "嗯。")], [("text", "好。")]]
+        s, _ = c.sse(t["send"], topic="manual")
+        self.assertEqual(s, 200)
+        sys_prompt = self.fake.seen[-1][0]["content"]
+        self.assertIn("## 这段对话的话题：我的使用说明书", sys_prompt)
+        self.assertIn("别说「TA」", sys_prompt)
+        self.assertNotIn("start_scene", self.fake.seen_tools[-1])            # 话题里不打开别的练习
+        self.assertEqual(c.req("GET", "/api/bootstrap")[1]["messages"][-2]["meta"].get("topic"), "manual")
+        c.sse("没电的时候不想回消息")                                          # 接着聊：话题还在
+        self.assertIn("我的使用说明书", self.fake.seen[-1][0]["content"])
+        with Store(uid) as st:                                              # 半小时没再聊：话题结束
+            cur = st.profile()["topic"]
+            st.set_profile({"topic": {**cur, "at": iso(now() - timedelta(minutes=31))}})
+        c.sse("今天天气不错")
+        self.assertNotIn("这段对话的话题", self.fake.seen[-1][0]["content"])
+        self.assertIn("start_scene", self.fake.seen_tools[-1])
+        self.assertEqual(c.sse("随便", topic="nope")[0], 200)                 # 不认识的话题：当普通一句
+        self.assertNotIn("这段对话的话题", self.fake.seen[-1][0]["content"])
+
     def test_removed_ideas_are_gone(self):
         c, uid = self.onboarded("removed")
         _, boot = c.req("GET", "/api/bootstrap")
-        self.assertEqual([i["id"] for i in boot["ideas"]], ["relearn", "seven_steps_lite", "kickstart", "meditation", "gratitude"])
+        self.assertEqual([i["id"] for i in boot["ideas"]], ["relearn", "seven_steps_lite", "kickstart", "meditation", "gratitude",
+                                                            "topic_blank_day", "topic_manual", "topic_parallel"])
         self.assertNotIn("clarify", [s["id"] for s in boot["scenes"]])
         self.assertEqual(c.req("POST", "/api/scene/start", {"scene": "clarify"})[0], 404)
         with Store(uid) as st:     # 上线前做到一半的「说清想要的」：再答就结束，不报错
@@ -826,85 +857,101 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(len(out["state"]["journey"]["wishes"]), 1)
         self.assertIn(f"放进「{wish['title']}」的小步里了", out["reply"])
 
-    def test_relearn_saves_only_checked_and_ai_sorts_extra(self):
-        c, uid = self.onboarded("relearn_ai")
+    def test_relearn_first_step_saves_only_checked(self):
+        c, uid = self.member("relearn_ai")                                   # 还没有愿望
         before = len(c.req("GET", "/api/bootstrap")[1]["messages"])
-        rid, outs = self._scene(c, "relearn", ["正在经历一些变化", "出门走走，换个环境", ["多一点勇气和行动力", "多一点属于自己的时间"],
-                                               "早上", "多听我说，不急着给建议", "每周一次"])
-        self.assertEqual(outs[1]["reply"], "听起来最近有些变化。如果你想聊，我愿意听。")
-        self.assertNotIn("reply", outs[2])
-        self.assertEqual(outs[3]["reply"], "好呀，你想要的这些，我们可以慢慢聊。")
+        _, d = c.req("POST", "/api/scene/start", {"scene": "relearn"})
+        self.assertEqual([o["v"] for o in d["step"]["opts"]], ["busy", "steady", "change", "slow"])
+        self.assertTrue(d["step"]["intro"])
+        self.fake.json_out = {"see": "你忙得连轴转，还想把作息顾上一点。", "wish": "睡好一点", "steps": [
+            {"title": "今晚定个睡觉闹钟", "why": "先把停下来的那一刻定下来"}, {"title": "饭后慢慢走十分钟", "why": "动一动，身体先松下来"}]}
+        rid, outs = d["run"]["id"], [d]
+        for a in ["busy", "body", "sprout", "untangle"]:
+            s, out = c.req("POST", "/api/scene/answer", {"run_id": rid, "text": a})
+            self.assertEqual(s, 200, out)
+            outs.append(out)
+        self.assertEqual(outs[1]["reply"], "最近事情不少呀。")
+        self.assertEqual([o["v"] for o in outs[1]["step"]["opts"]][-1], "people")    # 还没有愿望：方向里有「和人相处」
         rv = outs[-1]["review"]
-        shown = {it["key"]: it["text"] for it in rv["items"]}
-        self.assertEqual(shown["more"], "勇气和行动力、属于自己的时间")
-        self.assertEqual(shown["chat"], "多听你说，不急着给建议")
-        self.assertEqual(rv["extra"]["q"], "还有什么想让我知道的吗？")
+        self.assertEqual((rv["kind"], rv["say"]), ("tune", "你忙得连轴转，还想把作息顾上一点。"))
+        self.assertEqual([it["key"] for it in rv["items"]], ["step", "wish", "state", "accomp"])
+        self.assertEqual(len(rv["items"][0]["choices"]), 2)
+        sent = self.fake.seen_json[-1][1]["content"]
+        for part in ("忙忙碌碌", "作息和身体", "十分钟左右"):
+            self.assertIn(part, sent)
         _, boot = c.req("GET", "/api/bootstrap")
         self.assertEqual(len(boot["messages"]), before)                      # 答题不进对话
         self.assertFalse(any(m["source"] == "scene:relearn" for m in boot["memories"]))
-        self.fake.json_out = {"reply": "最近在变，也想多一点勇气。以后我多听你说，不急着给建议。",
-                              "good": ["今天吃到了超好吃的寿司"], "meme": [], "memories": [{"text": "喜欢吃寿司", "kind": "preference"}]}
-        items = [{"key": k, "text": t} for k, t in shown.items() if k != "remind"]   # 提醒频率没勾
-        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": items, "extra": "今天吃到了超好吃的寿司，我真的好爱寿司"})
+        # 只存勾了的：第二个小步、新愿望、近况；陪你的方式没勾
+        calls = len(self.fake.seen_json)
+        items = [{"key": "step", "text": "饭后慢慢走十分钟"}, {"key": "wish", "text": "睡好一点"}, {"key": "state", "text": "忙忙碌碌"}]
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": items})
         self.assertEqual(s, 200, out)
-        self.assertEqual(out["reply"], self.fake.json_out["reply"])
-        sent = self.fake.seen_json[-1][1]["content"]
-        self.assertIn("希望我这样陪你：多听你说，不急着给建议", sent)
-        self.assertNotIn("每周一次", sent)
-        p = out["state"]["profile"]
-        self.assertEqual((p["chat_style"], p["energy_time"], p["remind_pref"]), ("多听你说，不急着给建议", "早上", ""))
-        mems = {m["text"]: m for m in out["state"]["memories"]}
-        life = next(t for t in mems if "最近的生活：正在经历一些变化" in t)
-        self.assertEqual(mems[life]["kind"], "event")
-        self.assertIn("有空的时候，最近更想：出门走走，换个环境", mems)
-        self.assertIn("最近希望生活里多一点：勇气和行动力、属于自己的时间", mems)
-        self.assertEqual(mems["喜欢吃寿司"]["source"], "scene:relearn")
-        self.assertEqual([r["text"] for r in out["state"]["records"] if r["type"] == "good"], ["今天吃到了超好吃的寿司"])
+        self.assertEqual(len(self.fake.seen_json), calls)                    # 保存时不再问模型
+        wish = next(w for w in out["state"]["journey"]["wishes"] if w["title"] == "睡好一点")
+        step = next(x for x in out["state"]["steps"] if x["title"] == "饭后慢慢走十分钟")
+        self.assertEqual((step["wish_id"], step["why"], out["step"]["id"]), (wish["id"], "动一动，身体先松下来", step["id"]))
+        self.assertIn("「饭后慢慢走十分钟」放进今天的计划了", out["reply"])
         self.assertEqual(out["state"]["messages"][-1]["content"], out["reply"])
-        # 小光以后按这个陪：聊天时的系统提示里有陪伴方式和有精神的时候
+        mems = [m for m in out["state"]["memories"] if "最近的状态：" in m["text"]]
+        self.assertEqual((len(mems), mems[0]["kind"], mems[0]["source"]), (1, "event", "scene:relearn"))
+        self.assertEqual(out["state"]["profile"]["chat_style"], "")
+        # 再做一次：已经有愿望了，方向第一个就是它；近况更新上一次那条；「推我一把」顺带把中断时改成轻轻提醒
+        self.fake.json_out = {"see": "你有点累了，还是想把睡眠拉回来。", "wish": "", "steps": [
+            {"title": "今晚十一点放下手机", "why": "早一点躺下"}, {"title": "起床后伸个懒腰", "why": "身体先醒过来"}]}
+        _, d = c.req("POST", "/api/scene/start", {"scene": "relearn"})
+        rid = d["run"]["id"]
+        _, out = c.req("POST", "/api/scene/answer", {"run_id": rid, "text": "slow"})
+        self.assertEqual(out["step"]["opts"][0], {"v": "wish", "label": "睡好一点", "hint": "接着你的愿望", "ill": "wish", "react": "好，接着往前走。"})
+        for a in ["wish", "seed", "push"]:
+            _, out = c.req("POST", "/api/scene/answer", {"run_id": rid, "text": a})
+        self.assertEqual([it["key"] for it in out["review"]["items"]], ["step", "state", "accomp"])   # 接着已有的愿望：不建新的
+        self.assertEqual(out["review"]["wish"], "睡好一点")
+        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": [{"key": k, "text": ""} for k in ("step", "state", "accomp")]})
+        self.assertEqual(s, 200, out)
+        self.assertEqual(next(x for x in out["state"]["steps"] if x["title"] == "今晚十一点放下手机")["wish_id"], wish["id"])
+        lives = [m for m in out["state"]["memories"] if "最近的状态：" in m["text"]]
+        self.assertEqual(len(lives), 1)
+        self.assertIn("想慢下来", lives[0]["text"])
+        self.assertTrue(any("忙忙碌碌" in (r["old_text"] or "") for r in out["state"]["revisions"]))
+        p = out["state"]["profile"]
+        self.assertEqual((p["chat_style"], p["care_style"]), ("帮你想想具体可以怎么做", "nudge"))
+        self.assertEqual(out["state"]["prefs"]["chat_style"], "帮你想想具体可以怎么做")     # 设置里也是这一项
         self.fake.turns = [[("text", "嗯。")]]
         c.sse("今天有点乱")
-        sys_prompt = self.fake.seen[-1][0]["content"]
-        self.assertIn("聊天时 TA 希望你：多听 TA 说，先接住，不急着给建议", sys_prompt)
-        self.assertIn("一天里比较有精神的时候：早上", sys_prompt)
-        # 再做一次：近况更新上一次那条，不越堆越多，旧说法在修订记录里
-        self.fake.json_out = None
-        rid, outs = self._scene(c, "relearn", ["最近想慢下来，休息一下", "（跳过）", "（跳过）", "（跳过）", "（跳过）", "暂时不需要提醒"])
-        s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": [{"key": "life", "text": "最近想慢下来，休息一下"},
-                                                                          {"key": "remind", "text": "暂时不需要提醒"}]})
-        self.assertEqual(s, 200, out)
-        lives = [m for m in out["state"]["memories"] if "最近的生活：" in m["text"]]
-        self.assertEqual(len(lives), 1)
-        self.assertIn("最近想慢下来", lives[0]["text"])
-        self.assertTrue(any("正在经历一些变化" in (r["old_text"] or "") for r in out["state"]["revisions"]))
-        self.assertTrue(out["reply"])                                        # 模型不在：固定的一句
-        self.assertEqual(out["state"]["prefs"]["remind_pref"], "暂时不需要提醒")
+        self.assertIn("帮 TA 想具体能怎么做", self.fake.seen[-1][0]["content"])       # 小光以后按这个陪
 
     def test_relearn_back_keeps_nothing(self):
         c, uid = self.onboarded("relearn_back")
         _, boot = c.req("GET", "/api/bootstrap")
-        n_msgs, n_mems = len(boot["messages"]), len(boot["memories"])
-        rid, outs = self._scene(c, "relearn", ["忙忙碌碌，有很多事情要处理", "找朋友聊天或一起玩", "（跳过）", "晚上",
-                                               "给我一些鼓励和信心", "每天"])
+        n_msgs, n_mems, n_steps = len(boot["messages"]), len(boot["memories"]), len(boot["steps"])
+        self.fake.json_out = None                                             # 模型不在：给一条通用的路
+        rid, outs = self._scene(c, "relearn", ["busy", "body", "seed", "cheer"])
         self.assertGreater(outs[-1]["xp"]["amount"], 0)                      # 练习经验照给
+        rv = outs[-1]["review"]
+        self.assertEqual(rv["say"], "好，我们就从这里开始。")
+        self.assertEqual([x["title"] for x in rv["items"][0]["choices"]], ["今晚早十分钟放下手机", "饭后慢慢走十分钟"])
+        self.assertEqual(rv["items"][1]["text"], "睡好一点")
         self.assertEqual(c.req("POST", "/api/scene/discard", {"run_id": rid})[0], 200)
         with Store(uid) as st:
             self.assertEqual(st.get_scene(rid)["answers"], [])              # 回答清掉了
-        self.assertEqual(c.req("POST", "/api/scene/save", {"run_id": rid, "items": [{"key": "chat", "text": "x"}]})[0], 400)
+        self.assertEqual(c.req("POST", "/api/scene/save", {"run_id": rid, "items": [{"key": "step", "text": "x"}]})[0], 400)
         _, boot = c.req("GET", "/api/bootstrap")
-        self.assertEqual((len(boot["messages"]), len(boot["memories"]), boot["profile"]["chat_style"]), (n_msgs, n_mems, ""))
+        self.assertEqual((len(boot["messages"]), len(boot["memories"]), len(boot["steps"]), boot["profile"]["chat_style"]),
+                         (n_msgs, n_mems, n_steps, ""))
         # 中途关掉也一样
         _, d = c.req("POST", "/api/scene/start", {"scene": "relearn"})
-        c.req("POST", "/api/scene/answer", {"run_id": d["run"]["id"], "text": "正在经历一些变化"})
+        c.req("POST", "/api/scene/answer", {"run_id": d["run"]["id"], "text": "change"})
         c.req("POST", "/api/scene/cancel")
         with Store(uid) as st:
             self.assertEqual(st.get_scene(d["run"]["id"])["answers"], [])
-        # 模型不在时，想让小光知道的话先原样记成一条
-        rid, outs = self._scene(c, "relearn", ["（跳过）"] * 6)
-        self.assertEqual(outs[-1]["review"]["items"], [])
+        # 全跳过：只写想让小光知道的那句；乱填的值当作跳过
+        rid, outs = self._scene(c, "relearn", ["（跳过）", "乱填", "（跳过）", "（跳过）"])
+        self.assertEqual([it["key"] for it in outs[-1]["review"]["items"]], ["step"])      # 已经有愿望：接着它，不建新的
         s, out = c.req("POST", "/api/scene/save", {"run_id": rid, "items": [], "extra": "最近在学吉他"})
         self.assertEqual(s, 200, out)
         self.assertIn("想让小光知道：最近在学吉他", [m["text"] for m in out["state"]["memories"]])
+        self.assertEqual(len(out["state"]["steps"]), n_steps)
         self.assertEqual(c.req("POST", "/api/scene/save", {"run_id": rid, "items": []})[0], 400)
 
     def test_companion_prefs_editable_in_settings(self):

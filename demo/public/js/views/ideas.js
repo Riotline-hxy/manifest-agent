@@ -5,12 +5,14 @@ import { esc, icon, tile } from "../ui.js";
 import { mountBall } from "../ball.js";
 import { startScene } from "../scene.js";
 import { openKick } from "../kick.js";
+import { openTune } from "../tune.js";
 
 const META = {
   relearn: ["compass", "var(--c-violet)"], seven_steps_lite: ["steps", "var(--c-orange)"],
   kickstart: ["footsteps", "var(--c-mint)"], meditation: ["wind", "var(--c-sky)"], gratitude: ["heart", "var(--c-pink)"],
+  topic_blank_day: ["sun", "var(--c-lemon)"], topic_manual: ["book", "var(--c-sky)"], topic_parallel: ["sparkles", "var(--c-violet)"],
 };
-const GROUPS = [["聊聊", "答几个小问题，小光更懂你"], ["日常", "几分钟就能做完"]];
+const GROUPS = [["聊聊", "答几个小问题，小光更懂你"], ["日常", "几分钟就能做完"], ["话题", "不知道聊什么，点一个"]];
 
 export function renderIdeas(root) {
   const ideas = state.data.ideas || [];
@@ -45,7 +47,7 @@ export function renderIdeas(root) {
             const [ic, col] = META[i.id] || ["sparkles", "var(--accent)"];
             return `<button class="row" data-idea="${esc(i.id)}" style="--i:${k}">${tile(ic, col, 46)}
               <span class="row-main"><b>${esc(i.title)}</b><span>${esc(i.desc)}</span></span>
-              <span class="row-meta">${i.scene && counts[i.scene] ? `<span class="pill good">${icon("check")}${counts[i.scene]}</span>` : ""}<span class="muted">${i.minutes} 分钟</span></span>
+              <span class="row-meta">${i.scene && counts[i.scene] ? `<span class="pill good">${icon("check")}${counts[i.scene]}</span>` : ""}<span class="muted">${i.kind === "topic" ? "聊几句" : `${i.minutes} 分钟`}</span></span>
               <span class="row-go">${icon("arrow")}</span></button>`;
           }).join("")}</div></section>`;
       }).join("")}
@@ -60,7 +62,13 @@ export function renderIdeas(root) {
   root.querySelectorAll("[data-idea]").forEach((b) => b.addEventListener("click", () => {
     const idea = ideas.find((i) => i.id === b.dataset.idea);
     if (!idea) return;
-    if (idea.kind === "kick") openKick(); else startScene(idea.scene);
+    if (idea.kind === "kick") openKick();
+    else if (idea.kind === "tune") openTune();
+    else if (idea.kind === "topic") {          // 话题：去对话，替你发出那句话，小光照话题陪你聊
+      state.autoSend = idea.send;
+      state.pendingTopic = idea.topic;
+      go("chat");
+    } else startScene(idea.scene);
   }));
   root.querySelectorAll("[data-art]").forEach((b) => b.addEventListener("click", () => go("article", { id: b.dataset.art })));
   root.querySelector("[data-go]")?.addEventListener("click", () => go("academy"));

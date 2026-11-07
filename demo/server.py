@@ -228,7 +228,7 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection = True
         gone = False
         with Store(u["id"]) as st, metrics.chat_span():
-            for event, data in agent.chat(st, text):
+            for event, data in agent.chat(st, text, topic=clip(str(body.get("topic") or ""), 40)):
                 if gone:
                     continue   # client left: keep going so the reply (and tool results) still get saved
                 try:

@@ -78,12 +78,12 @@ export const api = {
 };
 
 // 真流式对话：服务端通过 SSE 逐段推送。
-export async function streamChat(text, handlers = {}) {
+export async function streamChat(text, handlers = {}, extra = {}) {
   const res = await fetch("/api/chat", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, ...extra }),     // extra.topic：点子里点的话题
   });
   if (!res.ok || !res.body) {
     const raw = await res.text().catch(() => "");

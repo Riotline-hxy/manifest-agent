@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="mist">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>聊聊现在的你 · 方案 A 插图卡片</title>
+<link rel="stylesheet" href="../../demo/public/css/fonts.css">
+<link rel="stylesheet" href="../../demo/public/css/base.css">
+<link rel="stylesheet" href="../../demo/public/css/components.css">
+<link rel="stylesheet" href="../../demo/public/css/lesson.css">
+<link rel="stylesheet" href="../../demo/public/css/chat.css">
+<link rel="stylesheet" href="tune.css">
+<script src="icons.js"></script>
+<script src="shared.js"></script>
+<script src="ends.js"></script>
+</head>
+<body>
+<div class="lesson in tune-a">
+  <div class="lesson-top">
+    <button class="lesson-x" aria-label="关闭">×</button>
+    <div class="bar lesson-bar"><i></i></div>
+    <span class="lesson-count num"></span>
+  </div>
+  <div class="lesson-stage">
+    <div class="lesson-kicker"></div>
+    <div class="lesson-ask"><div class="lesson-ball xg"></div><div class="speech lesson-q"></div></div>
+    <div class="ta-body"></div>
+  </div>
+  <div class="lesson-foot"><div class="lesson-foot-in"></div></div>
+</div>
+
+<script>
+const T = TUNE, S = T.steps, N = S.length;
+const ans = {};
+let at = 0, first = 0;
+const $ = (s) => document.querySelector(s);
+const ball = $(".xg"), body = $(".ta-body"), foot = $(".lesson-foot-in");
+
+function say(html) {
+  const q = $(".lesson-q");
+  q.innerHTML = html;
+  q.classList.remove("pop"); void q.offsetWidth; q.classList.add("pop");
+}
+function face(m) {
+  ball.innerHTML = mascot(m);
+  ball.classList.remove("hop"); void ball.offsetWidth; if (m === "happy") ball.classList.add("hop");
+}
+function progress(p) {
+  $(".lesson-bar > i").style.width = `${Math.max(4, p * 100)}%`;
+  $(".lesson-count").textContent = at < N ? `${at + 1}/${N}` : "";
+}
+function buttons(list) {
+  foot.innerHTML = list.map(([label, cls, id]) => `<button class="btn ${cls}" data-b="${id}">${label}</button>`).join("");
+  return (id) => foot.querySelector(`[data-b="${id}"]`);
+}
+
+// ---- 四个问题：一张张带插图的卡片，选了小光马上回一句 ----
+function ask() {
+  const s = S[at];
+  progress(at / N);
+  $(".lesson-kicker").textContent = T.kicker;
+  say(at === 0 ? `${esc(T.intro)}<small>${esc(s.q)}</small>` : esc(s.q));
+  face("idle");
+  body.innerHTML = `<div class="ils ${s.opts.length === 3 ? "three" : ""}">${s.opts.map((o, i) =>
+    `<button class="il ${o.v === ans[s.key] ? "on" : ""}" data-v="${o.v}" style="--i:${i}">${ill(o.ill)}<span><b>${esc(o.label)}</b><small>${esc(o.hint)}</small></span></button>`).join("")}</div>`;
+  const btn = buttons([["跳过", "btn-quiet", "skip"], ["继续", "btn-good btn-lg lesson-go", "go"]]);
+  if (!ans[s.key]) btn("go").classList.add("off");
+  body.querySelectorAll(".il").forEach((b) => b.addEventListener("click", () => {
+    ans[s.key] = b.dataset.v;
+    body.querySelectorAll(".il").forEach((x) => x.classList.toggle("on", x === b));
+    say(`${esc(optOf(s, b.dataset.v).react)}<small>${esc(s.q)}</small>`);
+    face("happy");
+    btn("go").classList.remove("off");
+  }));
+  btn("skip").onclick = () => { at++; next(); };
+  btn("go").onclick = () => { if (ans[s.key]) { at++; next(); } };
+}
+
+// ---- 小光想一下，给出今天就能开始的第一小步 ----
+async function ending() {
+  progress(1);
+  $(".lesson-kicker").textContent = T.kicker;
+  say(`<span class="thinking"><i></i><i></i><i></i></span>`);
+  face("idle");
+  body.innerHTML = "";
+  foot.innerHTML = "";
+  await new Promise((r) => setTimeout(r, 1300));
+  const e = endOf(ans);
+  const dir = optOf(S[1], ans.dir || "wish");
+  const wishName = (ans.dir || "wish") === "wish" ? T.wish : e.wish;
+  const acc = optOf(S[3], ans.accomp), st = optOf(S[0], ans.state);
+  say(esc(e.see));
+  face("happy");
+  body.innerHTML = `<p class="end-h">我们从这一步开始</p>
+    <div class="firsts">${e.steps.map((x, i) => `<button class="first ${i === first ? "on" : ""}" data-i="${i}" style="--i:${i}">${ill(dir.ill)}
+      <span><b>${esc(x.title)}</b><small>${esc(x.why)}</small></span><i>${i === first ? icon("check") : ""}</i></button>`).join("")}</div>
+    <div class="keeps">
+      <label class="keep"><input type="checkbox" checked><span>第一小步：<b class="k-step">${esc(e.steps[first].title)}</b></span><small>蜕变计划 · 今天</small></label>
+      <label class="keep"><input type="checkbox" checked><span>愿望「${esc(wishName)}」${(ans.dir || "wish") === "wish" ? "" : `<em class="new">新</em>`}</span><small>蜕变计划</small></label>
+      ${st ? `<label class="keep"><input type="checkbox" checked><span>最近：${esc(st.label)}</span><small>记忆</small></label>` : ""}
+      ${acc ? `<label class="keep"><input type="checkbox" checked><span>陪你的方式：${esc(acc.label)}</span><small>设置</small></label>` : ""}
+    </div>
+    <label class="tn-extra"><span>还有什么想让我先知道的？</span><textarea class="field" rows="2" maxlength="120" placeholder="${esc(T.extraPh)}"></textarea></label>`;
+  body.querySelectorAll(".first").forEach((b) => b.addEventListener("click", () => {
+    first = +b.dataset.i;
+    body.querySelectorAll(".first").forEach((x, i) => { x.classList.toggle("on", i === first); x.querySelector("i").innerHTML = i === first ? icon("check") : ""; });
+    body.querySelector(".k-step").textContent = e.steps[first].title;
+  }));
+  const btn = buttons([["现在就做第一步", "btn-ghost", "now"], ["存好，开始吧", "btn-good btn-lg lesson-go", "go"]]);
+  btn("go").onclick = () => done(e, wishName, false);
+  btn("now").onclick = () => done(e, wishName, true);
+}
+
+function done(e, wishName, now) {
+  $(".lesson-count").textContent = "";
+  face("happy");
+  const step = e.steps[first].title;
+  if (now) {
+    say("好，那现在就开始～");
+    body.innerHTML = `<div class="kick-stub">这里会打开「两分钟启动」，任务已经填好：「${esc(step)}」。<br>它会再拆成一两分钟的小动作，陪你做完第一下。</div>`;
+  } else {
+    say("加好了，在「今天」里就能看到它。");
+    body.innerHTML = `<div class="plan-mini"><div class="pm-w">${icon("flag")}${esc(wishName)}</div>
+      <div class="pm-s"><i></i>${esc(step)}<em>今天</em></div></div>`;
+  }
+  const btn = buttons([["再来一遍", "btn-ghost", "again"]]);
+  btn("again").onclick = restart;
+}
+
+function restart() { for (const k in ans) delete ans[k]; at = 0; first = 0; next(); }
+function next() { if (at < N) ask(); else ending(); }
+$(".lesson-x").onclick = restart;
+next();
+</script>
+</body>
+</html>

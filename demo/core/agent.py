@@ -19,7 +19,7 @@ import re
 from datetime import timedelta
 import threading
 
-from . import academy, acts, finds, growth, guide, journey, kickstart, llm, lookup, memory, nudges, router, tasks, town, voice
+from . import academy, acts, finds, growth, guide, journey, kickstart, llm, lookup, memory, nudges, router, tasks, topics, town, voice
 from .scenes import CHAT_HOW, SCENES
 from .store import Store
 from .util import clip, day_key, now, parse_iso, tokens
@@ -999,9 +999,14 @@ def _check_route(stream, rt, route: dict, msgs: list, tools: list):
             return llm.stream_chat(msgs, tools=tools, tool_choice=must)
     return itertools.chain([first] if first else [], stream)
 
-def chat(store: Store, user_text: str, *, extract: bool = True):
+def chat(store: Store, user_text: str, *, extract: bool = True, topic: str = ""):
+    """topic：TA 在点子里点的话题 id（core/topics.py）。话题进行中，提示词接在系统提示后面，不打开别的练习、不走路由。"""
     user_text = clip(user_text, 2000)
-    store.add_message("user", user_text)
+    if topic and topics.start(store, topic):
+        store.add_msg("user", user_text, {"topic": topic})
+    else:
+        store.add_message("user", user_text)
+    tp = topics.active(store)
     store.set_profile({"last_chat_at": now().isoformat(timespec="seconds")})
     store.mark_inbox_seen()  # TA 回来说话了，之前的主动消息就算看过了
     # 每天第一次来聊天算一次签到；award() 对同一天同一个 ref 是幂等的
@@ -1024,15 +1029,15 @@ def chat(store: Store, user_text: str, *, extract: bool = True):
                                      "kind": m["kind"], "date": m["created_at"][:10]} for m in retrieved]})
 
     hist = history(store)
-    msgs = ([{"role": "system", "content": system_prompt(store, retrieved)}] + hist[:-1]
+    msgs = ([{"role": "system", "content": system_prompt(store, retrieved) + (chr(10) * 2 + topics.prompt(tp) if tp else "")}] + hist[:-1]
             + [{"role": "system", "content": context_note(retrieved, store)}] + hist[-1:])
     reply, tool_log, mood_set = "", [], False
     # 路由判断和第一轮回复同时开始：多数时候不需要做事，路由的那点时间就藏在等第一个字里了
     route: dict = {}
     rctx = router.context(store)
-    rt = threading.Thread(target=lambda: route.update(tool=router.decide(rctx, user_text)), daemon=True)
+    rt = threading.Thread(target=lambda: route.update(tool="" if tp else router.decide(rctx, user_text)), daemon=True)
     rt.start()
-    blocked: set[str] = set()   # 这一轮被拦下的写入工具，不再给模型反复重试
+    blocked: set[str] = {"start_scene"} if tp else set()   # 这一轮被拦下的写入工具，不再给模型反复重试；话题里不开别的练习
     try:
         for _round in range(MAX_ROUNDS + 1):
             calls, started, said = None, False, ""

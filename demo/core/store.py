@@ -56,6 +56,8 @@ DEFAULT_PROFILE = {
     "last_week_page": "",   # 笔记本：最近一次试着写定稿的那一周（周一的日期）
     "finds": [],            # 小光的发现：小光翻笔记本时注意到的事 [{id, text, evidence[], at}]（core/finds.py）
     "insight_fb": {},       # 小光的发现：TA 点的「像我」yes /「不太像」no，按发现 id
+    "relearn_end": {},      # 「聊聊现在的你」结束页：这一次模型给的看到的你和第一小步，保存时不再调（core/relearn.py）
+    "topic": {},            # 正在聊的点子话题 {id, at}：30 分钟没再聊就算结束（core/topics.py）
     "last_digest_day": "", "current_wish": "", "cheer": {},
     "last_proactive_kind": "",   # 上一条主动消息聊的是哪种（chat / plan / feature / cheer），下一条换一种
     "xp": 0, "last_chat_at": "", "last_proactive_at": "", "created_at": "",
