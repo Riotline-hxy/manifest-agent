@@ -110,7 +110,7 @@ export async function openKick({ task = "", stepId = "" } = {}) {
       <textarea class="field kick-task" rows="2" maxlength="40" placeholder="比如：起床、开始写报告、去洗个澡"></textarea>
       <div class="kick-modes">${MODES.map(([k, l]) => `<button class="kick-mode" data-mode="${k}" aria-pressed="false">${esc(l)}</button>`).join("")}</div>
       <p class="kick-hint"></p>
-      ${data.active ? `<button class="kick-resume">${icon("play")}<span>接着做「${esc(data.active.task)}」<small>第 ${Math.min(data.active.cur + 1, data.active.total)}/${data.active.total} 步</small></span>${icon("arrow")}</button>` : ""}
+      ${data.active ? `<button class="kick-resume">${icon("footsteps")}<span>接着做「${esc(data.active.task)}」<small>第 ${Math.min(data.active.cur + 1, data.active.total)}/${data.active.total} 步</small></span>${icon("arrow")}</button>` : ""}
       ${steps.length && !stepId ? `<div class="kick-picks"><span>从小步开始</span>${steps.map((s) =>
         `<button class="kick-pick" data-step="${esc(s.id)}">${icon("flag")}<span>${esc(s.title)}</span></button>`).join("")}</div>` : ""}`;
     const ta = body.querySelector(".kick-task");

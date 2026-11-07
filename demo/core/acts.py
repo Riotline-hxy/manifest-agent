@@ -24,7 +24,7 @@ FEATURES = {
     "gratitude": {"title": "三分钟感恩", "icon": "heart", "color": "var(--c-pink)", "open": {"scene": "gratitude"}},
     "seven_steps_lite": {"title": "聊聊你的愿望", "icon": "steps", "color": "var(--c-orange)", "open": {"scene": "seven_steps_lite"}},
     "relearn": {"title": "聊聊现在的你", "icon": "compass", "color": "var(--c-violet)", "open": {"scene": "relearn"}},
-    "kickstart": {"title": "两分钟启动", "icon": "play", "color": "var(--c-mint)", "minutes": 2,
+    "kickstart": {"title": "两分钟启动", "icon": "footsteps", "color": "var(--c-mint)", "minutes": 2,
                   "desc": "把开不了头的事拆成一两分钟的小动作，我陪你一步步做", "open": {"kick": True}},
     "plan": {"title": "蜕变计划", "icon": "flag", "color": "var(--c-orange)", "desc": "看看愿望、里程碑和这周的习惯", "open": {"go": "plan"}},
     "report": {"title": "蜕变报告", "icon": "sparkles", "color": "var(--c-violet)", "desc": "这两周、这一个月的变化，都在这里", "open": {"go": "plan"}},

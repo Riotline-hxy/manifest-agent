@@ -108,7 +108,7 @@ export function renderPlan(root, { fresh = "" } = {}) {
           <div class="steps">${todo.map((s, i) => `<div class="step" style="--i:${i}">
             <button class="check" data-done="${esc(s.id)}" aria-label="完成「${esc(s.title)}」">${icon("check")}</button>
             <div class="step-main"><div class="st">${esc(s.title)}</div>${s.why ? `<div class="sw">${esc(s.why)}</div>` : ""}</div>
-            <button class="icon-btn step-kick" data-kick="${esc(s.id)}" aria-label="两分钟启动「${esc(s.title)}」" title="两分钟启动">${icon("play")}</button>
+            <button class="icon-btn step-kick" data-kick="${esc(s.id)}" aria-label="两分钟启动「${esc(s.title)}」" title="两分钟启动">${icon("footsteps")}</button>
             <button class="btn btn-quiet btn-sm" data-drop="${esc(s.id)}">先放一放</button></div>`).join("")
             || (steps.some((s) => s.status === "done")
               ? `<div class="j-cleared"><span>${icon("checkc")}这个愿望的小步都做完了。</span><button class="btn btn-sm btn-main" data-think>${icon("sparkles")}和小光想想下一步</button></div>`

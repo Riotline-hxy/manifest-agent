@@ -8,7 +8,7 @@ import { openKick } from "../kick.js";
 
 const META = {
   relearn: ["compass", "var(--c-violet)"], seven_steps_lite: ["steps", "var(--c-orange)"],
-  kickstart: ["play", "var(--c-mint)"], meditation: ["wind", "var(--c-sky)"], gratitude: ["heart", "var(--c-pink)"],
+  kickstart: ["footsteps", "var(--c-mint)"], meditation: ["wind", "var(--c-sky)"], gratitude: ["heart", "var(--c-pink)"],
 };
 const GROUPS = [["聊聊", "答几个小问题，小光更懂你"], ["日常", "几分钟就能做完"]];
 

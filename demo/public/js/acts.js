@@ -29,7 +29,7 @@ function goTo(where) {
 function entryEl(v) {
   const el = document.createElement("div");
   el.className = "cact act-entry";
-  el.innerHTML = `${tile(v.icon, v.color, 40)}
+  el.innerHTML = `${tile(v.feature === "kickstart" ? "footsteps" : v.icon, v.color, 40)}
     <div class="act-main"><b>${esc(v.title)}</b><span>${esc(v.desc || "")}${v.minutes ? ` · ${v.minutes} 分钟` : ""}</span></div>
     <button class="btn btn-sm btn-main">${v.open?.go || v.open?.article ? "去看看" : "开始"}</button>`;
   el.querySelector("button").addEventListener("click", () => open(v.open));
