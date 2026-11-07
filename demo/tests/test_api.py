@@ -650,6 +650,64 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(c.req("POST", "/api/kick", {"action": "done", "run_id": run["id"]})[0], 404)
         self.assertEqual(c.req("POST", "/api/kick", {"action": "start", "task": "  "})[0], 400)
 
+    def test_kickstart_guess_fix_found_and_review(self):
+        c, uid = self.onboarded("kick_guess")
+        with Store(uid) as st:
+            st.c.execute("INSERT INTO wish(id, title, category, started, archived, sort, created_at) VALUES('w_dress', '变得更会打扮', 'other', '2026-11-01', 0, 0, '2026-11-01T00:00:00+08:00')")
+            st.set_profile({"current_wish": "w_dress"})
+        # 先写理解、再拆：理解存下来（页面上不显示，记忆里有）
+        self.fake.json_out = {"guess": "在衣柜里挑一套衣服换上", "say": "先看看衣柜。", "cheer": "搭出来了。", "steps": [
+            {"title": "打开衣柜", "tip": "", "minutes": 1}, {"title": "挑一件上衣", "tip": "", "minutes": 2}]}
+        run = self._kick(c, "start", task="学穿搭")["run"]
+        self.assertEqual(run["guess"], "在衣柜里挑一套衣服换上")
+        sent = self.fake.seen_json[-1]
+        self.assertIn("先理解这件事", sent[0]["content"])
+        self.assertIn('"guess"', sent[1]["content"])
+        self.assertIn("「变得更会打扮」（现在主要在做）", sent[1]["content"])        # 愿望帮小光猜意思
+        # 在「调整路线」里说理解错了：理解换掉，路线从现在这一步重排
+        self.fake.json_out = {"guess": "在小红书上看穿搭，照着搭一套", "say": "好，那就上网学。", "found": "学穿搭你想先看别人怎么搭", "steps": [
+            {"title": "打开小红书", "tip": "搜「秋冬穿搭」", "minutes": 1}, {"title": "收藏一套", "tip": "", "minutes": 2},
+            {"title": "照着配一套", "tip": "", "minutes": 3}]}
+        run = self._kick(c, "adjust", run_id=run["id"], text="我想在网上学")["run"]
+        prompt = self.fake.seen_json[-1][1]["content"]
+        self.assertIn("你理解错了", prompt)
+        self.assertIn("你对这件事的理解：在衣柜里挑一套衣服换上", prompt)
+        self.assertEqual((run["guess"], run["total"], run["route"][0]["title"]), ("在小红书上看穿搭，照着搭一套", 3, "打开小红书"))
+        self.assertEqual([(x["kind"], x["step"], x["found"]) for x in run["log"]], [("adjust", 0, "学穿搭你想先看别人怎么搭")])
+        # 每一步实际用了多久（从这一步出现算起）
+        from datetime import timedelta
+        from core.util import iso, now
+        with Store(uid) as st:
+            st.c.execute("UPDATE kick_run SET mark=? WHERE id=?", (iso(now() - timedelta(seconds=150)), run["id"]))
+        run = self._kick(c, "done", run_id=run["id"])["run"]
+        self.assertTrue(140 <= run["route"][0]["sec"] <= 160)
+        self.fake.json_out = {"say": "那就先存一套。", "found": "", "steps": [{"title": "随手存一套", "tip": "", "minutes": 1}]}
+        run = self._kick(c, "stuck", run_id=run["id"], text="看花眼了")["run"]
+        self.assertEqual([(x["kind"], x["step"]) for x in run["log"]], [("adjust", 0), ("stuck", 1)])
+        run = self._kick(c, "done", run_id=run["id"])["run"]
+        self.assertTrue(run["finished"])
+        self.assertGreaterEqual(run["secs"], 140)
+        self.fake.json_out = {"say": "接着来。", "steps": [{"title": "换上拍一张", "tip": "", "minutes": 2}]}
+        run = self._kick(c, "more", run_id=run["id"])["run"]
+        self.assertEqual(run["log"][-1]["kind"], "more")
+        self.assertEqual(run["log"][-1]["step"], 2)                               # 路线回顾里「接着又做了」插在这一步前面
+        self._kick(c, "done", run_id=run["id"])
+        out = self._kick(c, "finish", run_id=run["id"], remember=True)
+        [k] = out["state"]["kick_memories"]
+        for part in ("小光的理解：在小红书上看穿搭，照着搭一套", "调整路线：TA 说「我想在网上学」", "小光的发现：学穿搭TA想先看别人怎么搭",
+                     "用了约 3 分钟"):
+            self.assertIn(part, k["text"])
+
+    def test_kickstart_fallback_route_is_generic(self):
+        c, _ = self.onboarded("kick_generic")
+        self.fake.json_out = None
+        out = self._kick(c, "start", task="学穿搭", mode="low")
+        run = out["run"]
+        self.assertEqual(run["guess"], "")
+        self.assertIn("没连上", run["say"])                                        # 说实话：这是通用的路，不是猜出来的
+        self.assertEqual([s["title"] for s in run["route"]], ["先让身体动一下", "先把要用的打开", "只做最小的一下", "停一下，看看感觉"])
+        self.assertNotIn("学穿搭", "".join(s["tip"] for s in run["route"]))
+
     def test_audio_supports_range_requests(self):
         import pathlib
         from core.util import PUBLIC

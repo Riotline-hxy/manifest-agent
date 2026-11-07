@@ -43,12 +43,45 @@
 .kick-foot .btn-ghost { height: 46px; }
 
 /* 你已经开始了 */
-.kick-done { display: grid; gap: 12px; justify-items: center; text-align: center; padding: 10px 0; }
+.kick-done { display: grid; gap: 8px; justify-items: center; text-align: center; padding: 4px 0 2px; }
 .kick-done h2 { margin: 0; font-size: 30px; letter-spacing: .02em; animation: opt-in .6s var(--spring); }
 .kick-done p { margin: 0; color: var(--text-2); font-weight: 700; }
 .kick-done p b { color: var(--accent); font-size: 20px; }
-.kick-remember { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 12px 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); font-weight: 800; cursor: pointer; }
-.kick-remember input { width: 20px; height: 20px; accent-color: var(--accent); }
+.kick-remember { display: flex; align-items: flex-start; gap: 10px; padding: 13px 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); font-weight: 800; cursor: pointer; }
+.kick-remember input { flex: none; width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--accent); }
+.kick-remember > span { display: grid; gap: 6px; min-width: 0; }
+.kick-remember small { display: flex; gap: 6px; font-size: 13px; font-weight: 700; line-height: 1.5; color: var(--text-2); }
+.kick-remember small .ic-svg { flex: none; width: 14px; height: 14px; margin-top: 3px; color: var(--c-lemon); }
+
+/* 路线回顾：一步一行，点开看当时的提示 */
+.kick-review { display: grid; gap: 10px; padding: 16px 16px 10px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); animation: opt-in .5s var(--spring) .1s both; }
+.kr-head { display: flex; align-items: center; gap: 8px; padding: 0 2px; }
+.kr-head b { flex: 1; min-width: 0; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kr-from { display: flex; align-items: center; gap: 6px; margin: -4px 0 0 2px; font-size: 12.5px; font-weight: 700; color: var(--text-3); }
+.kr-from .ic-svg { width: 13px; height: 13px; }
+.kr-list { display: grid; }
+.kr-step { border-top: 1px solid var(--line); }
+.kr-list > .kr-step:first-child { border-top: 0; }
+.kr-step summary { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 2px; list-style: none; cursor: pointer; }
+.kr-step summary::-webkit-details-marker { display: none; }
+.kr-step summary > span { flex: 1; min-width: 0; font-size: 15px; font-weight: 800; line-height: 1.4; }
+.kr-step summary em { flex: none; font-style: normal; font-size: 12.5px; font-weight: 800; color: var(--text-3); }
+.kr-step summary > .ic-svg { flex: none; width: 16px; height: 16px; color: var(--text-4); transition: transform .2s var(--ease); }
+.kr-step[open] summary > .ic-svg { transform: rotate(180deg); }
+.kr-step p { margin: -4px 0 10px 34px; font-size: 13.5px; line-height: 1.6; color: var(--text-2); }
+.kr-mark { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--line-2); }
+.kr-mark .ic-svg { width: 14px; height: 14px; stroke-width: 3; }
+.kr-step.done .kr-mark { border-color: var(--good); background: var(--good); color: var(--good-ink); }
+.kr-step.skipped .kr-mark { color: var(--text-3); }
+.kr-step.skipped summary > span, .kr-step.todo summary > span { color: var(--text-3); }
+.kr-step.skipped summary > span { text-decoration: line-through; text-decoration-color: var(--line-2); }
+/* 改过路线的地方：TA 当时说的那句 */
+.kr-note { display: flex; gap: 7px; margin: -2px 0 8px 34px; padding: 8px 11px; border-radius: 12px; background: var(--surface-2); font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.kr-note .ic-svg { flex: none; width: 14px; height: 14px; margin-top: 2.5px; color: var(--accent); }
+.kr-note b { margin-right: 6px; color: var(--text); }
+.kr-more { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 12px; font-weight: 800; color: var(--text-3); }
+.kr-more::before, .kr-more::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.kr-more + .kr-step { border-top: 0; }
 
 /* 调整路线 / 遇到困难的弹层：盖在全屏的「一课」（z-index 250）上面 */
 .kick-scrim { z-index: 260; }
@@ -89,4 +122,6 @@
   .kick-card b { font-size: 21px; }
   .kick-foot { padding: 12px 16px 16px; }
   .kick-done h2 { font-size: 26px; }
+  .kick-review { padding: 14px 13px 8px; }
+  .kr-note, .kr-step p { margin-left: 30px; }
 }

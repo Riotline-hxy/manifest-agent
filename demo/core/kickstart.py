@@ -7,9 +7,13 @@
   mode     default 默认 | low 低能量 | precise 拆更准（先问三个问题）
   ctx      {step_id, step, why, wish}：从蜕变计划的小步进来时
   answers  拆更准的三问 {now, want, block}；qs 是给这三问生成的快捷选项
-  route    [{title, tip, minutes, state}]，state = todo | done | skipped；cur 是现在这一步
-  log      这一次里用户说过的话和小光怎么改的 [{kind, text, say, change, at}]
+  guess    小光对这件事的理解（不显示，让模型先想清楚再拆；TA 在「调整路线」里纠正了就跟着改）
+  route    [{title, tip, minutes, state, sec}]，state = todo | done | skipped；sec 是这一步实际用了几秒；cur 是现在这一步
+  mark     现在这一步从什么时候开始算
+  log      这一次里用户说过的话和小光怎么改的 [{kind, text, say, change, found, step, at}]：step 是改的时候在第几步，
+           found 是小光从 TA 这句话里看出来、下次也用得上的一点（结束页「小光发现」）
   status   active | closed
+提示词都在 core/kick_prompts.py。
 调整路线、遇到困难只改「现在这一步和后面的」，做完的不动；不跳到普通聊天。
 结束时用户勾了「让小光记住这次体验」，才写一条《两分钟启动记忆》（kick_memory）：夜里的记忆整理会读它，
 聊天里小光用 kick_history 按需查。没勾就不写，这一次的回答、反馈和路线细节也清掉，只留任务和步数。
@@ -19,6 +23,8 @@ from __future__ import annotations
 import re
 
 from . import llm
+from .kick_prompts import (BASE, FALLBACK, FALLBACK_LOW, FALLBACK_SAY, MODE_RULE, QUESTIONS_ASK, REVISE_ASK,
+                           REVISE_OUT, ROUTE_ASK)
 from .scenes import TONE
 from .store import Store
 from .util import clip, dumps, iso, loads, new_id, now, parse_iso
@@ -31,41 +37,10 @@ FALLBACK_OPTS = {
     "want": ["先开个头", "先动一下最难的那块", "先做完一小部分", "先理清要做什么"],
     "block": ["提不起劲", "不知道从哪开始", "怕做不好", "总被别的事打断"],
 }
-CHEERS = ["开头最难的那一下，已经过去了。", "你没有等到想做才开始，这很了不起。", "动起来了，后面会轻一点。"]
+KIND = {"adjust": "调整路线", "stuck": "遇到困难"}
 MAX_STEPS = 5
 WEEK = "一二三四五六日"
 LLM_TIMEOUT = 45
-
-BASE = """你是「{name}」，在「两分钟启动」里陪 TA 把一件想做却开始不了的事做起来。{tone}
-你做的事：把它拆成几个极小、具体、马上能做的动作，TA 一次只做一个。
-- 每个动作 1～3 分钟能做完，身体能直接做：起身、拿起、打开、摆好、写下一句……不写「调整心态」「做好准备」这种空话。
-- 第一个动作要小到几乎不用意志力。
-- title 不超过 10 个字；tip 一句话、不超过 30 字，说清怎么做，像朋友在旁边轻声提醒；minutes 是 1～3 的整数。
-- 只用下面给你的信息，不知道的别假设（不知道 TA 家里有什么，就别写「拿出瑜伽垫」）。
-- 不讲道理，不分析拖延，不给 TA 贴标签，不说「加油」「你一定可以」，不用「不是……而是……」和破折号。"""
-
-MODE_RULE = {
-    "default": "节奏正常：3～5 个动作，最后一步落到这件事真正开始了（写下第一句、做完第一组、开始第一题）。",
-    "low": "TA 现在能量很低：3～4 个动作，每个更小、更温和，可以先让身体动一下（坐起来、喝口水、走到桌前）；"
-           "最后一步停在「已经开始了」就好，不要求做完。",
-    "precise": "照 TA 回答的三个问题来拆：从 TA 现在做到的地方接着往下，第一个动作冲着 TA 说的最大阻碍去，最后落到 TA 最想推进的那件事。3～5 个动作。",
-}
-
-ROUTE_ASK = """把下面这件事拆成路线。{mode_rule}
-只输出 JSON：{{"say":"开始前对 TA 说的一句话，不超过 25 字，可以空","steps":[{{"title":"","tip":"","minutes":1}}],"cheer":"TA 做完以后的一句鼓励，不超过 20 字，具体到这件事"}}"""
-
-QUESTIONS_ASK = """TA 选了「拆更准」，要先回答三个问题：1. 你现在做到哪了？ 2. 你现在最想推进的是什么？ 3. 你现在最大的阻碍是什么？
-给每个问题写 4 个快捷选项：贴着这件事、像 TA 可能的真实状态，口语，每个不超过 12 个字。
-只输出 JSON：{"now":["","","",""],"want":["","","",""],"block":["","","",""]}"""
-
-REVISE_ASK = {
-    "adjust": "TA 想调整路线，原话：「{text}」。按 TA 说的改「现在这一步」和后面的步骤，做完的不动。",
-    "stuck": "TA 在「现在这一步」卡住了，原话：「{text}」。先用一句话接住 TA（不说教），再把现在这一步换成更小的版本或换个做法，"
-             "实在不合适就换成别的动作，让 TA 能接着走；后面的步骤需要时一起调。",
-    "more": "TA 把这几步都做完了，想继续做这件事。接着刚才的进度，再给 2～4 个动作，可以比开头稍大一点，但还是马上能做的。",
-}
-REVISE_OUT = """只输出 JSON：{"say":"回 TA 的一句话，不超过 40 字","steps":[{"title":"","tip":"","minutes":1}]}
-steps 是从「现在这一步」开始的新路线（继续时是接在后面的新动作），1～5 个。"""
 
 
 # ---------------------------------------------------------------- 读写 ----
@@ -90,10 +65,10 @@ def _get(st: Store, rid: str, active: bool = True) -> dict:
 def _save(st: Store, run: dict) -> None:
     with st.lock:
         st.c.execute("UPDATE kick_run SET task=?, mode=?, ctx=?, answers=?, qs=?, route=?, first_route=?, cur=?, log=?, say=?, cheer=?, "
-                     "status=?, awarded=?, updated_at=? WHERE id=?",
+                     "status=?, awarded=?, guess=?, mark=?, updated_at=? WHERE id=?",
                      (run["task"], run["mode"], dumps(run["ctx"]), dumps(run["answers"]), dumps(run["qs"]), dumps(run["route"]),
                       dumps(run["first_route"]), run["cur"], dumps(run["log"]), run.get("say") or "", run.get("cheer") or "",
-                      run["status"], run.get("awarded") or 0, iso(), run["id"]))
+                      run["status"], run.get("awarded") or 0, run.get("guess") or "", run.get("mark") or "", iso(), run["id"]))
 
 
 def public(run: dict) -> dict:
@@ -103,12 +78,15 @@ def public(run: dict) -> dict:
         "id": run["id"], "task": run["task"], "mode": run["mode"], "mode_label": MODES.get(run["mode"], ""),
         "ctx": {k: run["ctx"].get(k, "") for k in ("step_id", "step", "wish")},
         "route": route, "cur": run["cur"], "status": run["status"],
-        "say": run.get("say") or "", "cheer": run.get("cheer") or "",
+        "say": run.get("say") or "", "cheer": run.get("cheer") or "", "guess": run.get("guess") or "",
         "done": sum(1 for s in route if s["state"] == "done"), "total": len(route),
         "finished": bool(route) and run["cur"] >= len(route),
         "questions": [{"key": k, "q": q, "options": run["qs"].get(k) or FALLBACK_OPTS[k]} for k, q in QUESTIONS]
         if run["mode"] == "precise" and not route else [],
-        "log": [{k: x.get(k, "") for k in ("kind", "text", "say")} for x in run["log"] if x.get("kind") in ("adjust", "stuck")][-6:],
+        # 调整路线 / 遇到困难：弹层里的来回对话、结束页路线回顾里「在哪一步改过」和「小光发现」都用它
+        "log": [{k: x.get(k, "") for k in ("kind", "text", "say", "change", "found", "step")}
+                for x in run["log"] if x.get("kind") in ("adjust", "stuck", "more")][-10:],
+        "secs": sum(int(s.get("sec") or 0) for s in route),
     }
 
 
@@ -134,7 +112,7 @@ def _close_others(st: Store) -> None:
 def _wipe(run: dict) -> None:
     """没让小光记住：这一次的回答、反馈和路线细节都不留，只留任务、模式和走了几步。"""
     done = sum(1 for s in run["route"] if s["state"] == "done")
-    run.update(status="closed", answers={}, qs={}, log=[], say="", cheer="", ctx={k: run["ctx"].get(k, "") for k in ("step_id",)},
+    run.update(status="closed", answers={}, qs={}, log=[], say="", cheer="", guess="", ctx={k: run["ctx"].get(k, "") for k in ("step_id",)},
                route=[{"title": "", "tip": "", "minutes": 0, "state": "done"}] * done, first_route=[], cur=done)
 
 
@@ -176,20 +154,29 @@ def _plan(st: Store, run: dict) -> dict:
     steps = _steps((out or {}).get("steps"), 2)
     if steps:
         say, cheer = clip(str(out.get("say") or "").strip(), 40), clip(str(out.get("cheer") or "").strip(), 30)
-    else:   # 模型不在：先给一条最朴素的路，别让人卡在这里
-        steps, say, cheer = _fallback(run), "我这会儿有点慢，先按最简单的来。", ""
-    run.update(route=steps, first_route=[dict(s) for s in steps], cur=0, say=say, cheer=cheer)
+        run["guess"] = _guess(out) or run.get("guess") or ""
+    else:   # 模型不在：先给一条通用的路，别让人卡在这里；不假装知道这件事要用什么
+        steps, say, cheer = _fallback(run), FALLBACK_SAY, ""
+        run["guess"] = ""
+    run.update(route=steps, first_route=[dict(s) for s in steps], cur=0, say=say, cheer=cheer, mark=iso())
     _save(st, run)
     return {"run": public(run), "by_model": bool(out and _steps(out.get("steps"), 2))}
 
 
 def _fallback(run: dict) -> list[dict]:
-    rows = [("把要用的东西拿出来", f"做「{clip(run['task'], 12)}」要用的东西，先拿一样放到手边。", 1),
-            ("只做最小的一下", "就做一分钟，做一点点也算。", 2),
-            ("停一下，看看感觉", "做完停一停。想继续，就点「继续做这件事」。", 1)]
-    if run["mode"] == "low":
-        rows.insert(0, ("先让身体动一下", "坐直一点，或者站起来伸个懒腰。", 1))
+    rows = ([FALLBACK_LOW] if run["mode"] == "low" else []) + FALLBACK
     return [{"title": t, "tip": tip, "minutes": m, "state": "todo"} for t, tip, m in rows]
+
+
+def _guess(out: dict | None) -> str:
+    return clip(str((out or {}).get("guess") or "").strip().strip("「」。"), 30)
+
+
+def _tick(run: dict) -> int:
+    """现在这一步用了几秒（从 mark 算起），并把 mark 挪到现在。超过 2 小时按 2 小时算（多半是走开了）。"""
+    t0 = parse_iso(run.get("mark") or "")
+    run["mark"] = iso()
+    return int(min(7200, max(0, (now() - t0).total_seconds()))) if t0 else 0
 
 
 # ---------------------------------------------------------------- 执行中 ----
@@ -206,6 +193,7 @@ def advance(st: Store, rid: str, how: str = "done") -> dict:
         return {"run": public(run)}
     cur = run["route"][run["cur"]]
     cur["state"] = "done" if how == "done" else "skipped"
+    cur["sec"] = _tick(run)
     if how != "done":
         run["log"].append({"kind": "skip", "text": "", "say": "", "change": f"跳过了「{cur['title']}」", "at": iso()})
     run["cur"] = _next(run)
@@ -219,7 +207,7 @@ def advance(st: Store, rid: str, how: str = "done") -> dict:
 
 
 def feedback(st: Store, rid: str, kind: str, text: str) -> dict:
-    """调整路线 / 遇到困难：带着这一次的全部上下文问模型，只改现在这一步和后面的。"""
+    """调整路线 / 遇到困难：带着这一次的全部上下文问模型，只改现在这一步和后面的（TA 说理解错了，就按新理解重排）。"""
     run = _get(st, rid)
     text = clip((text or "").strip(), 120)
     if not text:
@@ -232,9 +220,11 @@ def feedback(st: Store, rid: str, kind: str, text: str) -> dict:
         raise ValueError("刚才没想好，换个说法再试一次？")
     old = run["route"][run["cur"]]["title"]
     run["route"] = run["route"][:run["cur"]] + steps[:MAX_STEPS]
+    run["guess"] = _guess(out) or run.get("guess") or ""
     say = clip(str(out.get("say") or "").strip(), 60) or "好，换成这样。"
     change = f"「{old}」换成了「{steps[0]['title']}」" if steps[0]["title"] != old else f"「{old}」的做法改了"
-    run["log"].append({"kind": kind, "text": text, "say": say, "change": change, "at": iso()})
+    found = clip(str(out.get("found") or "").strip().rstrip("。"), 30)
+    run["log"].append({"kind": kind, "text": text, "say": say, "change": change, "found": found, "step": run["cur"], "at": iso()})
     run["say"] = say
     _save(st, run)
     return {"run": public(run), "say": say}
@@ -249,8 +239,9 @@ def more(st: Store, rid: str) -> dict:
         raise ValueError("刚才没想好，再点一次试试？")
     run["route"] = run["route"] + steps[:4]
     run["cur"] = _next(run)
+    run["mark"] = iso()
     run["say"] = clip(str(out.get("say") or "").strip(), 60)
-    run["log"].append({"kind": "more", "text": "", "say": run["say"], "change": f"接着加了 {len(steps[:4])} 步", "at": iso()})
+    run["log"].append({"kind": "more", "text": "", "say": run["say"], "change": f"接着加了 {len(steps[:4])} 步", "step": run["cur"], "at": iso()})
     _save(st, run)
     return {"run": public(run)}
 
@@ -290,7 +281,15 @@ def _context(st: Store, run: dict) -> str:
         lines.append(f"TA 一天里比较有精神的时候：{p['energy_time']}")
     if p.get("chat_style"):
         lines.append(f"TA 希望你怎么陪：{p['chat_style']}")
-    mems = [m["text"] for m in st.search(run["task"], k=3)]
+    pins = st.pinned(300)
+    if pins:
+        lines.append("TA 的基本情况（记住的要点）：" + "；".join(m["text"] for m in pins))
+    cur_w = p.get("current_wish") or ""
+    wishes = [dict(r) for r in st.c.execute("SELECT id, title FROM wish WHERE archived=0 ORDER BY sort, created_at LIMIT 4")]
+    if wishes:
+        lines.append("TA 的愿望：" + "、".join(f"「{w['title']}」" + ("（现在主要在做）" if w["id"] == cur_w else "") for w in wishes))
+    seen = {m["id"] for m in pins}
+    mems = [m["text"] for m in st.search(run["task"], k=4) if m["id"] not in seen][:3]
     if mems:
         lines.append("可能和这件事有关的记忆：" + "；".join(mems))
     past = history(st, run["task"], k=2)
@@ -304,6 +303,8 @@ def _context(st: Store, run: dict) -> str:
 
 def _state(run: dict) -> str:
     lines = [f"想做的事：{run['task']}", f"模式：{MODES[run['mode']]}"]
+    if run.get("guess"):
+        lines.append(f"你对这件事的理解：{run['guess']}")
     a = run["answers"]
     if a:
         lines.append("TA 回答的三个问题：" + "；".join(f"{q}{a[k]}" for k, q in QUESTIONS if a.get(k)))
@@ -315,7 +316,7 @@ def _state(run: dict) -> str:
     said = [x for x in run["log"] if x.get("text")]
     if said:
         lines.append("这一次里 TA 说过的话和你的调整：")
-        lines += [f"- {'调整路线' if x['kind'] == 'adjust' else '遇到困难'}：「{x['text']}」→ 你说「{x['say']}」，{x['change']}" for x in said[-6:]]
+        lines += [f"- {KIND.get(x['kind'], '调整路线')}：「{x['text']}」→ 你说「{x['say']}」，{x['change']}" for x in said[-6:]]
     return "\n".join(lines)
 
 
@@ -329,6 +330,7 @@ def _ask(st: Store, run: dict, ask: str) -> dict | None:
 
 def _questions(st: Store, run: dict) -> dict:
     out = _ask(st, run, QUESTIONS_ASK) or {}
+    run["guess"] = _guess(out)
     qs = {}
     for k, _ in QUESTIONS:
         opts = [clip(str(x).strip(), 14) for x in (out.get(k) or []) if isinstance(x, str) and str(x).strip()][:4]
@@ -362,19 +364,26 @@ def _remember(st: Store, run: dict) -> dict:
     a = run["answers"]
     if a:
         lines.append("状态：" + "；".join(f"{SHORT[k]}：{a[k]}" for k, _ in QUESTIONS if a.get(k)))
+    if run.get("guess"):
+        lines.append(f"小光的理解：{run['guess']}")
     if run["first_route"]:
         lines.append("一开始的路线：" + " → ".join(s["title"] for s in run["first_route"]))
     for x in run["log"]:
-        if x["kind"] in ("adjust", "stuck"):
-            lines.append(f"{'调整路线' if x['kind'] == 'adjust' else '遇到困难'}：TA 说「{x['text']}」，{x['change']}")
+        if x["kind"] in KIND:
+            lines.append(f"{KIND[x['kind']]}：TA 说「{x['text']}」，{x['change']}")
         elif x["kind"] == "skip":
             lines.append(x["change"])
         elif x["kind"] == "more":
             lines.append("做完以后想继续，" + x["change"])
     done = [s["title"] for s in run["route"] if s["state"] == "done"]
-    lines.append(f"实际做了：{'、'.join(done) if done else '还没做完一步'}（{len(done)}/{len(run['route'])} 步）")
+    mins = int(sum(int(s.get("sec") or 0) for s in run["route"]) / 60 + 0.5)   # 和页面上的 Math.round 一致
+    lines.append(f"实际做了：{'、'.join(done) if done else '还没做完一步'}（{len(done)}/{len(run['route'])} 步"
+                 + (f"，用了约 {mins} 分钟" if mins else "") + "）")
+    found = [x["found"] for x in run["log"] if x.get("found") and x["kind"] in KIND]   # 和结束页上显示的一样
+    if found:   # 小光对 TA 说的是「你」，存进记忆换成「TA」，和别的记忆说法一致
+        lines.append("小光的发现：" + "；".join(f.replace("你", "TA") for f in list(dict.fromkeys(found))[-2:]))
     text = "\n".join(lines)
-    data = {k: run[k] for k in ("answers", "first_route", "route", "log", "ctx")}
+    data = {k: run.get(k) for k in ("answers", "first_route", "route", "log", "ctx", "guess")}
     mid = new_id("km")
     with st.lock:
         st.c.execute("INSERT INTO kick_memory(id, run_id, day, task, mode, text, data, created_at) VALUES(?,?,?,?,?,?,?,?)",

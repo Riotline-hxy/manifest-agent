@@ -178,7 +178,7 @@ class Store:
             CREATE TABLE IF NOT EXISTS kick_run(
               id TEXT PRIMARY KEY, task TEXT, mode TEXT, ctx TEXT, answers TEXT, qs TEXT, route TEXT, first_route TEXT,
               cur INTEGER DEFAULT 0, log TEXT, say TEXT, cheer TEXT, status TEXT, awarded INTEGER DEFAULT 0,
-              created_at TEXT, updated_at TEXT);
+              created_at TEXT, updated_at TEXT, guess TEXT DEFAULT '', mark TEXT DEFAULT '');
             CREATE TABLE IF NOT EXISTS kick_memory(
               id TEXT PRIMARY KEY, run_id TEXT, day TEXT, task TEXT, mode TEXT, text TEXT, data TEXT, created_at TEXT);
             """
@@ -194,6 +194,10 @@ class Store:
         mcols = {r["name"] for r in self.c.execute("PRAGMA table_info(memory)")}
         if "cat" not in mcols:   # 「了解你」的六个大类（core/portrait.py）；空着就按 kind 猜
             self.c.execute("ALTER TABLE memory ADD COLUMN cat TEXT DEFAULT ''")
+        kcols = {r["name"] for r in self.c.execute("PRAGMA table_info(kick_run)")}
+        if "guess" not in kcols:   # 两分钟启动：小光对这件事的理解、这一步从什么时候开始算
+            self.c.execute("ALTER TABLE kick_run ADD COLUMN guess TEXT DEFAULT ''")
+            self.c.execute("ALTER TABLE kick_run ADD COLUMN mark TEXT DEFAULT ''")
         tcols = {r["name"] for r in self.c.execute("PRAGMA table_info(town_item)")}
         if "rot" not in tcols:   # 大建筑可以转 90°
             self.c.execute("ALTER TABLE town_item ADD COLUMN rot INTEGER DEFAULT 0")

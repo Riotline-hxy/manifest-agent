@@ -13,6 +13,12 @@ const QUICK = {
   stuck: ["不想动", "做不到这一步", "被打断了", "不知道怎么做"],
 };
 const NEXT = ["好，下一个。", "嗯，接着来。", "就这样，慢慢来。"];
+const TALK = {
+  adjust: { title: "调整路线", sticker: "steps", ph: "哪里不合适？比如：没有温水" },
+  stuck: { title: "遇到困难", sticker: "heart", ph: "卡在哪了？说一句就好" },
+};
+// 这一步用了多久：几秒就点过去的不写，免得像在计时
+const dur = (sec) => (!sec || sec < 10 ? "" : sec < 60 ? `${sec} 秒` : `${Math.round(sec / 60)} 分钟`);
 const CHEERS = ["开头最难的那一下，已经过去了。", "你没有等到想做才开始。", "动起来了，后面会轻一点。"];
 
 export async function openKick({ task = "", stepId = "" } = {}) {
@@ -216,17 +222,18 @@ export async function openKick({ task = "", stepId = "" } = {}) {
   // ---- 调整路线 / 遇到困难：弹层里说一句或点一个，小光只改现在这一步和后面的 ----
   function talk(kind) {
     const s = run.route[run.cur];
+    const said = run.log.filter((x) => x.text);
     const wrap = h("div", { class: "kick-sheet" });
     wrap.innerHTML = `
       <div class="k-now"><small>现在这一步</small><b>${esc(s.title)}</b>${s.tip ? `<span>${esc(s.tip)}</span>` : ""}</div>
-      ${run.log.length ? `<div class="k-log">${run.log.map((x) => `<p class="me">${esc(x.text)}</p><p class="xg">${esc(x.say)}</p>`).join("")}</div>` : ""}
+      ${said.length ? `<div class="k-log">${said.map((x) => `<p class="me">${esc(x.text)}</p><p class="xg">${esc(x.say)}</p>`).join("")}</div>` : ""}
       <div class="k-quick">${QUICK[kind].map((q) => `<button data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>
-      <div class="k-send"><textarea class="field" rows="1" maxlength="120" placeholder="${kind === "adjust" ? "哪里不合适？比如：没有温水" : "卡在哪了？说一句就好"}"></textarea>
+      <div class="k-send"><textarea class="field" rows="1" maxlength="120" placeholder="${TALK[kind].ph}"></textarea>
         <button class="btn btn-main k-go" aria-label="发送">${icon("send")}</button></div>
       ${kind === "stuck" ? `<div class="k-alt"><button class="btn btn-quiet" data-skip>${icon("arrow")}先跳过这一步</button>
         <button class="btn btn-quiet" data-stop>${icon("moon")}今天先到这儿</button></div>` : ""}
       <p class="k-wait" hidden>小光在想……</p>`;
-    const sh = sheet({ title: kind === "adjust" ? "调整路线" : "遇到困难", sticker: kind === "adjust" ? "steps" : "heart", body: wrap });
+    const sh = sheet({ title: TALK[kind].title, sticker: TALK[kind].sticker, body: wrap });
     sh.panel.classList.add("kick-panel");
     sh.panel.previousElementSibling?.classList.add("kick-scrim");    // 弹层要盖在全屏的这一页上面
     const ta = wrap.querySelector("textarea");
@@ -257,25 +264,49 @@ export async function openKick({ task = "", stepId = "" } = {}) {
     wrap.querySelector("[data-stop]")?.addEventListener("click", () => { sh.close(); finished(); });
   }
 
-  // ---- 4. 你已经开始了 ----
+  // ---- 4. 你已经开始了：路线回顾（做了哪几步、各用了多久、在哪儿改过路线）+ 让小光记住 ----
   function finished(xp) {
     progress(1, 1, "");
     const n = run.route.filter((x) => x.state === "done").length;
+    const left = run.route.filter((x) => x.state === "todo").length;
     say(run.cheer || CHEERS[n % CHEERS.length]);
     ball.set("done");
     ball.pulse("burst");
     if (n) confetti(innerWidth / 2, innerHeight * 0.35, 80);
+    const total = run.secs >= 60 ? `用时 ${Math.round(run.secs / 60)} 分钟` : run.secs > 0 ? "用时不到 1 分钟" : "";
+    const found = [...new Set(run.log.map((x) => x.found).filter(Boolean))].slice(-2);
     body.innerHTML = `
       <div class="kick-done">
         <h2>你已经开始了。</h2>
-        <p>完成了 <b class="num">${n}</b> 步${run.route.length > n ? `，还有 ${run.route.length - n} 步没做` : ""}</p>
-        <label class="kick-remember"><input type="checkbox"><span>让小光记住这次体验</span></label>
-        ${xp?.amount ? `<div class="rv-xp">${icon("bolt")}经验 +${xp.amount}${xp.coins ? ` · 金币 +${xp.coins}` : ""}</div>` : ""}
-      </div>`;
+        <p>做了 <b class="num">${n}</b> 步${left ? ` · 还有 ${left} 步没做` : total ? ` · ${total}` : ""}</p>
+      </div>
+      <div class="kick-review">
+        <div class="kr-head"><b>${esc(run.task)}</b>${run.mode !== "default" ? `<span class="pill">${esc(run.mode_label)}</span>` : ""}</div>
+        ${run.ctx?.step ? `<p class="kr-from">${icon("flag")}来自小步「${esc(run.ctx.step)}」</p>` : ""}
+        <div class="kr-list">${review()}</div>
+      </div>
+      <label class="kick-remember"><input type="checkbox"><span>让小光记住这次体验
+        ${found.map((f) => `<small>${icon("sparkles")}小光发现：${esc(f)}</small>`).join("")}</span></label>
+      ${xp?.amount ? `<div class="rv-xp">${icon("bolt")}经验 +${xp.amount}${xp.coins ? ` · 金币 +${xp.coins}` : ""}</div>` : ""}`;
     buttons([
       ["继续做这件事", "btn-ghost btn-lg", run.finished ? more : () => showStep()],   // 中途停下的：接着做剩下的
       ["结束", "btn-good btn-lg", end],
     ]);
+  }
+
+  // 一步一行，点开看当时的提示；因为 TA 说了一句而换上来的那一步，下面挂着 TA 说的那句；继续做的那几步前面有条分隔
+  function review() {
+    return run.route.map((x, i) => {
+      const at = run.log.filter((l) => l.step === i);
+      const more = at.some((l) => l.kind === "more") ? `<div class="kr-more"><span>接着又做了</span></div>` : "";
+      const notes = at.filter((l) => TALK[l.kind]).map((l) =>
+        `<div class="kr-note">${icon(TALK[l.kind].sticker)}<span><b>${TALK[l.kind].title}</b>${esc(l.text)}</span></div>`).join("");
+      const tag = x.state === "skipped" ? "跳过了" : x.state === "todo" ? "没做" : dur(x.sec);
+      const mark = x.state === "done" ? icon("check") : x.state === "skipped" ? icon("arrow") : "";
+      return `${more}<details class="kr-step ${x.state}">
+        <summary><i class="kr-mark">${mark}</i><span>${esc(x.title)}</span><em>${tag}</em>${x.tip ? icon("chevron") : ""}</summary>
+        ${x.tip ? `<p>${esc(x.tip)}</p>` : ""}</details>${notes}`;
+    }).join("");
   }
 
   async function more() {
