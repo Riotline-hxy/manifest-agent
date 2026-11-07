@@ -28,7 +28,7 @@ function goTo(where) {
 
 function entryEl(v) {
   const el = document.createElement("div");
-  el.className = "act act-entry";
+  el.className = "cact act-entry";
   el.innerHTML = `${tile(v.icon, v.color, 40)}
     <div class="act-main"><b>${esc(v.title)}</b><span>${esc(v.desc || "")}${v.minutes ? ` · ${v.minutes} 分钟` : ""}</span></div>
     <button class="btn btn-sm btn-main">${v.open?.go || v.open?.article ? "去看看" : "开始"}</button>`;
@@ -45,7 +45,7 @@ function slipText(v) {
 function slipEl(v, i, ctx) {
   const el = document.createElement("div");
   const undone = v.state === "undone";
-  el.className = `act act-slip ${v.fail ? "fail" : ""} ${undone ? "undone" : ""}`;
+  el.className = `cact act-slip ${v.fail ? "fail" : ""} ${undone ? "undone" : ""}`;
   const canUndo = v.undo && !undone && ctx.msgId && Date.parse(v.undo.until || 0) > Date.now();
   const links = [];
   if (undone) links.push(`<span class="act-note">已撤销</span>`);
@@ -142,7 +142,7 @@ function askPlan(el, v, i, ctx) {
 
 function askEl(v, i, ctx) {
   const el = document.createElement("div");
-  el.className = "act act-ask";
+  el.className = "cact act-ask";
   el.innerHTML = `<div class="act-q"><span class="act-ic" style="color:${esc(v.color)}">${icon(v.icon)}</span><span>${esc(v.question)}</span></div>
     ${v.text ? `<div class="act-quote">${esc(v.text)}</div>` : ""}<div class="act-foot"></div>`;
   (v.ask === "plan" ? askPlan : askMoment)(el, v, i, ctx);
@@ -164,7 +164,7 @@ export function actsBlock(acts, ctx) {
   const slips = acts.map((v, i) => [v, i]).filter(([v]) => v?.type === "slip");
   const group = slips.length >= 3 ? document.createElement("details") : null;
   if (group) {
-    group.className = "act act-group";
+    group.className = "cact act-group";
     group.innerHTML = `<summary><span class="act-ic" style="color:var(--good)">${icon("check")}</span><span class="act-txt"><span class="act-verb">调整了 ${slips.length} 处</span></span><span class="act-link">查看变化</span></summary>`;
   }
   acts.forEach((v, i) => {

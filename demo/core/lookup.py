@@ -34,7 +34,7 @@ AREAS = {
 
 PERSONA = {"gentle": "温柔", "clear": "有条理", "lively": "活泼"}
 CARE = {"nudge": "被打断时先轻轻提醒", "analyze": "被打断时一起找原因", "quiet": "被打断时先不提", "": "没选"}
-PROACTIVE = {"more": "多一点（约 12 小时没聊就来找）", "normal": "正常（约一天）", "less": "少一点（两三天）", "off": "关掉了"}
+PROACTIVE = {"more": "多一点（约 4 小时一条）", "normal": "正常（约 8 小时）", "less": "少一点（约一天）", "off": "关掉了"}
 THEME = {"forest": "森林夜", "midnight": "深空", "paper": "晨光", "peach": "暖阳", "mist": "海雾"}
 MAX_CHARS = 3600
 

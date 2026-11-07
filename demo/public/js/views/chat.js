@@ -62,7 +62,7 @@ function bubble(m) {
   }
   const meta = m.meta || {};
   const tag = meta.task ? `<span class="pill acc">${icon("clock")}例行任务 · ${esc(meta.task_title || "")}</span>`
-    : meta.proactive ? `<span class="pill acc">${icon("letter")}小光主动找你</span>` : meta.scene ? `<span class="pill">${icon("wind")}练习</span>` : "";
+    : meta.scene ? `<span class="pill">${icon("wind")}练习</span>` : "";   // 主动发来的消息不加标签：就是朋友发来的一条
   el.innerHTML = `${agentMini()}<div class="col"><div class="bub">${tag}<div class="txt">${richText(m.content)}</div></div>
     <div class="when">${fmtTime(m.created_at)}</div></div>`;
   const block = (meta.acts || []).length ? actsBlock(meta.acts, { msgId: m.id }) : null;
@@ -213,7 +213,7 @@ export function renderChat(root) {
         // 这一轮做过的事换成存下来的样子（带消息 id，撤销、留下才能记到这条消息上；3 处以上收成一行）
         const saved = last?.id === turn.msgId ? last.meta?.acts : null;
         if (e && saved?.length) {
-          e.col.querySelectorAll(":scope > .act, :scope > .acts").forEach((x) => x.remove());
+          e.col.querySelectorAll(":scope > .cact, :scope > .acts").forEach((x) => x.remove());
           const block = actsBlock(saved, { msgId: turn.msgId });
           if (block) e.col.insertBefore(block, e.when);
         }

@@ -55,6 +55,7 @@ DEFAULT_PROFILE = {
     "portrait": {},         # 「小光眼中的你」一句话 {text, by: digest|user, updated_at}
     "insight_fb": {},       # 小光的发现：TA 点的「像我」yes /「不太像」no，按发现 id
     "last_digest_day": "", "current_wish": "", "cheer": {},
+    "last_proactive_kind": "",   # 上一条主动消息聊的是哪种（chat / plan / feature / cheer），下一条换一种
     "xp": 0, "last_chat_at": "", "last_proactive_at": "", "created_at": "",
     # 我的小镇（town.py）：名字、数据版本、已经庆祝过的等级、第一次进小镇时的欢迎（new / migrated）
     "town_name": "", "town_v": 0, "town_seen_level": 0, "town_welcome": "",
@@ -399,6 +400,10 @@ class Store:
 
     def complete_step(self, sid: str | None = None, title: str | None = None) -> dict | None:
         """Mark a todo step done by id, or by fuzzy title match (the model often only knows the title)."""
+        hit = self.find_todo_step(sid, title)
+        return self.set_step(hit["id"], "done") if hit else None
+
+    def find_todo_step(self, sid: str | None = None, title: str | None = None) -> dict | None:
         todo = [x for x in self.steps() if x["status"] == "todo"]
         hit = next((x for x in todo if sid and x["id"] == sid), None)
         if not hit and title:
@@ -409,7 +414,7 @@ class Store:
                 want = set(tokens(t))
                 scored = sorted(((len(want & set(tokens(x["title"]))), x) for x in todo), key=lambda z: -z[0])
                 hit = scored[0][1] if scored and scored[0][0] >= 2 else None
-        return self.set_step(hit["id"], "done") if hit else None
+        return hit
 
     # ---- records (好消息 / 偷懒日 / 新发现) ---------------------------------
     def add_record(self, type_: str, text: str, day: str | None = None) -> dict:

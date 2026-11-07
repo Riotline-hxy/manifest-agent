@@ -22,7 +22,7 @@ import threading
 from . import academy, acts, growth, guide, journey, kickstart, llm, lookup, memory, nudges, router, tasks, town, voice
 from .scenes import CHAT_HOW, SCENES
 from .store import Store
-from .util import clip, day_key, now, parse_iso
+from .util import clip, day_key, now, parse_iso, tokens
 
 MAX_ROUNDS = 4
 HISTORY_TURNS = 16      # 至少带上最近这么多轮，哪怕早于三天
@@ -518,6 +518,28 @@ NEGATE = re.compile(r"不|别|算了|等等|再想想")
 VAGUE_REMOVE = re.compile(r"(删|去掉|收起|砍)[^，。！？,.!?]{0,3}(一个|一条|一项|一些|几个|哪个|其中)|精简|合并")
 
 
+# 说了「做完了」这类话：和小步的名字有一点对得上就行；没说，就要对得上得多
+DONE_WORD = re.compile(r"完成|做完|搞定|弄完|写完|看完|交了|做了|做到|打勾|勾上|勾掉|那一步|这一步|那步|这步|小步")
+
+
+def _overlap(a: str, b: str) -> float:
+    x, y = set(tokens(a)), set(tokens(b))
+    return 2 * len(x & y) / (len(x) + len(y)) if x and y else 0.0
+
+
+def step_said_done(store: Store, user_text: str, title: str) -> bool:
+    """TA 这句话是不是在说「这一步做完了」。防止把另一件相似的事（课上回答问题 ≠ 小组里提问）记成完成。"""
+    t = (user_text or "").strip()
+    if not t:
+        return True       # 不是从聊天来的调用（测试、界面）不拦
+    last_ai = next((m["content"] for m in reversed(store.messages(6)) if m["role"] == "assistant" and m["content"]), "")
+    if _overlap(last_ai, title) >= 0.5 or title in last_ai:      # 小光刚问过「是不是这一步」
+        if _agreeing(store, t) or DONE_WORD.search(t):
+            return True
+    sim = _overlap(t, title)
+    return sim >= 0.35 or (bool(DONE_WORD.search(t)) and sim >= 0.15)
+
+
 def _agreeing(store: Store, t: str) -> bool:
     if not (len(t) <= 20 and AGREE_START.match(t) and not NEGATE.search(t)):
         return False
@@ -691,9 +713,14 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
         store.log("plan", "加了一小步：" + title)
         return {"ok": True, "step": s}
     if name == "complete_step":
-        s = store.complete_step(args.get("step_id"), args.get("title"))
-        if not s:
+        cand = store.find_todo_step(args.get("step_id"), args.get("title"))
+        if not cand:
             return {"ok": False, "error": "没找到这一步"}
+        if not step_said_done(store, user_text, cand["title"]):
+            return {"ok": False, "skipped": True,
+                    "error": f"TA 这句话和「{cand['title']}」对不上，别替 TA 打勾。如果 TA 说的是一件新做成的事，用 propose_moment 提议留在轨迹上；"
+                             f"如果觉得可能就是这一步，问一句「是不是『{clip(cand['title'], 16)}』这一步做完啦？」，TA 说是再打勾。"}
+        s = store.complete_step(cand["id"])
         xp = growth.award(store, "action", ref="step:" + s["id"], note="完成：" + s["title"])
         store.log("plan", "完成了：" + s["title"])
         out = {"ok": True, "step": s, "xp": xp}

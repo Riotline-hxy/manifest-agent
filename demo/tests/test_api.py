@@ -1397,8 +1397,10 @@ class ApiTest(unittest.TestCase):
         self.assertFalse(scheduler.should_reach_out(base, True, at(10))[0])    # unseen pending
         self.assertFalse(scheduler.should_reach_out({**base, "proactive": "off"}, False, at(10))[0])
         recent = {**base, "last_chat_at": "2026-10-22T02:00:00+08:00"}
-        self.assertFalse(scheduler.should_reach_out(recent, False, at(10))[0])  # 8h < 24h
-        self.assertTrue(scheduler.should_reach_out({**recent, "proactive": "more"}, False, at(15))[0])
+        self.assertFalse(scheduler.should_reach_out(recent, False, at(9))[0])   # 7h < 8h
+        self.assertTrue(scheduler.should_reach_out(recent, False, at(11))[0])   # 9h ≥ 8h
+        self.assertFalse(scheduler.should_reach_out({**recent, "proactive": "less"}, False, at(15))[0])   # 13h < 24h
+        self.assertTrue(scheduler.should_reach_out({**recent, "proactive": "more"}, False, at(8))[0])     # 6h ≥ 4h
 
     def test_proactive_demo_delivers_to_inbox_and_thread(self):
         c, _ = self.onboarded("pro")
@@ -2227,6 +2229,38 @@ class PortraitTest(unittest.TestCase):
         self.assertEqual(got["a"], "你多半在晚上记下开心的事")
         self.st.set_profile({"insight_fb": {"goodtime": "no"}})
         self.assertNotIn("goodtime", [x["id"] for x in self.p.insights(self.st)])     # 说了不太像，就不再出现
+
+
+class StepJudgeAndProactiveTest(unittest.TestCase):
+    """小步别打错勾；主动消息只挑有真材料的那种、不连着两次同一种、不带标签。"""
+
+    def setUp(self):
+        from core import agent, journey, proactive
+        self.agent, self.journey, self.pro = agent, journey, proactive
+        self.st = Store("u_" + os.urandom(8).hex())
+        self.st.set_profile({"onboarded": True, "intent_primary": "敢开口说英语"})
+        self.w = journey.add_wish(self.st, "敢开口说英语", "")
+        self.st.add_step("在小组里主动提一个问题", wish_id=self.w["id"])
+
+    def tearDown(self):
+        self.st.close()
+
+    def test_similar_but_different_thing_is_not_ticked(self):
+        r = self.agent.run_tool(self.st, "complete_step", {"title": "在小组里主动提一个问题"},
+                                "刚才我第一次在课上举手用英语回答了老师的问题")
+        self.assertTrue(r.get("skipped"))
+        self.assertEqual([s["status"] for s in self.st.steps()], ["todo"])
+        r = self.agent.run_tool(self.st, "complete_step", {"title": "在小组里主动提一个问题"}, "小组里主动提问那一步我做完啦")
+        self.assertTrue(r["ok"])
+
+    def test_choose_needs_material_and_rotates(self):
+        self.assertIsNone(self.pro.choose(self.st, resting=True))          # 什么都没有：不硬发
+        self.st.add_memory("室友叫阿琪", "identity", "chat:explicit")
+        self.st.add_record("good", "抢到最后一份糖醋排骨")
+        kinds = {self.pro.choose(self.st)["kind"] for _ in range(30)}
+        self.assertTrue(kinds <= {"chat", "cheer", "plan", "feature"})
+        self.st.set_profile({"last_proactive_kind": "chat"})
+        self.assertNotIn("chat", {self.pro.choose(self.st, resting=True)["kind"] for _ in range(20)})   # 不连着两次
 
 
 if __name__ == "__main__":
