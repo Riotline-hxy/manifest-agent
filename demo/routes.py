@@ -178,6 +178,20 @@ def admin_adjust(h, u, b, q):
         raise ApiError(400, str(e))
 
 
+def admin_llm(h, u, b, q):
+    _admin(h)
+    return 200, admin.llm_state()
+
+
+def admin_llm_switch(h, u, b, q):
+    """切换小光用的模型和思考档：先真跑一次，通了才切。"""
+    _admin(h)
+    try:
+        return 200, admin.llm_switch(str(b.get("provider") or ""), str(b.get("model") or ""), str(b.get("effort") or ""), h._ip())
+    except ValueError as e:
+        raise ApiError(400, str(e))
+
+
 def admin_town(h, u, b, q):
     _admin(h)
     return 200, town.admin_catalog()
@@ -876,6 +890,8 @@ ROUTES = {
     ("GET", "/api/push/latest"): (push_latest, True),
     ("POST", "/api/push/test"): (push_test, True),
     ("POST", "/api/admin/login"): (admin_login, False),
+    ("GET", "/api/admin/llm"): (admin_llm, False),
+    ("POST", "/api/admin/llm"): (admin_llm_switch, False),
     ("POST", "/api/admin/logout"): (admin_logout, False),
     ("GET", "/api/admin/overview"): (admin_overview, False),
     ("GET", "/api/admin/users"): (admin_users, False),

@@ -1,4 +1,4 @@
-// 管理后台。左边四页：概览、用户（点进去是单个用户）、小镇、记录。地址栏记着在哪一页（#users、#user/<id>、#town、#log），能前进后退。
+// 管理后台。左边五页：概览、用户（点进去是单个用户）、小镇、模型（切换小光用的模型和思考档）、记录。地址栏记着在哪一页（#users、#user/<id>、#town、#log），能前进后退。
 // 只看数量和操作记录，看不到对话和记忆原文。能改的：删用户、给用户加减经验和金币、小镇里每样东西的价格 / 解锁等级 / 上下架。
 import { get, post } from "./api.js";
 import { esc, icon, tile, toast, sheet, h } from "./ui.js";
@@ -12,7 +12,7 @@ const ACT = { onboarding: "建档", plan: "计划", record: "记录", memory: "�
   proactive: "主动消息", task: "例行任务", wish: "愿望", habit: "习惯", scene: "引导", growth: "成长" };
 const LEDGER = { action: "行动", good: "记录", practice: "练习", checkin: "陪伴", daily: "每日任务", admin: "后台调整", first: "礼物",
   migrate: "开镇", buy: "建造", milestone: "里程碑", record: "记录", test: "测试" };
-const NAV = [["overview", "概览", "report"], ["users", "用户", "user"], ["town", "小镇", "home"], ["log", "记录", "list"]];
+const NAV = [["overview", "概览", "report"], ["users", "用户", "user"], ["town", "小镇", "home"], ["model", "模型", "bolt"], ["log", "记录", "list"]];
 
 const root = document.getElementById("admin");
 const S = {
@@ -541,6 +541,61 @@ async function saveTown(main) {
   }
 }
 
+// ---------------------------------------------------------------- 模型 ----
+// 切换小光用的服务商、模型和思考档。点「试一下并切换」：服务器用新设置真跑一次带工具的对话，通了才切，不通就保持原样。
+async function modelPage(main, _, live) {
+  const d = await get("/api/admin/llm");
+  if (!live()) return;
+  const cur = d.current;
+  const pick = { provider: cur.provider, model: cur.model, effort: cur.effort };
+  const provName = (id) => d.providers.find((p) => p.id === id)?.name || id;
+  const effName = (id) => d.efforts.find((e) => e.id === id)?.name || id;
+  const draw = () => {
+    const p = d.providers.find((x) => x.id === pick.provider) || d.providers[0];
+    if (!p.models.some((m) => m.id === pick.model)) pick.model = p.models[0]?.id || "";
+    const same = pick.provider === cur.provider && pick.model === cur.model && pick.effort === cur.effort;
+    main.innerHTML = head("模型", "小光聊天用哪个模型、想多久再回。切换前会先真跑一次，跑不通就不切。") + `
+      <div class="adm-grid2">
+        ${card("现在在用", `${cur.by}${cur.at ? " · " + when(cur.at) : ""}`, `<div class="adm-kv">
+          ${kv("服务商", esc(provName(cur.provider)))}${kv("模型", esc(cur.model))}${kv("思考", esc(effName(cur.effort)))}
+          ${kv("今天", `调用 ${num(d.today.llm_calls)} 次 · 退回不思考 ${num(d.today.llm_fallback)} 次 · 失败 ${num(d.today.llm_err)} 次`)}</div>`)}
+        ${card("切换", "", `
+          <h4>服务商</h4>${seg("prov", d.providers.map((x) => [x.id, x.name + (x.has_key ? "" : "（没配 key）")]), pick.provider)}
+          <p class="adm-sub adm-llm-note">${esc(p.note || "")}</p>
+          <h4>模型</h4>${p.has_key ? `<select class="field adm-llm-model">${p.models.map((m) =>
+            `<option value="${esc(m.id)}" ${m.id === pick.model ? "selected" : ""}>${esc(m.name === m.id ? m.id : `${m.name}（${m.id}）`)}</option>`).join("")}</select>`
+            : `<p class="adm-sub">服务器的 .env 里还没有这个服务商的 key。</p>`}
+          <h4>思考</h4>${seg("eff", d.efforts.map((e) => [e.id, e.name]), pick.effort)}
+          <p class="adm-sub adm-llm-note">不思考最快（首字一两秒）；思考越多回得越慢，也更费钱。路由判断、两分钟启动、练习结束页一直用不思考，不受这里影响。
+            思考出错时会自动退回不思考，回复不会断。</p>
+          <div class="adm-llm-act"><button class="btn btn-main" data-switch ${same || !p.has_key ? "disabled" : ""}>试一下并切换</button>
+            <span class="adm-llm-res muted"></span></div>`)}
+      </div>`;
+    main.querySelectorAll("[data-prov]").forEach((b) => b.addEventListener("click", () => { pick.provider = b.dataset.prov; draw(); }));
+    main.querySelectorAll("[data-eff]").forEach((b) => b.addEventListener("click", () => { pick.effort = b.dataset.eff; draw(); }));
+    main.querySelector(".adm-llm-model")?.addEventListener("change", (e) => { pick.model = e.target.value; draw(); });
+    main.querySelector("[data-switch]")?.addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      const res = main.querySelector(".adm-llm-res");
+      btn.disabled = true;
+      res.textContent = "正在用新设置跑一次…（开着思考可能要几十秒）";
+      try {
+        const out = await post("/api/admin/llm", pick);
+        Object.assign(d, out);
+        Object.assign(cur, out.current);
+        toast(`切换好了：${out.current.model} · ${effName(out.current.effort)}`);
+        draw();
+        main.querySelector(".adm-llm-res").textContent = `试跑首字 ${out.test.first_s} 秒` + (out.test.tool_called ? " · 工具调用正常" : "")
+          + (out.test.fell_back ? " · 注意：这次是退回不思考才成功的，这个模型现在开思考不稳定" : "");
+      } catch (err) {
+        res.textContent = err.message;
+        btn.disabled = false;
+      }
+    });
+  };
+  draw();
+}
+
 // ---------------------------------------------------------------- 记录 ----
 async function logPage(main, _, live) {
   const [lg, t] = await Promise.all([get("/api/admin/log"), S.town ? Promise.resolve(S.town) : get("/api/admin/town")]);
@@ -560,18 +615,19 @@ async function logPage(main, _, live) {
         return `${esc(name(id))} ${bits.join(" · ")}`;
       }).join("；") || "—";
     }
+    if (e.type === "llm") return `${esc(e.from?.model || "")}（${esc(e.from?.effort || "")}）→ <b>${esc(e.to?.model || "")}</b>（${esc(e.to?.effort || "")}）<span class="muted">：试跑首字 ${esc(String(e.first_s))} 秒${e.fell_back ? "，靠退回不思考" : ""}</span>`;
     return esc(e.type);
   };
   main.innerHTML = head("记录", "后台加减经验金币、改小镇的每一次，最近 100 条") + `
     <section class="card adm-card adm-flush"><div class="adm-table-wrap"><table class="adm-table adm-plain adm-log"><thead><tr>
       <th>时间</th><th>类型</th><th>内容</th></tr></thead><tbody>
       ${lg.entries.map((e) => `<tr><td class="muted" title="${esc(e.ip || "")}">${esc(when(e.at))}</td>
-        <td><span class="pill ${e.type === "adjust" ? "acc" : "good"}">${e.type === "adjust" ? "经验金币" : e.type === "town" ? "小镇" : esc(e.type)}</span></td>
+        <td><span class="pill ${e.type === "adjust" ? "acc" : "good"}">${e.type === "adjust" ? "经验金币" : e.type === "town" ? "小镇" : e.type === "llm" ? "模型" : esc(e.type)}</span></td>
         <td class="wrap">${what(e)}</td></tr>`).join("") || `<tr><td colspan="3" class="adm-none">还没有</td></tr>`}
     </tbody></table></div></section>`;
 }
 
-const PAGES = { overview, users: usersPage, user: userPage, town: townPage, log: logPage };
+const PAGES = { overview, users: usersPage, user: userPage, town: townPage, model: modelPage, log: logPage };
 
 // ---------------------------------------------------------------- 删除 ----
 // 必须手打一遍确认内容，后端也会再核对一次

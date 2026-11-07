@@ -25,7 +25,7 @@ from datetime import timedelta
 
 import json
 
-from . import auth, growth, metrics, tasks, town, webpush
+from . import auth, growth, llm, metrics, tasks, town, webpush
 from .api import VERSION
 from .util import DATA, clip, day_key, iso, loads, new_id, now, parse_iso
 
@@ -394,3 +394,78 @@ def town_save(patch: dict, ip: str = "") -> dict:
     out = town.admin_save(patch)
     _log({"type": "town", "changes": patch, "ip": ip})
     return out
+
+
+# ---------------------------------------------------------------- 模型 ----
+# 后台切换小光用的模型和思考档。切换前先用新设置真跑一次带工具的对话，跑不通就不切。
+
+_models_cache: dict = {}
+NOT_CHAT = ("image", "video", "t2v", "i2v", "r2v", "seedance", "seedream", "kling", "wan2", "wan3", "happyhorse", "codex", "embed", "tts", "whisper")
+
+
+def _live_models(pid: str) -> list[list[str]]:
+    """服务商 /models 里的对话模型（10 分钟缓存）；读不到就用内置的几个。"""
+    p = llm.PROVIDERS[pid]
+    hit = _models_cache.get(pid)
+    if hit and time.time() - hit[0] < 600:
+        return hit[1]
+    out = [list(m) for m in p["models"]]
+    key = os.environ.get(p["keyEnv"])
+    if key:
+        try:
+            import urllib.request
+            req = urllib.request.Request(p["baseUrl"].rstrip("/") + "/models", headers={"Authorization": "Bearer " + key})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                data = json.loads(r.read()).get("data") or []
+            got = [[m["id"], m.get("name") or m["id"]] for m in data
+                   if isinstance(m, dict) and m.get("id") and not any(x in m["id"].lower() for x in NOT_CHAT)]
+            if got:
+                known = {m[0] for m in got}
+                out = [m for m in out if m[0] in known] + [m for m in got if m[0] not in {x[0] for x in out}]
+        except Exception as e:     # 读不到列表不影响切换，用内置的
+            print("[admin] models list failed:", pid, type(e).__name__)
+    _models_cache[pid] = (time.time(), out)
+    return out
+
+
+def _today_count(k: str) -> int:
+    try:
+        metrics.flush()
+        r = metrics._db().execute("SELECT n FROM counter WHERE day=? AND k=?", (day_key(), k)).fetchone()
+        return int(r[0]) if r else 0
+    except Exception:
+        return 0
+
+
+def llm_state() -> dict:
+    cfg = llm.config()
+    ch = llm.choice()
+    return {
+        "current": {"provider": cfg["provider"], "model": cfg["model"], "effort": cfg["reasoning"],
+                    "by": "后台" if ch else "默认配置", "at": (ch or {}).get("at", "")},
+        "efforts": [{"id": e, "name": llm.EFFORT_LABEL[e]} for e in llm.EFFORTS],
+        "providers": [{"id": pid, "name": p["name"], "has_key": bool(os.environ.get(p["keyEnv"])), "note": p["note"],
+                       "models": [{"id": m[0], "name": m[1]} for m in _live_models(pid)] if os.environ.get(p["keyEnv"]) else []}
+                      for pid, p in llm.PROVIDERS.items()],
+        "today": {k: _today_count(k) for k in ("llm_calls", "llm_fallback", "llm_err")},   # 今天：调用 / 退回不思考 / 失败
+    }
+
+
+def llm_switch(provider: str, model: str, effort: str, ip: str = "") -> dict:
+    if provider not in llm.PROVIDERS:
+        raise ValueError("没有这个服务商")
+    if not os.environ.get(llm.PROVIDERS[provider]["keyEnv"]):
+        raise ValueError(f"服务器上没有 {llm.PROVIDERS[provider]['keyEnv']}，先在 .env 里配好")
+    model = (model or "").strip()
+    if not model or len(model) > 80:
+        raise ValueError("选一个模型")
+    if effort not in llm.EFFORTS:
+        raise ValueError("思考档不对")
+    test = llm.try_settings(provider, model, effort)
+    if not test["ok"]:
+        raise ValueError("试了一次没通，没有切换：" + test["error"])
+    before = llm.config()
+    saved = llm.save_choice(provider, model, effort)
+    _log({"type": "llm", "ip": ip, "from": {"provider": before["provider"], "model": before["model"], "effort": before["reasoning"]},
+          "to": {"provider": provider, "model": model, "effort": effort}, "first_s": test["first_s"], "fell_back": test["fell_back"]})
+    return {"ok": True, "saved": saved, "test": test, **llm_state()}

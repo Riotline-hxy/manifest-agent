@@ -324,7 +324,7 @@ def _ask(st: Store, run: dict, ask: str) -> dict | None:
     system = BASE.format(name=p.get("agent_name") or "小光", tone=TONE.get(p.get("persona") or "gentle", TONE["gentle"]))
     user = f"## 关于 TA\n{_context(st, run)}\n\n## 这一次\n{_state(run)}\n\n## 现在要你做的\n{ask}"
     return llm.complete_json([{"role": "system", "content": system}, {"role": "user", "content": user}],
-                             timeout=LLM_TIMEOUT, reasoning=None)
+                             timeout=LLM_TIMEOUT, reasoning="none")   # TA 在等：不思考，最快
 
 
 def _questions(st: Store, run: dict) -> dict:

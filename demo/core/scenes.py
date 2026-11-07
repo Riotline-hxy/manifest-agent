@@ -505,7 +505,7 @@ def _relearn_ai(store: Store, picks: dict, extra: str) -> dict | None:
     out = llm.complete_json([
         {"role": "system", "content": RELEARN_PROMPT.format(name=p.get("agent_name") or "小光",
                                                             tone=TONE.get(p.get("persona") or "gentle", TONE["gentle"]))},
-        {"role": "user", "content": msg}], timeout=45)
+        {"role": "user", "content": msg}], timeout=45, reasoning="none")   # 练习结束页，TA 在等
     if not out or not str(out.get("reply") or "").strip():
         return None
     texts = lambda k, n: [clip(str(x).strip(), 60) for x in (out.get(k) or []) if isinstance(x, str) and str(x).strip()][:n]

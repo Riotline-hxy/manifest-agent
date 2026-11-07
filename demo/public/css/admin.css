@@ -247,3 +247,11 @@ body.admin-body { overflow: auto; }
 @media (max-width: 480px) {
   .adm-side nav a .ic-svg { display: none; }
 }
+
+/* 模型页 */
+.adm-grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 16px; align-items: start; }
+.adm-llm-model { width: 100%; max-width: 460px; }
+.adm-llm-note { margin-top: 8px; line-height: 1.7; }
+.adm-llm-act { display: flex; align-items: center; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+.adm-llm-res { font-size: 13px; line-height: 1.6; }
+@media (max-width: 900px) { .adm-grid2 { grid-template-columns: minmax(0, 1fr); } }

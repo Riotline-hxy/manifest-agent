@@ -90,7 +90,7 @@ def chat(goal: str, history, finish: bool = False, smaller: bool = False) -> dic
     sys_msg = PROMPT.format(goal=goal, max=MAX_ROUNDS, n=n, extra=extra)
     if n == 1:
         metrics.bump("trial_start")
-    out = llm.complete_json([{"role": "system", "content": sys_msg}, *msgs], timeout=30)
+    out = llm.complete_json([{"role": "system", "content": sys_msg}, *msgs], timeout=30, reasoning="none")
     if not out or not str(out.get("reply") or "").strip() or (want_step and not isinstance(out.get("step"), dict)):
         metrics.bump("trial_fallback")
         out = _fallback(goal, n, want_step)
@@ -182,7 +182,7 @@ def plan(goal: str, history, finish: bool = False, about: str = "", revise: bool
              "reply 里用一句话说清改了什么。" if revise
              else "这一轮必须给出 plan。" if want else "如果 TA 已经说得很清楚，这一轮就可以给 plan；否则先问。")
     sys_msg = PLAN_PROMPT.format(goal=goal, max=MAX_ROUNDS, n=n, extra=extra, about=about)
-    out = llm.complete_json([{"role": "system", "content": sys_msg}, *msgs], timeout=75)
+    out = llm.complete_json([{"role": "system", "content": sys_msg}, *msgs], timeout=75, reasoning="none")
     p = out.get("plan") if out and isinstance(out.get("plan"), dict) else None
     if not out or not str(out.get("reply") or "").strip() or (want and not p) or (p and not str(p.get("title") or "").strip()):
         metrics.bump("onboard_plan_fallback")

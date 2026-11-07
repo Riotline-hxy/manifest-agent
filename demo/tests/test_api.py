@@ -2263,5 +2263,46 @@ class StepJudgeAndProactiveTest(unittest.TestCase):
         self.assertNotIn("chat", {self.pro.choose(self.st, resting=True)["kind"] for _ in range(20)})   # 不连着两次
 
 
+class LLMSwitchTest(unittest.TestCase):
+    """后台切换模型：思考档按服务商翻译；思考 / 强制工具被拒、服务商 500 时自动换一种写法再试，保证有回复。"""
+
+    def setUp(self):
+        self.orig_open = llm._open
+        self.calls = []
+        os.environ.setdefault("MODELFLARE_API_KEY", "test")
+        os.environ.setdefault("DEEPSEEK_API_KEY", "test")
+
+    def tearDown(self):
+        llm._open = self.orig_open
+        if llm.CHOICE_PATH.exists():
+            llm.CHOICE_PATH.unlink()
+
+    def test_effort_translation_and_saved_choice(self):
+        mf = llm.config({"provider": "modelflare", "model": "gpt-6.1-sol", "effort": "none"})
+        self.assertNotIn("reasoning_effort", llm._body([], cfg=mf))                  # GPT 不认 none：不带
+        ds = llm.config({"provider": "deepseek", "model": "deepseek-flash", "effort": "high"})
+        self.assertEqual(llm._body([], cfg=ds)["reasoning_effort"], "max")
+        llm.save_choice("modelflare", "kimi-k3", "low")
+        c = llm.config()
+        self.assertEqual((c["provider"], c["model"], c["reasoning"]), ("modelflare", "kimi-k3", "low"))
+
+    def test_fallbacks_keep_a_reply(self):
+        def fake(cfg, body, stream, timeout):
+            self.calls.append((body.get("reasoning_effort"), body.get("tool_choice")))
+            if body.get("reasoning_effort") not in (None, "none") and isinstance(body.get("tool_choice"), dict):
+                raise llm.LLMError("HTTP 400: Thinking mode does not support this tool_choice")
+            if len(self.calls) == 1:
+                raise llm.LLMError("HTTP 500: Internal Server Error")
+            return "resp"
+        llm._open = fake
+        ds = llm.config({"provider": "deepseek", "model": "deepseek-flash", "effort": "high"})
+        body = llm._body([{"role": "user", "content": "x"}], tools=[{"type": "function", "function": {"name": "t"}}], tool_choice="t", cfg=ds)
+        self.assertEqual(llm._request(body, True, 10, ds), "resp")
+        self.assertEqual(self.calls[-1][0], "none")                                   # 最后是关掉思考、照样强制工具成功的
+        llm._open = lambda *a: (_ for _ in ()).throw(llm.LLMError("HTTP 401: bad key"))
+        with self.assertRaises(llm.LLMError):
+            llm._request(body, True, 10, ds)                                          # key 不对不重试，直接报
+
+
 if __name__ == "__main__":
     unittest.main()

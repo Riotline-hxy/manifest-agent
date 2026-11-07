@@ -71,7 +71,7 @@ def decide(ctx: dict, user_text: str, timeout: float = 8) -> str:
             wishes="、".join(ctx["wishes"]) or "（还没有）",
             habits="、".join(ctx["habits"]) or "（没有）", steps="、".join(ctx["steps"]) or "（没有）",
             prev=clip(ctx["prev"], 120) or "（没有）", text=clip(user_text, 300))
-        out = llm.complete_json([{"role": "user", "content": prompt}], timeout=timeout, reasoning=None) or {}
+        out = llm.complete_json([{"role": "user", "content": prompt}], timeout=timeout, reasoning="none") or {}   # 路由要快：永远不思考
     except Exception as e:  # 判断失败就照常聊，不影响回复
         print("[router] failed:", e)
         return ""
