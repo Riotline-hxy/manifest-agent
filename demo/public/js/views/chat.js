@@ -74,7 +74,6 @@ export function renderChat(root) {
   const d = state.data;
   const p = d.profile || {};
   const msgs = d.messages || [];
-  const mems = (d.memories || []).filter((m) => m.status === "active").length;
 
   root.innerHTML = `
     <div class="chat">
@@ -82,8 +81,6 @@ export function renderChat(root) {
         <div class="buddy-ball"></div>
         <div><div class="buddy-nm">${esc(p.agent_name || "小光")}</div>
           <div class="buddy-st"><i></i><span data-agent-status>${MOOD_TEXT["02"]}</span></div></div>
-        <span style="flex:1"></span>
-        <span class="pill good">${icon("memory")}记得你 ${mems} 件事</span>
       </div></div>
       <div class="thread"><div class="thread-in"><div class="msgs"></div></div></div>
       <div class="composer"><div class="composer-in">

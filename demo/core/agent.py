@@ -333,8 +333,6 @@ TOOLS = [
                       "description": "页面氛围：森林夜 / 深空 / 晨光 / 暖阳 / 海雾"},
             "schedule_hint": {"type": "string", "description": "TA 的作息"},
             "chat_style": {"type": "string", "description": "聊天时 TA 希望你怎么陪，一句短话，如「多听你说，不急着给建议」「帮你想想具体可以怎么做」"},
-            "remind_pref": {"type": "string", "enum": ["每天", "每周几次", "每周一次", "暂时不需要提醒"],
-                            "description": "想坚持的事希望多久被提醒一次（只是偏好，不会开提醒）"},
             "energy_time": {"type": "string", "enum": ["早上", "下午", "晚上", "不太固定"], "description": "TA 一天里比较有精神的时候"},
             "boundaries": {"type": "array", "items": {"type": "string"}, "description": "TA 不希望你碰的话题（整份替换）"}}}}},
 ]
@@ -410,12 +408,6 @@ def system_prompt(store: Store, retrieved: list[dict]) -> str:
     cs = (p.get("chat_style") or "").strip()
     if cs:
         care.append("- 聊天时 TA 希望你：" + CHAT_HOW.get(cs, f"「{cs}」") + "。这是 TA 自己选的陪伴方式，平时按这个来；TA 说想换就换。")
-    rp = (p.get("remind_pref") or "").strip()
-    if rp == "暂时不需要提醒":
-        care.append("- TA 说暂时不需要提醒：别主动提议定提醒，TA 自己开口要的时候再安排。")
-    elif rp:
-        care.append(f"- 想坚持一件事时，TA 希望被提醒的频率：{rp}。这只是偏好，现在没有开任何提醒；"
-                    "TA 真要提醒时，先问清提醒什么、哪天几点，再用 schedule_task。")
     care = "".join(x + "\n" for x in care if x)
     s = PERSONA.format(name=p.get("agent_name") or "小光", boundaries=bound, care=care, app_map=guide.MAP,
                        voice=voice.render(p.get("persona") or "gentle", p.get("nickname") or ""))
@@ -667,13 +659,12 @@ def _pick_task(uid: str, ref: str, prefer: bool | None = None) -> dict | None:
 
 SETTING_LABEL = {"nickname": "称呼", "agent_name": "我的名字", "persona": "我的性格", "proactive": "主动找你的频率",
                  "care_style": "你中断时我怎么做", "town_name": "小镇的名字", "theme": "页面氛围", "schedule_hint": "作息",
-                 "boundaries": "不想聊的话题", "chat_style": "聊天时我怎么陪你", "remind_pref": "提醒的频率",
+                 "boundaries": "不想聊的话题", "chat_style": "聊天时我怎么陪你",
                  "energy_time": "比较有精神的时候"}
 SETTING_VALUE = {"persona": {"gentle": "温柔", "clear": "有条理", "lively": "活泼"},
                  "proactive": {"more": "多一点", "normal": "刚好", "less": "少一点", "off": "不主动找"},
                  "care_style": {"nudge": "轻轻提醒", "analyze": "一起找原因", "quiet": "先不提"},
                  "theme": {"forest": "森林夜", "midnight": "深空", "paper": "晨光", "peach": "暖阳", "mist": "海雾"},
-                 "remind_pref": {v: v for v in ("每天", "每周几次", "每周一次", "暂时不需要提醒")},
                  "energy_time": {v: v for v in ("早上", "下午", "晚上", "不太固定")}}
 
 

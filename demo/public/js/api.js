@@ -72,8 +72,6 @@ export const api = {
   weekDraft: () => post("/api/notebook/week"),
   portrait: (text) => post("/api/portrait", { text }),
   discovery: (id, fb) => post("/api/insight", { id, fb }),   // 小光的发现：像我 / 不太像（别和下面愿望的 insight 重名）
-  wishReview: (id, days) => get(`/api/wish/review?id=${encodeURIComponent(id)}&days=${days}`),
-  wishReflect: (id, days, text) => post("/api/wish/reflect", { id, days, text }),
   insight: (payload) => post("/api/wish/insight", payload),
   pushTest: () => post("/api/push/test"),
 };

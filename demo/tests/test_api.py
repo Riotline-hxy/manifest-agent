@@ -987,13 +987,14 @@ class ApiTest(unittest.TestCase):
 
     def test_companion_prefs_editable_in_settings(self):
         c, _ = self.onboarded("prefs")
-        s, d = c.req("POST", "/api/profile", {"chat_style": "给你一些鼓励和信心", "remind_pref": "每周几次", "energy_time": "晚上"})
+        s, d = c.req("POST", "/api/profile", {"chat_style": "给你一些鼓励和信心", "care_style": "analyze", "energy_time": "晚上"})
         self.assertEqual(s, 200, d)
-        self.assertEqual((d["prefs"]["chat_style"], d["prefs"]["remind_pref"], d["prefs"]["energy_time"]),
-                         ("给你一些鼓励和信心", "每周几次", "晚上"))
+        self.assertEqual((d["prefs"]["chat_style"], d["prefs"]["care_style"], d["prefs"]["energy_time"]),
+                         ("给你一些鼓励和信心", "analyze", "晚上"))
         self.assertIn("多听你说，不急着给建议", d["prefs"]["options"]["chat_style"])
-        _, d = c.req("POST", "/api/profile", {"remind_pref": ""})            # 再点一下就是不设
-        self.assertEqual(d["prefs"]["remind_pref"], "")
+        self.assertEqual(sorted(d["prefs"]["options"]), ["chat_style", "energy_time"])
+        _, d = c.req("POST", "/api/profile", {"care_style": "", "energy_time": ""})   # 再点一下就是不设
+        self.assertEqual((d["prefs"]["care_style"], d["prefs"]["energy_time"]), ("", ""))
 
     def test_lazy_day_never_resets_progress(self):
         c, _ = self.onboarded("lazy")
@@ -1668,30 +1669,37 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(other.req("POST", "/api/moment", {"action": "delete", "id": d["journey"]["moments"][0]["id"]})[0], 404)
         self.assertEqual(other.req("GET", "/api/bootstrap")[1]["journey"]["moments"], [])
 
-    def test_journey_review_only_counts_range(self):
-        c, uid = self.member("journey_review")
-        s, d = c.req("POST", "/api/wish", {"action": "add", "title": "心里安静一点", "category": "calm", "now_text": "总是紧绷"})
-        self.assertEqual(s, 200, d)
+    def test_review_and_remind_pref_gone(self):
+        """阶段回望下线（愿望卡上换成蜕变报告入口）、陪伴偏好去掉「多久提醒一次」：
+        写过的回望和它的动态删掉，提醒频率清空，当天抽到的「写一段阶段回望」换成「做 1 次练习」；只做一次。"""
+        from core import agent, growth, lookup
+        from core.util import day_key
+        c, uid = self.member("review_gone")
+        _, d = c.req("POST", "/api/wish", {"action": "add", "title": "心里安静一点", "category": "calm"})
         wid = d["journey"]["current"]
-        today = d["journey"]["today"]
-        from datetime import date, timedelta
-        day = lambda n: (date.fromisoformat(today) - timedelta(days=n)).isoformat()
-        for n, t in ((1, "开完会给自己留了十分钟喝茶"), (3, "下午出去散步，安静地走了一圈"), (5, "睡前喝茶，放松下来"), (20, "周末去公园散步")):
-            c.req("POST", "/api/moment", {"action": "add", "wish_id": wid, "text": t, "day": day(n)})
-        _, r = c.req("GET", f"/api/wish/review?id={wid}&days=7")
-        self.assertEqual((r["count"], r["active_days"]), (3, 3))
-        self.assertEqual(r["top"]["word"], "喝茶")
-        self.assertIn("过去 7 天，你留下了 3 个瞬间，其中 2 次提到了「喝茶」", r["line"])
-        _, r30 = c.req("GET", f"/api/wish/review?id={wid}&days=30")
-        self.assertEqual(r30["count"], 4)
-        # 空区间：直说，不编
-        c2, _ = self.member("journey_empty")
-        _, d2 = c2.req("POST", "/api/wish", {"action": "add", "title": "", "category": "freedom"})
-        _, e = c2.req("GET", f"/api/wish/review?id={d2['journey']['current']}&days=15")
-        self.assertEqual(e["count"], 0)
-        self.assertTrue(e["line"].startswith("这段时间还没有留下记录"))
-        _, r = c.req("POST", "/api/wish/reflect", {"id": wid, "days": 7, "text": "好像没那么紧了"})
-        self.assertEqual(r["reflections"][0]["text"], "好像没那么紧了")
+        with Store(uid) as st:
+            st.c.execute("CREATE TABLE IF NOT EXISTS reflection(id TEXT PRIMARY KEY, wish_id TEXT, days INTEGER, text TEXT, created_at TEXT)")
+            st.c.execute("INSERT INTO reflection VALUES('rf_1', ?, 7, '好像没那么紧了', '2026-11-01T10:00:00')", (wid,))
+            st.log("journey", "写下了一段阶段回望")
+            st.c.execute("INSERT OR REPLACE INTO profile(k, v) VALUES('remind_pref', '\"每天\"')")
+            st.c.execute("DELETE FROM profile WHERE k='review_gone'")      # 当作还没迁移过的老账号
+        with Store(uid) as st:
+            self.assertIsNone(st.c.execute("SELECT 1 FROM sqlite_master WHERE name='reflection'").fetchone())
+            self.assertNotIn("回望", " ".join(a["text"] for a in st.activity(20)))
+            self.assertNotIn("remind_pref", st.profile())
+            day = day_key()
+            growth._pick(st, day)
+            ids = st.profile()["daily_pick"]["ids"]
+            st.set_profile({"daily_pick": {**st.profile()["daily_pick"], "ids": [ids[0], ids[1], "reflect", ids[3]]}})
+            self.assertEqual(growth._pick(st, day)["ids"], [ids[0], ids[1], "practice", ids[3]])
+            self.assertNotIn("reflect", growth.DAILY)
+            self.assertNotIn("remind_pref", agent.SETTING_LABEL)
+            self.assertNotIn("回望", lookup.look_up(st, "wish", "心里安静一点")["text"])
+        self.assertEqual(c.req("GET", f"/api/wish/review?id={wid}&days=7")[0], 404)
+        self.assertEqual(c.req("POST", "/api/wish/reflect", {"id": wid, "days": 7, "text": "x"})[0], 404)
+        _, d = c.req("POST", "/api/profile", {"remind_pref": "每天"})                # 旧页面发来的也不收
+        self.assertNotIn("remind_pref", d["prefs"])
+        self.assertNotIn("remind_pref", d["profile"])
 
     def test_journey_insight_needs_confirmation(self):
         c, uid = self.member("journey_insight")

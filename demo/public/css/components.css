@@ -48,12 +48,6 @@ button.more:hover { color: var(--accent); }
 .page-head p { margin: 6px 0 0; color: var(--text-2); font-size: 14.5px; }
 .page-head .spacer { flex: 1; }
 .page-head > div:first-child { flex: 1; min-width: 0; }
-.report-entry { display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px 18px 14px 14px; text-align: left; transition: transform .2s var(--spring), border-color .2s; }
-.report-entry:hover { transform: translateY(-2px); border-color: var(--c-pink); }
-.report-entry .re-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.report-entry b { font-size: 15.5px; }
-.report-entry small { font-size: 12.5px; color: var(--text-3); font-weight: 700; }
-.report-entry > .ic-svg { width: 18px; height: 18px; color: var(--text-3); flex: none; }
 @media (max-width: 760px) { .page-head { flex-wrap: wrap; } }
 .hint-line { font-size: 12.5px; color: var(--text-3); margin: 14px 2px 0; line-height: 1.75; }
 .hint-line b { color: var(--accent); }

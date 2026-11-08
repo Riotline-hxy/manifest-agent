@@ -85,15 +85,12 @@ function pageHTML(M, quiet) {
       <section class="card pc-card"><div class="pc-cal"></div><div class="j-fx" aria-hidden="true"></div></section>
       <section class="card pd-card" aria-live="polite"></section>
     </div>
-    <div class="pl-more">
-      ${insight ? `<section class="card j-insight">
+    ${insight ? `<div class="pl-more"><section class="card j-insight">
         <div class="sec-title">${icon("sparkles")}小光的小发现 <span class="pill">猜的，你说了算</span></div>
         <p class="j-guess">${esc(insight.text)}</p>
         <div class="j-answers">${[["yes", "像我"], ["partly", "有一部分"], ["no", "不太像"], ["skip", "跳过"]].map(([a, l]) =>
           `<button class="btn btn-sm ${a === "yes" ? "btn-main" : "btn-ghost"}" data-answer="${a}" data-insight="${esc(insight.id)}">${l}</button>`).join("")}</div>
-        <small class="muted">选「像我」或「有一部分」，小光会把它记成对你的了解。</small></section>` : ""}
-      <button class="report-entry card" data-go-report>${tile("report", "var(--c-pink)", 40)}<span class="re-txt"><b>蜕变报告</b><small>回头看看这段时间的你</small></span>${icon("arrow")}</button>
-    </div>
+        <small class="muted">选「像我」或「有一部分」，小光会把它记成对你的了解。</small></section></div>` : ""}
   </div>`;
 }
 
@@ -134,7 +131,7 @@ function wishCardHTML(w, M) {
       ${mss.length ? `<i class="pw-seg add"></i>` : ""}<button class="pw-st add" data-add-ms aria-label="加一个站点" title="加一个站点">${icon("plus")}</button></div>
     <div class="pw-sec"><b>习惯</b><small></small><button class="btn btn-quiet btn-sm pw-add" data-add-habit>${icon("plus")}习惯</button></div>
     <div class="habits">${hbs.map((hb, i) => habitRow(hb, M.J, i)).join("") || `<p class="pw-none">还没有习惯，可以从一个舒服的节奏开始。</p>`}</div>
-    <footer class="pw-foot"><button class="btn btn-quiet btn-sm" data-review>${icon("eye")}阶段回望</button><button class="btn btn-quiet btn-sm" data-edit-wish>${icon("edit")}编辑愿望</button></footer>
+    <footer class="pw-foot"><button class="btn btn-quiet btn-sm" data-go-report>${icon("report")}蜕变报告</button><button class="btn btn-quiet btn-sm" data-edit-wish>${icon("edit")}编辑愿望</button></footer>
   </article>`;
 }
 
@@ -311,7 +308,7 @@ function afterRender(root, M) {
 
 // ---------------------------------------------------------------- 点击 ----
 const CLICK = "[data-done],[data-plan],[data-kick],[data-back],[data-think],[data-hcheck],[data-hskip],[data-hedit],[data-ms],[data-add-ms],"
-  + "[data-add-habit],[data-add-step],[data-review],[data-edit-wish],[data-new-wish],[data-rest-me],[data-compose],[data-compose-day],[data-pick-day],"
+  + "[data-add-habit],[data-add-step],[data-edit-wish],[data-new-wish],[data-rest-me],[data-compose],[data-compose-day],[data-pick-day],"
   + "[data-day],[data-mode],[data-period],[data-today],[data-tag],[data-go-report],[data-answer],[data-pw],[data-pw-i],[data-talk],[data-edit],[data-del]";
 
 function onClick(e, root, M) {
@@ -345,7 +342,6 @@ function onClick(e, root, M) {
   if ("addMs" in d) return addSheet(cardWish(), "milestone");
   if ("addHabit" in d) return addSheet(cardWish(), "habit");
   if ("addStep" in d) return addSheet(wish(), "step");
-  if ("review" in d) return reviewSheet(cardWish());
   if ("editWish" in d) return wishSheet(cardWish(), M.J);
   if ("newWish" in d) return wishSheet(null, M.J);
   if ("restMe" in d) return openLazy({});
@@ -588,45 +584,6 @@ function habitSheet(hb) {
   s.panel.classList.add("j-sheet");
 }
 
-// ---------------------------------------------------------------- 阶段回望 ----
-function reviewSheet(w) {
-  let days = 15;
-  const body = h("div", { class: "j-review" });
-  const s = sheet({ title: `阶段回望 · ${w.title}`, body, sticker: "eye" });
-  s.panel.classList.add("j-sheet");
-  const draw = (r) => {
-    body.innerHTML = `
-      <div class="tabs j-rtabs">${[7, 15, 30, 90].map((n) => `<button class="${n === days ? "on" : ""}" data-days="${n}">${n} 天</button>`).join("")}<span class="ind"></span></div>
-      <p class="j-r-line">${esc(r.line)}</p>
-      ${r.count ? `<div class="j-r-stats">
-          <div><span class="num">${r.count}</span><small>个瞬间</small></div>
-          <div><span class="num">${r.active_days}</span><small>天有记录</small></div>
-          ${r.top ? `<div><span class="num">${r.top.count}</span><small>次提到「${esc(r.top.word)}」</small></div>` : ""}
-        </div>
-        <div class="j-r-quotes">${r.quotes.map((q) => `<div class="j-r-q"><small>${md(q.day)}</small><p>${esc(q.text)}</p>${q.feeling ? `<p class="muted">感受：${esc(q.feeling)}</p>` : ""}</div>`).join("")}</div>
-        <label class="lbl">你觉得这段时间有什么变化？</label>
-        <textarea class="field" rows="3" maxlength="300" placeholder="写给自己的一两句"></textarea>
-        <div class="row end"><button class="btn btn-main btn-sm" data-save>留给自己</button></div>` : ""}
-      ${r.reflections.length ? `<div class="j-r-past"><div class="lbl">之前写下的回望</div>${r.reflections.map((x) =>
-        `<p><small>${md(x.created_at.slice(0, 10))} · ${x.days} 天</small>${esc(x.text)}</p>`).join("")}</div>` : ""}`;
-    const tabs = body.querySelector(".j-rtabs");
-    requestAnimationFrame(() => placeInd(tabs));
-    tabs.querySelectorAll("[data-days]").forEach((b) => b.addEventListener("click", () => { days = +b.dataset.days; load(); }));
-    body.querySelector("[data-save]")?.addEventListener("click", async () => {
-      const ta = body.querySelector("textarea");
-      if (!ta.value.trim()) return ta.focus();
-      try { draw(await api.wishReflect(w.id, days, ta.value)); toast("收好了", "", "heart"); }
-      catch (e) { toast(e.message, "err"); }
-    });
-  };
-  const load = async () => {
-    try { draw(await api.wishReview(w.id, days)); }
-    catch (e) { body.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
-  };
-  body.innerHTML = `<p class="muted">正在翻这段时间的记录…</p>`;
-  load();
-}
-
 // ---------------------------------------------------------------- 愿望：新建 / 编辑 ----
 function catGrid(sel) {
   return `<div class="j-cats">${Object.entries(CATS).map(([id, c]) => `<button type="button" class="j-cat ${id === sel ? "on" : ""}" data-cat="${id}" style="--jc:${c.color}">
@@ -687,7 +644,7 @@ function wishSheet(w, J) {
     } catch (e) { toast(e.message, "err"); }
   };
   body.querySelector("#wArchive")?.addEventListener("click", async () => {
-    if (!(await confirmSheet("先收起这个愿望？", "它会从这里移走，记录和回望都保留在你的数据里。", "收起"))) return;
+    if (!(await confirmSheet("先收起这个愿望？", "它会从这里移走，做过的事和瞬间都保留在你的数据里。", "收起"))) return;
     try { const out = await api.wish("edit", { id: w.id, archived: true }); s.close(); setData(out); }
     catch (e) { toast(e.message, "err"); }
   });

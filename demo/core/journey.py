@@ -6,7 +6,6 @@
   - 轨迹上的时间节点 = 那天为这个愿望做过的事：完成的小步、习惯打卡、到达的里程碑、留下的瞬间；
     跨度长时由前端按天数合并节点；
   - 休息日记成 record(type=rest)，那天的习惯不用做，什么进度都保留；
-  - 阶段回望只用所选区间内的真实记录做统计；
   - 小光的小发现是推测，用户选「像我 / 有一部分」才写进记忆；
   - 小光在聊天里只能提议瞬间或计划，用户确认后才保存（routes / agent 负责）。
 """
@@ -35,7 +34,6 @@ CATEGORIES = {
               "words": ["开心", "完成", "尝试", "休息", "喜欢", "第一次"]},
 }
 
-RANGES = (7, 15, 30, 60, 90)
 MAX_ACTIVE = 6
 DEFAULT_SPAN = 30           # 没设计划日期时（比如建档自动生成的愿望），默认定下后 30 天
 MAX_HABITS = 8
@@ -276,56 +274,6 @@ def _valid_day(day: str | None) -> str:
     if (today - d).days > 365:
         raise ValueError("太久以前的日子先不记了")
     return d.isoformat()
-
-
-# ---------------------------------------------------------------- 阶段回望 ----
-
-def review(st, wish_id: str, days: int) -> dict:
-    """只用所选日历区间里的真实记录。没有记录时直说，不补故事。"""
-    days = days if days in RANGES else 30
-    w = get_wish(st, wish_id)
-    if not w:
-        raise ValueError("没有这个愿望")
-    today = now().date()
-    start = today - timedelta(days=days - 1)
-    ms = sorted(moments(st, wish_id, since=start.isoformat()), key=lambda m: (m["day"], m["created_at"]))
-    words = CATEGORIES.get(w["category"], CATEGORIES["other"])["words"]
-    counts = {k: sum(1 for m in ms if k in (m["text"] + m["feeling"])) for k in words}
-    top = max(counts.items(), key=lambda kv: kv[1]) if counts else ("", 0)
-    feelings = [m["feeling"] for m in ms if m["feeling"]]
-    quotes = []
-    if ms:
-        picks = [ms[0]] + ([ms[len(ms) // 2]] if len(ms) > 2 else []) + ([ms[-1]] if len(ms) > 1 else [])
-        seen = set()
-        for m in picks:
-            if m["id"] not in seen:
-                seen.add(m["id"])
-                quotes.append({"id": m["id"], "day": m["day"], "text": m["text"], "feeling": m["feeling"]})
-    if not ms:
-        line = "这段时间还没有留下记录。你可以从今天开始，也可以先看看之前的自己。"
-    else:
-        line = f"过去 {days} 天，你留下了 {len(ms)} 个瞬间"
-        if top[1] >= 2:
-            line += f"，其中 {top[1]} 次提到了「{top[0]}」"
-        line += "。你觉得这段时间有什么变化？"
-    refl = [dict(r) for r in st.c.execute(
-        "SELECT * FROM reflection WHERE wish_id=? ORDER BY created_at DESC LIMIT 6", (wish_id,))]
-    return {"wish_id": wish_id, "days": days, "start": start.isoformat(), "end": today.isoformat(),
-            "count": len(ms), "active_days": len({m["day"] for m in ms}),
-            "top": {"word": top[0], "count": top[1]} if top[1] >= 2 else None,
-            "feelings": feelings[-4:], "quotes": quotes, "line": line, "reflections": refl}
-
-
-def reflect(st, wish_id: str, days: int, text: str) -> dict:
-    text = clip((text or "").strip(), 300)
-    if not text:
-        raise ValueError("写一句也好")
-    rid = new_id("rf")
-    with st.lock:
-        st.c.execute("INSERT INTO reflection(id, wish_id, days, text, created_at) VALUES(?,?,?,?,?)",
-                     (rid, wish_id, int(days), text, iso()))
-    st.log("journey", "写下了一段阶段回望")
-    return dict(st.c.execute("SELECT * FROM reflection WHERE id=?", (rid,)).fetchone())
 
 
 # ---------------------------------------------------------------- 小光的小发现 ----

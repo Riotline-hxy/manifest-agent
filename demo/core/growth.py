@@ -55,14 +55,13 @@ DAILY = {
     "practice": {"slot": "explore", "label": "做 1 次练习", "hint": "冥想、感恩、显化你的愿望，挑一个", "xp": 8, "coins": 12, "go": "ideas"},
     "read": {"slot": "explore", "label": "在心灵学堂读一篇", "hint": "挑一篇还没读过的", "xp": 8, "coins": 12, "go": "academy", "needs": "unread"},
     "plan": {"slot": "explore", "label": "给愿望想一个新的小步", "hint": "自己加，或者让小光帮你想", "xp": 8, "coins": 12, "go": "plan", "needs": "few_steps", "weight": 3},
-    "reflect": {"slot": "explore", "label": "写一段阶段回望", "hint": "蜕变计划里的「阶段回望」", "xp": 8, "coins": 12, "go": "plan", "needs": "moments"},
     "act3": {"slot": "stretch", "label": "今天做到 3 件行动", "hint": "小步、打卡、里程碑加起来", "xp": 10, "coins": 18, "go": "plan", "act": True},
     "record2": {"slot": "stretch", "label": "留下 2 个瞬间", "hint": "一句话或一张照片都算", "xp": 10, "coins": 18, "go": "moments"},
     "wish2": {"slot": "stretch", "label": "在 2 个愿望上都往前走一步", "hint": "两个愿望各做一件", "xp": 10, "coins": 18, "go": "plan", "act": True, "needs": "wishes2"},
     "habit2": {"slot": "stretch", "label": "给 2 个不同的习惯打卡", "hint": "习惯在蜕变计划的「今天」里", "xp": 10, "coins": 18, "go": "plan", "act": True, "needs": "habits2"},
 }
 SLOTS = ("core", "record", "explore", "stretch")
-RETIRED = {"meme": "moment", "good": "moment"}   # 下线的任务（内心戏、好消息）→ 同一格里顶上的那个（当天已经定好的四件事不用整个重排）
+RETIRED = {"meme": "moment", "good": "moment", "reflect": "practice"}   # 下线的任务（内心戏、好消息、阶段回望）→ 同一格里顶上的那个（当天已经定好的四件事不用整个重排）
 DAILY_BONUS = {"xp": 10, "coins": 20}
 
 
@@ -183,7 +182,6 @@ def _facts(st, day: str) -> dict:
         "practice": len(scenes), "scenes": scenes,
         "read": st.c.execute("SELECT COUNT(*) FROM article_read WHERE at LIKE ?", (like,)).fetchone()[0],
         "steps_added": st.c.execute("SELECT COUNT(*) FROM step WHERE created_at LIKE ?", (like,)).fetchone()[0],
-        "reflect": st.c.execute("SELECT COUNT(*) FROM reflection WHERE created_at LIKE ?", (like,)).fetchone()[0],
     }
 
 
@@ -191,23 +189,22 @@ def _done(tid: str, f: dict, scene: str) -> bool:
     return {
         "act": f["act"] >= 1, "moment": f["moment"] >= 1,
         "pick": scene in f["scenes"], "practice": f["practice"] >= 1, "read": f["read"] >= 1,
-        "plan": f["steps_added"] >= 1, "reflect": f["reflect"] >= 1,
+        "plan": f["steps_added"] >= 1,
         "act3": f["act"] >= 3, "record2": f["records"] >= 2, "wish2": f["wishes"] >= 2, "habit2": f["habits"] >= 2,
     }.get(tid, False)
 
 
 def _eligible(st) -> set:
-    """这个人现在用得上哪些任务：没有习惯就不出「两个习惯」，哪个愿望都没攒够瞬间就不出「阶段回望」……"""
+    """这个人现在用得上哪些任务：没有习惯就不出「两个习惯」，学堂都读完了就不出「读一篇」……"""
     wishes = [r[0] for r in st.c.execute("SELECT id FROM wish WHERE archived=0")]
     habits = st.c.execute("SELECT COUNT(*) FROM habit WHERE archived=0 AND wish_id IN (SELECT id FROM wish WHERE archived=0)").fetchone()[0]
     first = wishes[0] if wishes else ""
     few = any(st.c.execute("SELECT COUNT(*) FROM step WHERE status='todo' AND (wish_id=? OR (?=? AND (wish_id='' OR wish_id IS NULL)))",
                            (w, w, first)).fetchone()[0] <= 1 for w in wishes)
-    moments = st.c.execute("SELECT MAX(n) FROM (SELECT COUNT(*) n FROM moment WHERE wish_id != '' GROUP BY wish_id)").fetchone()[0] or 0
     from . import academy
     unread = len({a["id"] for a in academy.catalog()} - st.read_ids())
     have = {"wish": bool(wishes), "wishes2": len(wishes) >= 2, "habits2": habits >= 2, "few_steps": few,
-            "moments": moments >= 3, "unread": unread > 0}
+            "unread": unread > 0}
     return {k for k, v in DAILY.items() if not v.get("needs") or have.get(v["needs"])}
 
 

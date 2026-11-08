@@ -152,21 +152,6 @@
 .j-type:hover { transform: translateY(-2px); }
 .j-type.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
-.j-rtabs { margin-bottom: 12px; }
-.j-r-line { font-size: 17px; line-height: 1.7; font-weight: 700; margin: 2px 0 14px; }
-.j-r-stats { display: flex; gap: 8px; margin-bottom: 14px; }
-.j-r-stats div { flex: 1; padding: 10px; border-radius: 14px; background: var(--surface-2); text-align: center; }
-.j-r-stats .num { display: block; font-size: 24px; line-height: 1.15; color: var(--accent); }
-.j-r-stats small { font-size: 11.5px; color: var(--text-3); font-weight: 800; }
-.j-r-quotes { position: relative; padding-left: 16px; border-left: 2px dashed var(--line-2); display: grid; gap: 10px; }
-.j-r-q { position: relative; }
-.j-r-q::before { content: ""; position: absolute; left: -22px; top: 5px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.j-r-q small { font-size: 11.5px; font-weight: 900; color: var(--text-3); }
-.j-r-q p { margin: 2px 0 0; font-size: 14px; line-height: 1.65; }
-.j-r-past { margin-top: 16px; }
-.j-r-past p { margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-size: 14px; line-height: 1.6; }
-.j-r-past small { display: block; font-size: 11.5px; color: var(--text-3); font-weight: 800; }
-
 .j-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin: 10px 0 4px; }
 .j-cats .j-cat { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px 9px; border-radius: 16px; border: 1.5px solid var(--line); background: var(--surface); transition: all .2s var(--spring); font-size: inherit; color: inherit; }
 .j-cats .j-cat b { font-size: 12.5px; font-weight: 800; color: var(--text-2); }

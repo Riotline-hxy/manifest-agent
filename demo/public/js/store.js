@@ -18,7 +18,7 @@ export const state = {
   articleId: "",
   reportDays: 14,
   ideaFilter: "全部",
-  spaceTab: "memory",
+  spaceTab: "settings",
   planRange: 30,
   planListOpen: false,
 };

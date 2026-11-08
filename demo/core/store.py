@@ -45,9 +45,8 @@ DEFAULT_PROFILE = {
     "care_style": "",       # nudge | analyze | quiet | ""
     "pace": "gentle",       # gentle | steady
     "persona": "gentle",    # 小光的性格：gentle 温柔 | clear 有条理 | lively 活泼
-    # 陪伴偏好（设置里选，以前「聊聊现在的你」里也能确认）：都是一句短话，空着就是没选。只是参考，不会自己开提醒
+    # 陪伴偏好（设置里选，和上面的 care_style 放在同一张表里）：都是一句短话，空着就是没选
     "chat_style": "",       # 聊天时希望小光怎么陪：如「多听你说，不急着给建议」
-    "remind_pref": "",      # 想坚持的事希望多久被提醒一次：每天 / 每周几次 / 每周一次 / 暂时不需要提醒
     "energy_time": "",      # 一天里比较有精神的时候：早上 / 下午 / 晚上 / 不太固定
     "custom_moods": [],     # 用户自己加的心情词
     "digest_on": True,      # 例行任务「夜里整理记忆」的开关
@@ -167,7 +166,6 @@ class Store:
             CREATE TABLE IF NOT EXISTS insight(
               id TEXT PRIMARY KEY, wish_id TEXT, text TEXT, claim TEXT, basis TEXT, status TEXT,
               created_at TEXT, answered_at TEXT);
-            CREATE TABLE IF NOT EXISTS reflection(id TEXT PRIMARY KEY, wish_id TEXT, days INTEGER, text TEXT, created_at TEXT);
             CREATE TABLE IF NOT EXISTS habit(
               id TEXT PRIMARY KEY, wish_id TEXT, title TEXT, freq TEXT, per_week INTEGER,
               archived INTEGER DEFAULT 0, created_at TEXT);
@@ -218,6 +216,7 @@ class Store:
         if "photo" not in mocols:   # 瞬间的照片（core/photos.py 的 id）；空 = 没有照片
             self.c.execute("ALTER TABLE moment ADD COLUMN photo TEXT DEFAULT ''")
         self._goodnews_gone()
+        self._review_gone()
         tcols = {r["name"] for r in self.c.execute("PRAGMA table_info(town_item)")}
         if "rot" not in tcols:   # 大建筑可以转 90°
             self.c.execute("ALTER TABLE town_item ADD COLUMN rot INTEGER DEFAULT 0")
@@ -246,6 +245,17 @@ class Store:
             self.c.execute("DELETE FROM activity WHERE kind='record' OR text LIKE '%小确幸%' OR text LIKE '%好消息%'")
             self.c.execute("UPDATE memory SET kind='event' WHERE kind='good_news'")
             self.c.execute("INSERT OR REPLACE INTO profile(k, v) VALUES('goodnews_gone', 'true')")
+
+    def _review_gone(self) -> None:
+        """2026-11 阶段回望下线（愿望卡上换成蜕变报告的入口）、陪伴偏好里的「多久提醒一次」去掉（和主动消息重了）：
+        写过的回望连同动态一起删掉，提醒频率这一项清空。经验和金币的账不动。每个账号只做一次。"""
+        if self.c.execute("SELECT 1 FROM profile WHERE k='review_gone'").fetchone():
+            return
+        with self.lock:
+            self.c.execute("DROP TABLE IF EXISTS reflection")
+            self.c.execute("DELETE FROM activity WHERE text LIKE '%阶段回望%'")
+            self.c.execute("DELETE FROM profile WHERE k='remind_pref'")
+            self.c.execute("INSERT OR REPLACE INTO profile(k, v) VALUES('review_gone', 'true')")
 
     # ---- memory -------------------------------------------------------------
     def add_memory(self, text: str, kind: str = "insight", source: str = "chat", status: str = "active", cat: str = "") -> dict:

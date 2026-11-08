@@ -14,7 +14,7 @@ import { themeCard, placeInd } from "../app.js";
 import { openAccount, logout } from "../account.js";
 import { pushSupport, pushOn, enablePush, disablePush, installState, install, PUSH_WHY } from "../push.js";
 
-const TABS = [["memory", "了解你"], ["digest", "夜里整理"], ["timeline", "时间线"], ["settings", "设置"]];
+const TABS = [["settings", "设置"], ["memory", "了解你"], ["digest", "夜里整理"], ["timeline", "时间线"]];
 const REASON = { user_corrected: "你在聊天里更正", user_edit: "你亲手修改", user_forget: "你让我忘掉", user_reject: "你说不对", edit: "修改" };
 
 export function renderSpace(root) {
@@ -22,7 +22,7 @@ export function renderSpace(root) {
   const p = d.profile || {};
   const t = d.town;
   const mems = d.memories || [];
-  const tab = state.spaceTab || "memory";
+  const tab = state.spaceTab || "settings";
   root.innerHTML = `
     <div class="view-inner wide space">
       <section class="me-card card">
@@ -387,8 +387,6 @@ function settingsTab(body, root) {
     <div class="settings card">
       <div class="set-row">${tile("heart", "var(--c-pink)", 40)}<div class="sl"><b>性格</b><small>说话的方式会跟着变，记得的事不变</small></div>
         ${seg("persona", [["gentle", "温柔"], ["clear", "有条理"], ["lively", "活泼"]], p.persona || "gentle")}</div>
-      <div class="set-row">${tile("compass", "var(--c-mint)", 40)}<div class="sl"><b>中断的时候</b><small>三天没动时，小光怎么反应</small></div>
-        ${seg("care_style", [["nudge", "轻轻提醒"], ["analyze", "一起找原因"], ["quiet", "先别提"]], p.care_style)}</div>
       <div class="set-row">${tile("chat", "var(--c-violet)", 40)}<div class="sl"><b>陪伴偏好</b><small>${esc(prefLine(p))}</small></div>
         <button class="btn btn-sm btn-ghost" data-prefs>修改</button></div>
       <div class="set-row">${tile("letter", "var(--c-sky)", 40)}<div class="sl"><b>主动消息</b><small>23:00–08:00 不打扰 · <button class="set-link" data-proactive>让它现在说一句</button></small></div>
@@ -501,11 +499,13 @@ async function confirmLogout() {
   if (await confirmSheet("退出登录？", "下次用用户名和密码就能回来，记录都在。", "退出", "back")) logout();
 }
 
-// 陪伴偏好：三样，这里看、改、清空（再点一下选中的就是不设）
-const PREFS = [["chat_style", "聊天时，希望我"], ["remind_pref", "想坚持的事，多久提醒一次"], ["energy_time", "一天里比较有精神的时候"]];
+// 陪伴偏好：三样，这里看、改、清空（再点一下选中的就是不设）。「中断的时候」也在这里，选项是 [值, 显示的字]
+const CARE = [["nudge", "轻轻提醒"], ["analyze", "一起找原因"], ["quiet", "先别提"]];
+const PREFS = [["chat_style", "聊天时，希望我"], ["care_style", "中断的时候（几天没动），希望我"], ["energy_time", "一天里比较有精神的时候"]];
+const careText = (v) => (CARE.find((x) => x[0] === v) || [])[1] || "";
 
 function prefLine(p) {
-  const parts = [p.chat_style, p.remind_pref && `提醒：${p.remind_pref}`, p.energy_time && `${p.energy_time}比较有精神`].filter(Boolean);
+  const parts = [p.chat_style, p.care_style && `中断时${careText(p.care_style)}`, p.energy_time && `${p.energy_time}比较有精神`].filter(Boolean);
   return parts.join(" · ") || "还没选，点一下挑一挑";
 }
 
@@ -514,11 +514,11 @@ function prefsSheet(root) {
   const opts = state.data.prefs?.options || {};
   const cur = Object.fromEntries(PREFS.map(([k]) => [k, p[k] || ""]));
   const body = h("div", { class: "j-add prefs", html: PREFS.map(([k, label]) => {
-    const list = [...(opts[k] || [])];
-    if (cur[k] && !list.includes(cur[k])) list.push(cur[k]);     // 自己改过的说法也留着
-    return `<label class="lbl">${esc(label)}</label><div class="ob-chips">${list.map((v) =>
-      `<button class="chip ${cur[k] === v ? "on" : ""}" data-k="${k}" data-v="${esc(v)}">${esc(v)}</button>`).join("")}</div>`;
-  }).join("") + `<p class="muted j-note">提醒频率只是偏好，不会自己开提醒；真要提醒时，小光会先问你提醒什么、几点。</p>` });
+    const list = k === "care_style" ? [...CARE] : (opts[k] || []).map((v) => [v, v]);
+    if (cur[k] && !list.some(([v]) => v === cur[k])) list.push([cur[k], cur[k]]);     // 自己改过的说法也留着
+    return `<label class="lbl">${esc(label)}</label><div class="ob-chips">${list.map(([v, t]) =>
+      `<button class="chip ${cur[k] === v ? "on" : ""}" data-k="${k}" data-v="${esc(v)}">${esc(t)}</button>`).join("")}</div>`;
+  }).join("") + `<p class="muted j-note">想被提醒，可以把「主动消息」调多一点，或者让小光帮你定一个例行任务。</p>` });
   body.querySelectorAll("[data-k]").forEach((b) => b.addEventListener("click", () => {
     const { k, v } = b.dataset;
     cur[k] = cur[k] === v ? "" : v;

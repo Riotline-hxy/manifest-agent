@@ -59,7 +59,7 @@ def attention(st, ref=None, limit: int = 6) -> list[dict]:
         d = (date.fromisoformat(w["target_day"]) - today).days
         if d < 0:
             add(2, "wish_overdue", f"愿望「{w['title']}」计划 {_md(w['target_day'])} 实现，已经过了 {-d} 天",
-                "可以一起回望这段路，或者把计划日子往后挪")
+                "可以一起看看这段路走到了哪儿，或者把计划日子往后挪")
         elif d <= 7:
             add(2, "wish_due", f"愿望「{w['title']}」计划 {_md(w['target_day'])} 实现，还剩 {d} 天", "陪 TA 看看还差什么")
         if not any(m["wish_id"] == w["id"] for m in ms) and not any(h["wish_id"] == w["id"] for h in hs):

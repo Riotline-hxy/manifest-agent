@@ -13,7 +13,7 @@ from .util import clip, now
 
 AREAS = {
     "plan": "蜕变计划全貌：所有愿望和它们的里程碑、习惯、小步，收起的愿望",
-    "wish": "某一个愿望的细节：路径、最近的瞬间、阶段回望、小发现（query 写愿望名字）",
+    "wish": "某一个愿望的细节：路径、最近的瞬间、小发现（query 写愿望名字）",
     "habits": "所有习惯：频率、本周进度、最近两周哪天打过卡、连续天数、收起的习惯",
     "steps": "小步：待做 / 最近做完 / 放一放的",
     "moments": "TA 留下的瞬间：一句话，可能配了照片（你看不到图），可能挂在某个愿望下（可以用 query 指定愿望）",
@@ -91,10 +91,8 @@ def look_up(st, area: str, query: str = "") -> dict:
             L.append("TA 写给自己的问题：" + "；".join(w["prompts"]))
         for m in journey.moments(st, w["id"], limit=8):
             L.append(f"  - 瞬间 [{m['id']}] {m['day']} {clip(m['text'], 60)}" + (f"（感受：{m['feeling']}）" if m["feeling"] else ""))
-        rv = journey.review(st, w["id"], 30)
-        L.append("最近 30 天：" + rv["line"])
-        for r in rv["reflections"][:3]:
-            L.append(f"  - TA 写的回望（{_md(r['created_at'])}）：{clip(r['text'], 80)}")
+        n30 = len(journey.moments(st, w["id"], since=(today - timedelta(days=29)).isoformat()))
+        L.append(f"最近 30 天在这个愿望下留了 {n30} 个瞬间" if n30 else "最近 30 天这个愿望下还没有瞬间")
         ins = journey.open_insight(st, w["id"])
         if ins:
             L.append(f"还没回答的小发现：{ins['text']}")
@@ -174,9 +172,8 @@ def look_up(st, area: str, query: str = "") -> dict:
         L += [f"TA 的称呼：{p.get('nickname') or '没填'}",
               f"你的名字：{p.get('agent_name') or '小光'}；性格：{PERSONA.get(p.get('persona') or 'gentle')}",
               f"主动消息：{PROACTIVE.get(p.get('proactive') or 'normal')}（23:00–08:00 不发）",
-              f"互动偏好：{CARE.get(p.get('care_style') or '', '没选')}",
-              f"聊天时希望你：{p.get('chat_style') or '没选'}；提醒想坚持的事：{p.get('remind_pref') or '没选'}（只是偏好，没开提醒）；"
-              f"比较有精神的时候：{p.get('energy_time') or '没选'}",
+              f"陪伴偏好：中断的时候 {CARE.get(p.get('care_style') or '', '没选')}；聊天时希望你 {p.get('chat_style') or '没选'}；"
+              f"比较有精神的时候 {p.get('energy_time') or '没选'}",
               f"小镇的名字：{p.get('town_name') or '我的小镇'}；页面氛围：{THEME.get(p.get('theme') or '', p.get('theme') or '默认')}",
               f"建档时最想靠近：{p.get('intent_primary') or '没填'}" + (f"（因为：{p['intent_why']}）" if p.get("intent_why") else ""),
               "别人常觉得 TA：" + ("、".join(p.get("traits") or []) or "没填"),
@@ -207,7 +204,7 @@ def look_up(st, area: str, query: str = "") -> dict:
             f = report.build(st, days, with_letter=False)["facts"]
             L.append(f"最近 {days} 天：瞬间 {f['moments']} 个，完成小步 {f['done']} 个，习惯打卡 {f['checkins']} 次，"
                      f"偷懒 {f['rest']} 天，经验 +{f['xp']}")
-        L.append("完整的蜕变报告在蜕变计划页最下面的「蜕变报告」里。")
+        L.append("完整的蜕变报告在蜕变计划页愿望卡底下的「蜕变报告」里。")
 
     elif area == "academy":
         read = st.read_ids()

@@ -38,7 +38,7 @@ const routeOf = (h) => ALIAS[h] || h;
 // 每日任务的图标（点一下去哪儿做由后端的 go 决定）
 const DAILY_TILE = { act: ["flag", "var(--c-orange)"], act3: ["flag", "var(--c-orange)"], wish2: ["compass", "var(--c-orange)"], habit2: ["clock", "var(--c-mint)"],
   moment: ["camera", "var(--c-pink)"], record2: ["camera", "var(--c-pink)"],
-  pick: ["wind", "var(--c-mint)"], practice: ["wind", "var(--c-mint)"], read: ["book", "var(--c-coral)"], plan: ["plus", "var(--c-sky)"], reflect: ["eye", "var(--c-violet)"] };
+  pick: ["wind", "var(--c-mint)"], practice: ["wind", "var(--c-mint)"], read: ["book", "var(--c-coral)"], plan: ["plus", "var(--c-sky)"] };
 
 let root;
 let drawnRoute = "";

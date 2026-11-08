@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import academy, cheer, finds, weekly, growth, journey, kickstart, portrait, scenes, scheduler, tasks, topics, town
 from .store import Store
 
-VERSION = "3.18.1"
+VERSION = "3.19.0"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
@@ -47,12 +47,10 @@ def preferences(p: dict) -> dict:
         "why": p.get("intent_why") or "",
         "nickname": p.get("nickname") or "",
         "boundaries": p.get("boundaries") or [],
-        # 陪伴偏好：设置里那张「陪伴偏好」表单用这些选项
+        # 陪伴偏好：设置里那张「陪伴偏好」表单（聊天时怎么陪 · 中断的时候 · 有精神的时候）用这些选项
         "chat_style": p.get("chat_style") or "",
-        "remind_pref": p.get("remind_pref") or "",
         "energy_time": p.get("energy_time") or "",
-        "options": {"chat_style": [shown for shown, _ in scenes.CHAT_STYLES.values()],
-                    "remind_pref": scenes.REMIND, "energy_time": scenes.ENERGY},
+        "options": {"chat_style": [shown for shown, _ in scenes.CHAT_STYLES.values()], "energy_time": scenes.ENERGY},
     }
 
 

@@ -229,16 +229,16 @@ def view(st, name: str, args: dict, result: dict, snap: dict) -> list[dict]:
     if name in ("edit_task", "cancel_task"):
         return [_slip("clock", "var(--c-sky)", "提醒", f"{result.get('task') or ''} · {result.get('done') or '关掉了'}", go="panel")]
     if name == "update_settings":
-        return [_slip("compass", "var(--c-sky)", "设置", clip("，".join(result.get("changed") or []), 40), go="space")]
+        return [_slip("compass", "var(--c-sky)", "设置", clip("，".join(result.get("changed") or []), 40), go="settings")]
     if name == "remember":
         m = result.get("memory") or {}
         if result.get("updated_from"):
-            return [_slip("memory", "var(--c-violet)", "记忆", clip(m.get("text") or "", 30), clip(result["updated_from"], 24), go="space")]
-        return [_slip("memory", "var(--c-violet)", "记住了", clip(m.get("text") or "", 30), go="space")]
+            return [_slip("memory", "var(--c-violet)", "记忆", clip(m.get("text") or "", 30), clip(result["updated_from"], 24), go="memory")]
+        return [_slip("memory", "var(--c-violet)", "记住了", clip(m.get("text") or "", 30), go="memory")]
     if name == "correct_memory":
         if result.get("deleted"):
-            return [_slip("memory", "var(--c-violet)", "忘掉了", clip(result.get("old") or "", 30), go="space")]
-        return [_slip("memory", "var(--c-violet)", "记忆", clip(result.get("new") or "", 30), clip(result.get("old") or "", 24), go="space")]
+            return [_slip("memory", "var(--c-violet)", "忘掉了", clip(result.get("old") or "", 30), go="memory")]
+        return [_slip("memory", "var(--c-violet)", "记忆", clip(result.get("new") or "", 30), clip(result.get("old") or "", 24), go="memory")]
     if name == "update_notebook":
         verb = {"add": "笔记本里记下", "replace": "笔记本改成", "remove": "笔记本里删掉"}.get(str(args.get("action") or "add"), "笔记本")
         return [_slip("book", "var(--c-violet)", verb, clip(str(args.get("text") or args.get("old") or ""), 30), go="notebook")]

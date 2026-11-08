@@ -308,7 +308,7 @@ def chat(h, u, b, q):
 PROFILE_FIELDS = {"nickname", "agent_name", "agent_hue", "agent_avatar_id", "intent_primary", "intent_why",
                   "schedule_hint", "traits", "mbti_hint", "boundaries", "proactive",
                   "care_style", "pace", "theme", "persona", "custom_moods",
-                  "chat_style", "remind_pref", "energy_time"}
+                  "chat_style", "energy_time"}
 
 
 def profile(h, u, b, q):
@@ -332,7 +332,7 @@ def profile(h, u, b, q):
     for k in ("traits", "boundaries"):
         if k in patch:
             patch[k] = [clip(str(x), 20) for x in (patch[k] or [])][:6]
-    for k in ("chat_style", "remind_pref", "energy_time"):   # 陪伴偏好：一句短话，空着就是没选
+    for k in ("chat_style", "energy_time"):   # 陪伴偏好：一句短话，空着就是没选
         if k in patch:
             patch[k] = clip(str(patch[k] or "").strip(), 30)
     for k, v in list(patch.items()):
@@ -904,29 +904,6 @@ def photo_get(h, u, b, q):
     return None
 
 
-def wish_review(h, u, b, q):
-    try:
-        days = int((q.get("days") or ["30"])[0])
-    except ValueError:
-        days = 30
-    with Store(u["id"]) as st:
-        try:
-            return 200, journey.review(st, str((q.get("id") or [""])[0]), days)
-        except ValueError as e:
-            raise ApiError(404, str(e))
-
-
-def wish_reflect(h, u, b, q):
-    with Store(u["id"]) as st:
-        if not journey.get_wish(st, str(b.get("id") or "")):
-            raise ApiError(404, "没有这个愿望")
-        try:
-            journey.reflect(st, b["id"], int(b.get("days") or 30), str(b.get("text") or ""))
-        except ValueError as e:
-            raise ApiError(400, str(e))
-        return 200, journey.review(st, b["id"], int(b.get("days") or 30))
-
-
 def wish_insight(h, u, b, q):
     with Store(u["id"]) as st:
         try:
@@ -1026,8 +1003,6 @@ ROUTES = {
     ("POST", "/api/notebook"): (notebook, True),
     ("POST", "/api/notebook/week"): (week_draft, True),
     ("GET", "/api/pulse"): (pulse, True),
-    ("GET", "/api/wish/review"): (wish_review, True),
-    ("POST", "/api/wish/reflect"): (wish_reflect, True),
     ("POST", "/api/wish/insight"): (wish_insight, True),
     ("GET", "/api/academy"): (academy_list, True),
     ("GET", "/api/academy/article"): (academy_get, True),
