@@ -24,7 +24,7 @@ export function showSplash() {
       <div class="sp-hello" style="--i:0">${hello}${name ? `，${esc(name)}` : ""}</div>
       <div class="sp-ball"></div>
       <div class="sp-tip">点点它，按住还能捏一捏</div>
-      <button class="sp-card" style="--i:1" data-next aria-label="换一句"><span class="sp-k">给你的一句话</span><span class="sp-t"></span></button>
+      <button class="sp-card" style="--i:1" data-next aria-label="换一句"><span class="sp-t"></span></button>
       <div class="sp-go">
         <button data-go="chat" style="--i:2">${tile("chat", "var(--c-sky)", 42)}<b>跟我聊聊</b><small>想说就说</small></button>
         <button data-go="plan" style="--i:3">${tile("flag", "var(--c-orange)", 42)}<b>蜕变计划</b><small>${todo ? `还有 ${todo} 个小步` : "今天的一小步"}</small></button>

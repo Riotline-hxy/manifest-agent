@@ -71,7 +71,7 @@
 @keyframes sp-ball { from { opacity: 0; transform: scale(.7) translateY(20px); } }
 .sp-tip { font-size: 12px; color: var(--text-4); height: 18px; transition: opacity .5s var(--ease); }
 .sp-tip.gone { opacity: 0; }
-.sp-card { width: 100%; margin-top: 14px; padding: 16px 22px 18px; border-radius: 22px; background: var(--surface); border: 1px solid var(--line);
+.sp-card { width: 100%; margin-top: 14px; padding: 18px 22px; border-radius: 22px; background: var(--surface); border: 1px solid var(--line);
   box-shadow: var(--shadow); text-align: center; transition: transform .3s var(--spring); }
 .sp-card:hover { transform: translateY(-2px); }
 .sp-card.swap .sp-t { animation: sp-swap .42s var(--ease); }
