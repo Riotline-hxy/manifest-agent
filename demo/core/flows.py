@@ -1,7 +1,7 @@
 """「许个愿」「让愿望落地」共用的流程：对话样子的全屏层（public/js/tune.js），问题和分支都在前端（public/js/flows.js），
 这里只管四件事，都走 POST /api/flow：
 - start：开一次练习（scene_run），给前端 TA 自己的记录（ctx）；
-- suggest：TA 要建议时调一次模型（让愿望落地：改小一点 / 再加一件 / 第一件事）；
+- suggest：TA 要建议、或者自己写了一句时调一次模型（让愿望落地：改小一点 / 再加一件 / 第一件事 / 听懂 TA 说的感觉 / 听懂卡在哪、给对症的调整）；
 - finish：答完，算结尾（许个愿调一次模型写小光的话），存进 profile.flow_end，练习经验这时给；
   TA 在结尾点「上一步」改了答案再答完，同一次练习重新算，经验不重复给；
 - save：只存勾了的。存完把这次的答案清掉，同一次不能存两遍。
@@ -37,11 +37,11 @@ def start(store: Store, sid: str, wish_id: str = "") -> dict:
     return {"run": {"id": run["id"]}, "scene": {"id": sid, "title": mod.TITLE}, "ctx": mod.ctx(store, wish_id)}
 
 
-def suggest(store: Store, run_id: str, kind: str, wish_id: str, ref: str = "", label: str = "") -> dict:
+def suggest(store: Store, run_id: str, kind: str, wish_id: str, ref: str = "", label: str = "", text: str = "") -> dict:
     run = _run(store, run_id)
     if run["scene"] != "relearn":
         raise ValueError("这里没有建议")
-    return relearn.suggest(store, kind, wish_id, ref, label)
+    return relearn.suggest(store, kind, wish_id, ref, label, text)
 
 
 def _public(end: dict) -> dict:

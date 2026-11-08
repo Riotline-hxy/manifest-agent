@@ -659,7 +659,7 @@ def flow_api(h, u, b, q):
                 return 200, flows.start(st, str(b.get("scene") or ""), str(b.get("wish_id") or ""))
             if act == "suggest":
                 return 200, flows.suggest(st, rid, str(b.get("kind") or ""), str(b.get("wish_id") or ""),
-                                          str(b.get("ref") or ""), str(b.get("label") or ""))
+                                          str(b.get("ref") or ""), str(b.get("label") or ""), str(b.get("text") or ""))
             if act == "finish":
                 first = (st.get_scene(rid) or {}).get("status") == "open"
                 out = flows.finish(st, rid, b.get("answers") if isinstance(b.get("answers"), dict) else {})

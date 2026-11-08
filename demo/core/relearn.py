@@ -53,8 +53,30 @@ TA 刚有了一个愿望，计划还是空的，想先定第一件事。下面�
 给两个这周就能做的第一件事，每个不超过 16 字，小到不用下决心，具体到一个动作，两个要不一样。
 只输出 JSON：{{"opts":["",""]}}"""
 
+# TA 自己写了一句（「我不知道怎么启动」「最近太忙」）：先听懂卡在哪，再给两个对症的调整，不把原话照搬进计划
+ADJUST = """你是「{name}」，TA 的朋友，陪 TA 把愿望一点点做成。{tone}
+TA 在「让愿望落地」里说计划里有件事这周不太顺，想调一调，但没选现成的办法，自己说了一句。下面是这件事、这周的情况和 TA 的原话。
+先听懂 TA 卡在哪（不知道从哪开始 / 没时间 / 没力气 / 总忘 / 一想就有压力 / 别的），再把这件事调到这周做得成。
+1. say：接住 TA 的话，一句，不超过 30 字。说出你听到的卡点，再说打算怎么帮；像朋友，不说教，不复述原话。
+2. opts：两个调整，每个是 {{"kind":"","text":""}}，按 TA 说的挑最对症的：
+   - kind=small：改成更小、马上能开始的版本。不知道从哪开始时，给做成它的第一下。text 不超过 16 字，具体到动作和数量；习惯别写「每天」「每周几次」。
+   - kind=time：挂到每天都会经过的一个时候（起床后 / 午饭后 / 下课或下班后 / 睡前 / 别的具体时候），text 只写那个时候。
+   - kind=pause：这周先停一停，text 写「这周先停一停」。只在 TA 明显累了、顾不过来时给。
+   两个要不一样。
+""" + "不说教，不喊口号，不用「不是……而是……」、破折号，不说「加油」「你一定可以」。" + """
+只输出 JSON：{{"say":"","opts":[{{"kind":"","text":""}},{{"kind":"","text":""}}]}}"""
+
+# 「这周觉得怎么样」TA 自己说了一句：听出是哪种，接住，再往下走
+FEEL = """你是「{name}」，TA 的朋友，陪 TA 把愿望一点点做成。{tone}
+TA 在「让愿望落地」里用自己的话说了这周的感觉。判断最接近哪一种：smooth 挺顺的 / stuck 有一件动不起来 / full 太满了、顾不过来 / none 这周几乎没碰。
+say：接住 TA 的话，一句，不超过 24 字，像朋友，不说教，不复述原话；不要提问，下一题会接着问。
+只输出 JSON：{{"feel":"","say":""}}"""
+
 FALLBACK = {"smaller_habit": ["先只做两分钟", "先做原来的一半"], "smaller_step": ["先花两分钟开个头", "先把要用的东西准备好"],
-            "add": ["比平时多做一点点", "找个人说说这周的进展"], "first": ["花两分钟想想从哪开始", "写下这周想做的一件事"]}
+            "add": ["比平时多做一点点", "找个人说说这周的进展"], "first": ["花两分钟想想从哪开始", "写下这周想做的一件事"],
+            "adjust": [{"kind": "small", "text": "先只做两分钟"}, {"kind": "time", "text": "睡前"}]}
+FEELS = ("smooth", "stuck", "full", "none")
+ADJUST_KINDS = {"small": "改小一点", "time": "换个时间", "pause": "这周先停一停"}
 
 
 def _days_ago(ts: str) -> int:
@@ -100,12 +122,16 @@ def ctx(store: Store, wish_id: str = "") -> dict:
 
 # ---------------------------------------------------------------- 小光给建议（TA 要的时候才调） ----
 
-def _ask(store: Store, system: str, user: str) -> list[str]:
+def _raw(store: Store, system: str, user: str) -> dict:
     from .scenes import TONE
     p = store.profile()
     system = system.format(name=p.get("agent_name") or "小光", tone=TONE.get(p.get("persona") or "gentle", TONE["gentle"]))
-    out = llm.complete_json([{"role": "system", "content": system}, {"role": "user", "content": user}],
-                            timeout=LLM_TIMEOUT, reasoning="none") or {}
+    return llm.complete_json([{"role": "system", "content": system}, {"role": "user", "content": user}],
+                             timeout=LLM_TIMEOUT, reasoning="none") or {}
+
+
+def _ask(store: Store, system: str, user: str) -> list[str]:
+    out = _raw(store, system, user)
     opts = []
     for x in out.get("opts") or []:
         t = clip(str(x or "").strip().strip("「」").rstrip("。"), 20)
@@ -134,19 +160,47 @@ def _ease(store: Store, v: str) -> dict | None:
     return {"freq": e[0], "per_week": e[1], "text": journey.freq_text({"freq": e[0], "per_week": e[1]})} if e else None
 
 
-def suggest(store: Store, kind: str, wid: str, ref: str = "", label: str = "") -> dict:
-    """改小一点（ref 是计划里的一件，或者 TA 自己写的 label）/ 再加一件 / 第一件事：两个建议。模型不在就给通用的。"""
-    w = _wish(store, wid)
-    if kind == "smaller":
-        it = _find(store, wid, ref) if ref else None
-        if it:
-            what = (f"习惯「{it['label']}」（{it['freq']}，{it['hint'].split(' · ')[-1]}）" if it["kind"] == "habit"
+def _what(store: Store, wid: str, ref: str, label: str) -> tuple[dict | None, str]:
+    it = _find(store, wid, ref) if ref else None
+    if it:
+        return it, (f"习惯「{it['label']}」（{it['freq']}，{it['hint'].split(' · ')[-1]}）" if it["kind"] == "habit"
                     else f"一次性的小步「{it['label']}」（{it['hint'].split(' · ')[-1]}）")
-        else:
-            label = clip(label.strip(), 30)
-            if not label:
-                raise ValueError("先说说是哪一件")
-            what = f"一件 TA 自己说的事「{label}」"
+    label = clip(label.strip(), 30)
+    if not label:
+        raise ValueError("先说说是哪一件")
+    return None, f"一件 TA 自己说的事「{label}」"
+
+
+def suggest(store: Store, kind: str, wid: str, ref: str = "", label: str = "", text: str = "") -> dict:
+    """改小一点（ref 是计划里的一件，或者 TA 自己写的 label）/ 再加一件 / 第一件事：两个建议。
+    feel：TA 自己说了这周的感觉（text），听出是哪种、接一句；adjust：TA 自己说了想怎么调 / 卡在哪（text），接一句、给两个对症的调整。
+    模型不在就给通用的。"""
+    w = _wish(store, wid)
+    text = clip((text or "").strip(), 60)
+    if kind == "feel":
+        out = _raw(store, FEEL, f"愿望：「{w['title']}」\n这周的计划：" + ("；".join(f"{i['label']}（{i['hint']}）" for i in _items(store, wid)) or "（还没有）")
+                   + f"\nTA 说：{text}")
+        feel = out.get("feel") if out.get("feel") in FEELS else "stuck"
+        say = clip(str(out.get("say") or "").strip(), 40) or "嗯，我听到了。我们看看是哪一件。"
+        return {"feel": feel, "say": say}
+    if kind == "adjust":
+        it, what = _what(store, wid, ref, label)
+        out = _raw(store, ADJUST, f"愿望：「{w['title']}」\n这件事：{what}\nTA 说：{text or '（没写）'}")
+        opts = []
+        for x in out.get("opts") or []:
+            if not isinstance(x, dict) or x.get("kind") not in ADJUST_KINDS:
+                continue
+            t = clip(str(x.get("text") or "").strip().strip("「」").rstrip("。"), 20)
+            if x["kind"] == "pause":
+                t = "这周先停一停"
+            if t and all(o["text"] != t for o in opts):
+                opts.append({"kind": x["kind"], "text": t})
+        say = clip(str(out.get("say") or "").strip(), 44)
+        if len(opts) < 2 or not say:
+            opts, say = FALLBACK["adjust"], "好，我们把它调到这周做得成。"
+        return {"say": say, "opts": opts[:2]}
+    if kind == "smaller":
+        it, what = _what(store, wid, ref, label)
         opts = _ask(store, SMALLER, f"愿望：「{w['title']}」\n这件事：{what}")
         if len(opts) < 2:
             opts = FALLBACK["smaller_habit" if it and it["kind"] == "habit" else "smaller_step"]
@@ -169,9 +223,29 @@ def clean(store: Store, a: dict) -> dict:
     s = lambda k, n=24: clip(str(a.get(k) or "").strip(), n)   # noqa: E731
     w = _wish(store, s("wish", 40))
     out = {"wish": w["id"]}
-    for k in ("feel", "which", "how", "small", "when", "more", "add", "first"):
+    for k in ("feel", "which", "how", "small", "when", "more", "add", "first", "adjust"):
         out[k] = s(k, 40)
         out[k + "_label"] = s(k + "_label", 30)
+    out["feel_kind"] = a.get("feel_kind") if a.get("feel_kind") in FEELS else ""
+    out["adjust_kind"] = a.get("adjust_kind") if a.get("adjust_kind") in ADJUST_KINDS else ""
+    # TA 自己说了这周的感觉：按小光听出来的那种走
+    if out["feel"] == "custom" and out["feel_kind"]:
+        out["feel"] = out["feel_kind"]
+    # TA 自己说了想怎么调：按小光给的、TA 选的那个调整走；TA 再自己写一句就当作更小的版本
+    if out["how"] == "custom":
+        if out["adjust"] == "custom" and out["adjust_label"]:
+            out.update(how="small", small="custom", small_label=out["adjust_label"])
+        elif out["adjust"] and out["adjust"] != "keep" and out["adjust_kind"] and out["adjust_label"]:
+            k, t = out["adjust_kind"], out["adjust_label"]
+            if k == "small":
+                out.update(how="small", small="custom", small_label=t)
+            elif k == "time":
+                wh = next((x for x in WHEN_HABIT + WHEN_STEP if x["label"] == t), None)
+                out.update(how="time", when=wh["v"] if wh else "custom", when_label=t)
+            else:
+                out.update(how="pause")
+        else:
+            out.update(how="", how_label="")
     return out
 
 

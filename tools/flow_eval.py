@@ -2,11 +2,12 @@
 
 用法（在 manifest-agent 目录）：
   python tools/flow_eval.py            # 全跑：新愿望的愿望卡、坚定旧愿望的那句话、改小一点、再加一件、第一件事
-  python tools/flow_eval.py new keep   # 只跑这几种（new / keep / smaller / add / first）
+  python tools/flow_eval.py new keep   # 只跑这几种（new / keep / smaller / add / first / words）
 改了 demo/core/wish_flow.py（NEW、KEEP）或 demo/core/relearn.py（SMALLER、ADD、FIRST）以后跑一下，看：
   - 小光那句话有没有复述卡片上的东西、有没有说教和口号；
   - 「那一天」是不是用了 TA 选的画面、写得具体；
-  - 改小一点的两个版本是不是还是这件事本身（小步要给做成它的第一下），而且明显更容易。
+  - 改小一点的两个版本是不是还是这件事本身（小步要给做成它的第一下），而且明显更容易；
+  - TA 自己写了一句（「我不知道怎么启动」「最近太忙」）：小光有没有听懂卡在哪、给的调整是不是对症。
 用的是 .env 里的模型 key，数据写在临时目录，不碰真实用户。
 """
 from __future__ import annotations
@@ -39,6 +40,10 @@ NEW = [
     ("", "", "学会弹一首完整的曲子", "", ""),
 ]
 # 坚定旧愿望：(最有感觉的一刻, 现在心里)
+# TA 自己写的：(这周的感觉) 和 (哪一件, 想怎么调时写的话)
+FEEL_WORDS = ["期中周，啥都顾不上", "还行吧，就是单词老忘背", "说不上来，有点烦", "这周状态很好，还想多练点"]
+ADJUST_WORDS = [("s1", "我不知道怎么启动"), ("h1", "最近太忙了，没时间"), ("h2", "老是忘"), ("h1", "一想到就烦，不想做"),
+                ("s1", "怕约了 Mia 她不理我")]
 KEEP = [("第一次在课上用英语提问，声音在抖但说完了", "still"), ("录了一段 30 秒的自我介绍", "far"),
         ("和 Mia 用英语聊了十分钟", "more"), ("", "unsure")]
 
@@ -82,6 +87,17 @@ def main(kinds):
                 out, s = timed(relearn.suggest, st, "smaller", w["id"], ref, label)
                 name = label or next(i["label"] for i in relearn._items(st, w["id"]) if i["v"] == ref)
                 print(f"\n[{name}]  {s:.1f}s\n  " + " / ".join(out["opts"]) + (f"\n  频率降一档：{out['ease']}" if out.get("ease") else ""))
+        if "words" in kinds:
+            print("\n=== 让愿望落地 · TA 自己写的感觉 ===")
+            for t in FEEL_WORDS:
+                out, s = timed(relearn.suggest, st, "feel", w["id"], "", "", t)
+                print(f"\n[{t}]  {s:.1f}s  → {out['feel']}\n  小光：{out['say']}")
+            print("\n=== 让愿望落地 · 「我想这样调……」自己写的 ===")
+            refs = {"h1": "h:" + h1["id"], "h2": "h:" + h2["id"], "s1": "s:" + s1["id"]}
+            for k, t in ADJUST_WORDS:
+                out, s = timed(relearn.suggest, st, "adjust", w["id"], refs[k], "", t)
+                name = next(i["label"] for i in relearn._items(st, w["id"]) if i["v"] == refs[k])
+                print(f"\n[{name} · {t}]  {s:.1f}s\n  小光：{out['say']}\n  " + " / ".join(f"{o['kind']}「{o['text']}」" for o in out["opts"]))
         if "add" in kinds:
             print("\n=== 让愿望落地 · 挺顺的，再加一件 ===")
             out, s = timed(relearn.suggest, st, "add", w["id"])
@@ -93,4 +109,4 @@ def main(kinds):
 
 
 if __name__ == "__main__":
-    main(set(sys.argv[1:]) or {"new", "keep", "smaller", "add", "first"})
+    main(set(sys.argv[1:]) or {"new", "keep", "smaller", "add", "first", "words"})

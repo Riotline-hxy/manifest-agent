@@ -90,6 +90,9 @@ const HOW = [
   { v: "pause", label: "这周先停一停", hint: "不算放弃", ill: "night" },
 ];
 
+const ADJ = { small: "改小一点", time: "换个时间", pause: "这周先停一停" };
+const ADJ_ICON = { small: "sparkles", time: "clock", pause: "moon" };
+
 function landFlow(ctx, run) {
   const W = ctx.wishes || [];
   const wish = (st) => W.find((w) => w.id === st.a.wish) || W[0];
@@ -97,12 +100,16 @@ function landFlow(ctx, run) {
   const item = (st) => items(st).find((x) => x.v === st.a.which) || (st.a.which === "custom" ? { v: "custom", kind: "other", label: st.l.which } : null);
   // 小光的建议：同一件事只问一次（上一步、改答案再回来，不重新等）
   const cache = new Map();
-  const ask = (kind, st, ref = "", label = "") => {
-    const k = [kind, wish(st).id, ref, label].join("|");
-    if (!cache.has(k)) cache.set(k, api.flow("suggest", { run_id: run.id, kind, wish_id: wish(st).id, ref, label }).catch((e) => { cache.delete(k); throw e; }));
+  const ask = (kind, st, ref = "", label = "", text = "") => {
+    const k = [kind, wish(st).id, ref, label, text].join("|");
+    if (!cache.has(k)) cache.set(k, api.flow("suggest", { run_id: run.id, kind, wish_id: wish(st).id, ref, label, text }).catch((e) => { cache.delete(k); throw e; }));
     return cache.get(k);
   };
   const plan = (st) => (items(st).length ? "feel" : "first");
+  // 这周的感觉：TA 自己说的，按小光听出来的那种算
+  const feel = (st) => (st.a.feel === "custom" ? st.a.feel_kind || "stuck" : st.a.feel);
+  // 「我想这样调……」之后小光那句话（和建议一起回来）
+  let adjustSay = "";
   const week = (st) => {
     const w = wish(st);
     const rows = items(st).map((p) => `<div class="rowc">${icon(p.kind === "habit" ? "check" : "flag")}<span><b>${esc(p.label)}</b><small>${esc(p.hint)}</small></span>${p.prog != null ? `<em class="prog"><i style="width:${Math.round(p.prog * 100)}%"></i></em>` : ""}</div>`).join("");
@@ -130,15 +137,29 @@ function landFlow(ctx, run) {
         opts: async (st) => [...(await ask("first", st)).opts.map((t, i) => ({ v: "o" + i, label: t, icon: "sparkles" })), { v: "none", label: "先不定了", icon: "close" }],
         custom: "我想先做……", next: null },
       feel: { type: "cards", q: (st) => `这周的「${esc(wish(st).title)}」，你觉得怎么样？`, body: week, opts: FEEL, custom: "说说你的感觉",
-        customReact: "嗯，我听到了。我们看看是哪一件。",
-        next: (st) => { const n = st.a.feel === "smooth" ? "more" : "which"; st.total = st.base + 3; return n; } },
-      which: { type: "rows", q: (st) => ({ full: "先放下哪一件？", none: "只留一件最想保住的，是哪件？" })[st.a.feel] || "是哪一件？",
+        // 自己说的感觉：小光先听懂是哪种、接一句，再按那种往下走
+        react: (v, st, text) => (v === "custom"
+          ? ask("feel", st, "", "", text).then((r) => { st.a.feel_kind = r.feel; return r.say; })
+            .catch(() => { st.a.feel_kind = "stuck"; return "嗯，我听到了。我们看看是哪一件。"; })
+          : FEEL.find((f) => f.v === v)?.react || ""),
+        next: (st) => { const n = feel(st) === "smooth" ? "more" : "which"; st.total = st.base + 3; return n; } },
+      which: { type: "rows", q: (st) => ({ full: "先放下哪一件？", none: "只留一件最想保住的，是哪件？" })[feel(st)] || "是哪一件？",
         opts: (st) => items(st).map((p) => ({ ...p, icon: p.kind === "habit" ? "check" : "flag" })), custom: "是别的事",
-        react: (v, st) => (st.a.feel === "none" ? "好，这周就保它。" : "好，我们看看它。"),
-        next: (st) => { if (!st.a.which) return null; return st.a.feel === "none" ? "small" : "how"; } },
+        react: (v, st) => (feel(st) === "none" ? "好，这周就保它。" : "好，我们看看它。"),
+        next: (st) => { if (!st.a.which) return null; return feel(st) === "none" ? "small" : "how"; } },
       how: { type: "cards", q: "想怎么调它？", opts: HOW, custom: "我想这样调……",
-        react: (v) => ({ small: "好，小到一定做得到。", time: "好，给它找个固定的时候。", pause: "好，停一停也是在照顾自己。" })[v] || "好，就照你说的。",
-        next: (st) => { const n = ({ small: "small", time: "when" })[st.a.how] || null; st.total = st.base + (n ? 4 : 3); return n; } },
+        // 自己写的（「我不知道怎么启动」）：不照搬进计划，下一题小光先听懂卡在哪，再给两个对症的调整
+        react: (v) => ({ small: "好，小到一定做得到。", time: "好，给它找个固定的时候。", pause: "好，停一停也是在照顾自己。" })[v] || "",
+        next: (st) => { const n = ({ small: "small", time: "when", custom: "adjust" })[st.a.how] || null; st.total = st.base + (n ? 4 : 3); return n; } },
+      adjust: { type: "rows", skip: false, q: () => esc(adjustSay), sub: "挑一个，或者说说你想怎么做。",
+        opts: async (st) => {
+          const it = item(st);
+          const r = await ask("adjust", st, it.v === "custom" ? "" : it.v, it.v === "custom" ? it.label : "", st.l.how || "");
+          adjustSay = r.say;
+          return [...r.opts.map((o, i) => ({ v: `${o.kind}:${i}`, label: o.text, hint: ADJ[o.kind], icon: ADJ_ICON[o.kind] })),
+            { v: "keep", label: "先不改了", icon: "close" }];
+        },
+        custom: "写下这周打算怎么做", next: null },
       small: { type: "rows", skip: false, q: "这样小一点，行吗？",
         opts: async (st) => {
           const it = item(st);
@@ -161,7 +182,9 @@ function landFlow(ctx, run) {
     },
     answers: (st) => {
       const out = { wish: wish(st).id };
-      for (const k of ["feel", "which", "how", "small", "when", "more", "add", "first"]) { out[k] = st.a[k] || ""; out[k + "_label"] = st.l[k] || ""; }
+      for (const k of ["feel", "which", "how", "small", "when", "more", "add", "first", "adjust"]) { out[k] = st.a[k] || ""; out[k + "_label"] = st.l[k] || ""; }
+      out.feel_kind = st.a.feel_kind || "";
+      out.adjust_kind = (st.a.adjust || "").includes(":") ? st.a.adjust.split(":")[0] : "";
       return out;
     },
   };

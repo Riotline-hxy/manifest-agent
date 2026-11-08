@@ -924,6 +924,60 @@ class ApiTest(unittest.TestCase):
         self.assertEqual((out["card"], out["say"]), (None, "这周照现在的来，挺好。有变化随时回来调。"))
         self.assertEqual(c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": ["plan"]})[0], 400)
 
+    def test_land_flow_reads_own_words(self):
+        from core import journey
+        c, uid = self.onboarded("land_words")
+        with Store(uid) as st:
+            w = journey.current(st)
+            stp = st.add_step("只抠开头那一小段，练到不用看谱", wish_id=w["id"])
+            h = journey.add_habit(st, w["id"], "每次练琴半小时", "weekly", 3)
+        rid, _ = self._flow(c, "relearn", w["id"])
+        sv = "s:" + stp["id"]
+        # 自己说这周的感觉：小光听出是哪种，接一句
+        self.fake.json_out = {"feel": "full", "say": "事情挤在一起，难怪顾不过来。我们看看是哪一件。"}
+        s, out = c.req("POST", "/api/flow", {"action": "suggest", "run_id": rid, "kind": "feel", "wish_id": w["id"], "text": "期中周，啥都顾不上"})
+        self.assertEqual((s, out["feel"]), (200, "full"))
+        self.assertIn("TA 说：期中周，啥都顾不上", self.fake.seen_json[-1][1]["content"])
+        self.fake.json_out = {"feel": "乱说"}
+        _, out = c.req("POST", "/api/flow", {"action": "suggest", "run_id": rid, "kind": "feel", "wish_id": w["id"], "text": "嗯"})
+        self.assertEqual(out["feel"], "stuck")                               # 听不出来就当作有一件卡住
+        # 「我想这样调……」写的是卡点：小光听懂了，给两个对症的调整，不照搬进计划
+        self.fake.json_out = {"say": "不知道从哪下手最磨人，我们把第一下定小一点。", "opts": [
+            {"kind": "small", "text": "先只弹前两个小节，弹 3 遍"}, {"kind": "time", "text": "睡前"}, {"kind": "nope", "text": "x"}]}
+        s, out = c.req("POST", "/api/flow", {"action": "suggest", "run_id": rid, "kind": "adjust", "wish_id": w["id"], "ref": sv, "text": "我不知道怎么启动"})
+        self.assertEqual(s, 200, out)
+        self.assertEqual(out["opts"], [{"kind": "small", "text": "先只弹前两个小节，弹 3 遍"}, {"kind": "time", "text": "睡前"}])
+        sent = self.fake.seen_json[-1][1]["content"]
+        self.assertIn("一次性的小步「只抠开头那一小段，练到不用看谱」", sent)
+        self.assertIn("TA 说：我不知道怎么启动", sent)
+        base = {"wish": w["id"], "feel": "custom", "feel_kind": "stuck", "which": sv, "how": "custom", "how_label": "我不知道怎么启动"}
+        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {
+            **base, "adjust": "small:0", "adjust_kind": "small", "adjust_label": "先只弹前两个小节，弹 3 遍"}})
+        self.assertEqual(s, 200, out)
+        self.assertEqual(out["card"]["list"], ["先做：「先只弹前两个小节，弹 3 遍」（今天）"])
+        self.assertNotIn("我不知道怎么启动", "".join(out["card"]["list"]))
+        self.assertIn("now", out["acts"])
+        # 选了「换个时间」：习惯挂到那个时候，认得出的时候还能勾提醒
+        rid, _ = self._flow(c, "relearn", w["id"])
+        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {
+            "wish": w["id"], "feel": "stuck", "which": "h:" + h["id"], "how": "custom", "how_label": "老是忘",
+            "adjust": "time:1", "adjust_kind": "time", "adjust_label": "睡前"}})
+        self.assertEqual(out["card"]["list"], ["「每次练琴半小时」放到睡前"])
+        self.assertEqual([k["key"] for k in out["keeps"]], ["plan", "remind"])
+        # 再自己写一句：当作这周打算的做法；「先不改了」：没有卡片
+        rid, _ = self._flow(c, "relearn", w["id"])
+        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {
+            "wish": w["id"], "feel": "stuck", "which": "h:" + h["id"], "how": "custom", "how_label": "太长了", "adjust": "custom", "adjust_label": "每次只练 10 分钟"}})
+        self.assertEqual(out["card"]["list"], ["「每次练琴半小时」先改成「每次只练 10 分钟」"])
+        rid, _ = self._flow(c, "relearn", w["id"])
+        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {
+            "wish": w["id"], "feel": "stuck", "which": sv, "how": "custom", "how_label": "随便", "adjust": "keep"}})
+        self.assertIsNone(out["card"])
+        # 模型不在：给写好的两个调整，照样能往下走
+        self.fake.json_out = None
+        _, out = c.req("POST", "/api/flow", {"action": "suggest", "run_id": rid, "kind": "adjust", "wish_id": w["id"], "ref": sv, "text": "不想做"})
+        self.assertEqual((len(out["opts"]), bool(out["say"])), (2, True))
+
     def test_land_flow_empty_plan_and_cancel_keep_nothing(self):
         from core import journey
         c, uid = self.member("land_empty")                                   # 还没有愿望

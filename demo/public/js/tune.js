@@ -168,7 +168,9 @@ export function openTune(sceneId = "relearn", { wishId = "" } = {}) {
       // 最后一题不再回一句：结尾那句话就是回应，两句挨着会显得啰嗦
       const last = !val(s.next);
       const r = last ? "" : typeof s.react === "function" ? s.react(o ? o.v : "custom", st, text) : (o?.react || (o ? "" : (s.customReact ?? "嗯，我记下了。")));
-      if (r && !(await xg(r))) return;
+      // 自己写的话，小光要先听懂再回（调一次模型）：三个点冒到回来为止
+      if (r && typeof r.then === "function") { if (!(await xg((t) => esc(t || "嗯，我听到了。"), { job: () => r }))) return; }
+      else if (r && !(await xg(r))) return;
       next();
     };
     // 已经答过的题：点另一张就从这一题重新走（先退回这一题，再替 TA 点一下；同一个元素正在点的时候 click() 不会再触发，所以等这一下过去）
