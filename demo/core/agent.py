@@ -22,7 +22,7 @@ import threading
 from . import academy, acts, finds, growth, guide, journey, kickstart, llm, lookup, memory, nudges, router, tasks, topics, town, voice
 from .scenes import CHAT_HOW, SCENES
 from .store import Store
-from .util import clip, day_key, now, parse_iso, tokens
+from .util import clip, day_key, dumps, loads, now, parse_iso, tokens
 
 MAX_ROUNDS = 4
 EMOJI = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B50]")
@@ -88,7 +88,8 @@ PERSONA = """你是「{name}」。你是这个人的朋友：一直在，记得 
 - 做完了计划里的一步 → complete_step；做了某个习惯里的事（「今天去健身了」）→ checkin_habit，可以顺带说这周还差几次
 - 「记一下 / 记住」→ remember；提到你的「笔记本」、让你加改删 → update_notebook；更正以前的事（「我现在不喜欢寿司了」）→ correct_memory
 - 「每天 X 点提醒我」「每周日陪我复盘」→ schedule_task；关、开、删、改时间 → edit_task
-- 点名删改计划里的东西（「把早睡早起删了」「日期改到下周五」「再开一个愿望：学吉他」）→ edit_plan；到达里程碑 → edit_plan(change, status=done)
+- 点名删改计划里的东西（「把早睡早起删了」「日期改到下周五」）→ edit_plan；到达里程碑 → edit_plan(change, status=done)
+- 说要新开一个愿望（「我想做个新愿望，是健身」「再开一个愿望：学吉他」「想开始练瑜伽」）→ 这一句就 edit_plan(add, kind=wish) 建好，名字用 TA 的说法（以后能改），再问一个最关键的问题（比如想练到什么样、现在卡在哪）；TA 回答了就 propose_plan。从 TA 开口到给出方案，最多问两个问题，别一直聊下去
 - 明确要加一个重复做的事 → add_habit；明确说某个习惯太难、想调整 → adjust_habit
 - 点名要做某个练习（「我想冥想」「来个三分钟感恩」「用两分钟启动帮我开始写论文」）→ start_scene，一句话应下来就好
 - 改设置（称呼、你的名字和性格、主动消息多少、被打断时你怎么做、聊天时怎么陪、提醒频率、小镇名字、页面氛围）→ update_settings；
@@ -111,8 +112,10 @@ TA 上一句提过、或者你刚问过的事，这一句说「好 / 可以 / �
 你问过「要不要留在轨迹上」→ edit_plan(add, kind=moment) 直接存下（别再 propose_moment）；问过「要我帮你记下来吗」→ remember；
 问过「要不要试试两分钟启动」→ start_scene(kickstart, task=那件事)；提议过的修改 → edit_plan。
 
-规划一个愿望（包括界面发来的「帮我规划这条路」）：先看「你知道的」里这条路已经有什么；第一次回复只问一个最关键的问题，这一轮不调用工具。
+规划一个已有的愿望（包括界面发来的「帮我规划这条路」）：先看「你知道的」里这条路已经有什么；第一次回复只问一个最关键的问题，这一轮不调用工具。TA 说「帮我拆一下 / 你直接安排」就不再问，直接 propose_plan。
 信息够了再 propose_plan：最多 3 个里程碑、3 个习惯、3 个小步，只放路径上还没有的，具体、量力而行；请 TA「看看哪些想加进计划」，不说已经加好了。
+你提议的安排 TA 还没加进计划时（对话里会标出「你提议的…还没加进计划」），TA 想调整其中几项（「这个小步太麻烦」「习惯少一点」「换一个」）：
+这些东西还不在计划里，别去计划里找，也别用 edit_plan。按 TA 的意思改掉那几项、其余照旧，再调用一次 propose_plan 给新的一版（旧卡片会自动作废），回复里一句话说改了什么（拿掉就说拿掉；说「换成」时，换上的得是原来没有的）。TA 说「都可以 / 就这样 / 加进去吧」：别再出一版，请 TA 在卡片上点「加进计划」。
 
 计划由三种东西组成：里程碑（路上看得见的站点，可以带日期）、习惯（每天或每周 N 次）、小步（做一次就完成）。
 增删改都用 edit_plan（action = add / change / remove / restore；kind = wish / milestone / habit / step / moment），TA 同意过的修改也直接用它。
@@ -420,8 +423,43 @@ def system_prompt(store: Store, retrieved: list[dict]) -> str:
     return s
 
 
+PLAN_STATE = {"": "TA 还没加进计划", "added": "TA 已经点了加进计划", "skipped": "TA 点了先不加", "replaced": "已经换成后面新的一版"}
+
+
+def _plan_extra(kind: str, it: dict) -> str:
+    """提议里每一项的频率 / 日期也写上，改一项时其余的才能原样照抄。"""
+    if kind == "habits":
+        return "（每周 %s 次）" % (it.get("per_week") or 3) if it.get("freq") == "weekly" else "（每天）"
+    if kind == "milestones" and it.get("due_in_days"):
+        return f"（约 {it['due_in_days']} 天后）"
+    return ""
+
+
+def act_note(meta: dict | None) -> str:
+    """这条回复下面画过的东西（提议的安排、提议的瞬间、没弄成的事），写成一行给模型看；界面上不显示。
+    不带这一行，模型下一轮只看得到自己说过的话，不知道卡片里提议了什么、TA 点没点。"""
+    out = []
+    for a in (meta or {}).get("acts") or []:
+        if not isinstance(a, dict):
+            continue
+        if a.get("type") == "ask" and a.get("ask") == "plan":
+            p = a.get("plan") or {}
+            parts = [lab + "：" + "、".join(f"「{clip(str(i.get('title') or ''), 20)}」{_plan_extra(k, i)}" for i in p.get(k) or [] if isinstance(i, dict))
+                     for k, lab in (("milestones", "里程碑"), ("habits", "习惯"), ("steps", "小步")) if p.get(k)]
+            out.append(f"你提议给「{a.get('wish_title') or ''}」的一套安排（{PLAN_STATE.get(a.get('state') or '', PLAN_STATE[''])}）："
+                       + "；".join(parts))
+        elif a.get("type") == "ask" and a.get("ask") == "moment":
+            st = a.get("state") or ""
+            out.append(f"你提议把「{clip(a.get('text') or '', 30)}」留在轨迹上（"
+                       + ("TA 还没点" if not st else "TA 留下了" if st == "kept" else "TA 没留") + "）")
+        elif a.get("type") == "slip" and a.get("fail"):
+            out.append("这一步没弄成：" + clip(a.get("why") or a.get("new") or "", 60))
+    return ("上面那条回复下面，界面上显示的卡片：" + "；".join(out)) if out else ""
+
+
 def history(store: Store) -> list[dict]:
-    """最近三天的对话原样带上（有字数上限）；每天第一句用户的话前面标上日期，方便说「昨天你提到……」。"""
+    """最近三天的对话原样带上（有字数上限）；每天第一句用户的话前面标上日期，方便说「昨天你提到……」。
+    小光的回复下面挂过卡片（提议的安排、没弄成的事）时，紧跟一条系统消息说明，模型才知道自己提议过什么。"""
     rows = [m for m in store.messages(800) if m["role"] in ("user", "assistant") and m["content"]]
     cutoff = now() - timedelta(hours=HISTORY_HOURS)
     keep = [m for m in rows if (parse_iso(m["created_at"]) or now()) >= cutoff]
@@ -441,6 +479,9 @@ def history(store: Store) -> list[dict]:
             c = f"［{int(d[5:7])}月{int(d[8:10])}日 {m['created_at'][11:16]}］{c}"
             last_day = d
         out.append({"role": m["role"], "content": c})
+        note = act_note(m.get("meta")) if m["role"] == "assistant" else ""
+        if note:      # 单独一条系统消息，不混进小光的原话里（混进去模型会学着在回复里写括号说明）
+            out.append({"role": "system", "content": note})
     return out
 
 
@@ -452,7 +493,7 @@ NUDGE_USE = ("用法：别每句都提，也别一次说好几件。TA 聊到计
 def context_note(retrieved: list[dict], store: Store | None = None) -> str:
     """每轮都在变的部分（时间、和这句话相关的记忆、值得留意的事）放在对话后面，前面的长内容才能被缓存复用。"""
     t = now()
-    s = f"现在是 {t:%Y-%m-%d %H:%M}（周{WEEKDAYS[t.weekday()]}）。用户消息前的［日期 时间］是系统标注，回复里不要模仿。"
+    s = f"现在是 {t:%Y-%m-%d %H:%M}（周{WEEKDAYS[t.weekday()]}）。用户消息前的［日期 时间］、对话中间「界面上显示的卡片」这类系统消息都是标注，回复里不要模仿、不要提。"
     if store is not None:   # 最近几条用过的表情：这次别再用，免得总是同一个（人机感）
         used = []
         for m in [m for m in store.messages(8) if m["role"] == "assistant" and m["content"]][-3:]:
@@ -498,9 +539,30 @@ def search_chats(store: Store, query: str, k: int = 6) -> list[dict]:
 
 # ---- tools -------------------------------------------------------------------
 
-def _match_wish(store: Store, ws: list[dict], hint: str) -> dict:
-    return (next((x for x in ws if hint and (hint in x["title"] or x["title"] in hint or hint in x["label"])), None)
-            or journey.current(store) or ws[0])
+def _match_wish(store: Store, ws: list[dict], hint: str, strict: bool = False) -> dict | None:
+    """按名字找愿望；没给名字就用 TA 正在看的那个。strict：给了名字却找不到时返回 None，不悄悄换成别的愿望。"""
+    hit = next((x for x in ws if hint and (hint in x["title"] or x["title"] in hint or hint in x["label"])), None)
+    if hit or (strict and hint.strip()):
+        return hit
+    return journey.current(store) or ws[0]
+
+
+def _pending_plan(store: Store, wish_id: str) -> dict | None:
+    """最近还没点的、给这个愿望的那张安排卡片里的内容。"""
+    for m in reversed(store.messages(12)):
+        for a in reversed((m.get("meta") or {}).get("acts") or []):
+            if isinstance(a, dict) and a.get("ask") == "plan" and a.get("wish_id") == wish_id and not a.get("state"):
+                return a.get("plan") or {}
+    return None
+
+
+def _plan_titles(plan: dict) -> set:
+    return {(k, str(i.get("title") or "").strip()) for k in ("milestones", "habits", "steps") for i in plan.get(k) or [] if isinstance(i, dict)}
+
+
+def _no_wish(hint: str) -> dict:
+    return {"ok": False, "error": f"还没有叫「{clip(hint, 20)}」的愿望。TA 想新开一个，就先 edit_plan(add, kind=wish) 建好再提议",
+            "tip": f"还没有「{clip(hint, 12)}」这个愿望"}
 
 # 「明确要求记住」的说法。没有这些词时，remember 一律拒绝——近况交给夜里的整理，
 # 不让模型把随口一提升级成受保护的长期记忆（讨论稿 2.4 的读写边界）。
@@ -531,7 +593,8 @@ EDIT_ASK = re.compile(r"删|去掉|移除|拿掉|不要了|不用了|取消|收�
                       r"|放一放|先放|放回|不做了|先不做|标一下|标上|打卡|记上|记一下|完成了|做完|搞定|到达|达成|关掉|关了|关闭|打开|开启|停掉|暂停|重命名|名字|叫我|叫你|频率|日期|几号"
                       r"|少一点|少点|少做|减|降|轻一点|帮我|帮忙|麻烦|弄一下|合并|重复了|不偷懒|不休息|别催|催我|督促|找我|提醒我"
                       r"|性格|温柔|活泼|有条理|主题|氛围"
-                      r"|就叫|叫它|改叫|取名|起名|命名|开一个|再开|开个|立个|再来一个|新的愿望")
+                      r"|就叫|叫它|改叫|取名|起名|命名|开一个|再开|开个|立个|再来一个|新的愿望"
+                      r"|新愿望|愿望[:：是]|想(要)?(做|开|立|定|许|建|搞|弄)(一)?个|开始(练|学|做|健身|跑)|想(练|学)")
 AGREE_START = re.compile(r"(好|行|可以|嗯|对|是|要|ok|okay|当然|没问题|就这样|那就|同意|确定|确认|没错|中|成|去吧|弄吧|来吧|拜托|麻烦)", re.I)
 NEGATE = re.compile(r"不|别|算了|等等|再想想")
 # 让小光「删一个」却没点名：要删哪个得先问（「删掉一个吧」「帮我精简一下」）
@@ -571,11 +634,12 @@ def _agreeing(store: Store, t: str) -> bool:
     return bool(re.search(r"[吗？?]", last_ai))
 
 
-def consented(store: Store, user_text: str, removing: bool = False) -> bool:
+def consented(store: Store, user_text: str, removing: bool = False, routed: bool = False) -> bool:
+    """routed：路由（core/router.py，模型判断）认为 TA 这一句就是要做这件事。删除照旧只认 TA 的原话。"""
     t = (user_text or "").strip()
     if removing and VAGUE_REMOVE.search(t):
         return _agreeing(store, t)
-    return bool(EDIT_ASK.search(t)) or _agreeing(store, t)
+    return bool(EDIT_ASK.search(t)) or _agreeing(store, t) or (routed and not removing)
 
 
 def _pick_task(uid: str, ref: str, prefer: bool | None = None) -> dict | None:
@@ -652,11 +716,12 @@ def notebook_edit(store: Store, action: str, text: str, old: str = "", section: 
     return {"ok": True, "notebook": clip(nb, 1600)}
 
 
-def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
+def run_tool(store: Store, name: str, args: dict, user_text: str = "", routed: str = "") -> dict:
+    """routed：这一句路由判断要做的工具名（没有就是空），许可检查用。"""
     # 「我到了 / 做到了」只是报告一件事实（和 complete_step 一样），不算改 TA 写下的东西
     reached = name == "edit_plan" and args.get("kind") == "milestone" and args.get("status") == "done" and         not any(args.get(k) for k in ("title", "due_day", "due_in_days", "shift_days", "delete")) and args.get("action") in (None, "", "change")
     removing = args.get("action") in ("remove", "delete") or bool(args.get("delete"))
-    if name in CONSENT_TOOLS and user_text and not reached and not consented(store, user_text, removing):
+    if name in CONSENT_TOOLS and user_text and not reached and not consented(store, user_text, removing, routed == name):
         return {"ok": False, "skipped": True, "need_consent": True,
                 "error": "TA 这句话没让你改。先用一句话说清你打算怎么改，问 TA 要不要；TA 同意了再改。这一轮别说已经改好了。"}
     if name == "look_up":
@@ -888,8 +953,12 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
     if name == "propose_plan":
         ws = journey.wishes(store)
         if not ws:
-            return {"ok": False, "error": "还没有愿望，先请对方在蜕变计划里定一个"}
-        w = _match_wish(store, ws, str(args.get("wish") or ""))
+            return {"ok": False, "error": "还没有愿望。TA 想要哪个愿望，就先 edit_plan(add, kind=wish) 建好再提议", "tip": "还没有愿望"}
+        if not any(args.get(k) for k in ("milestones", "habits", "steps")):
+            return {"ok": False, "error": "这次调用没有内容：写上愿望名字和要提议的里程碑 / 习惯 / 小步，再调用一次", "tip": "这一版没写好"}
+        w = _match_wish(store, ws, str(args.get("wish") or ""), strict=True)
+        if not w:
+            return _no_wish(str(args.get("wish") or ""))
 
         def items(key, n, fields):
             out = []
@@ -902,16 +971,22 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "") -> dict:
                 "steps": items("steps", 3, ("title", "why"))}
         plan, dropped = journey.drop_dups(store, w["id"], plan)
         if not any(plan.values()):
-            return {"ok": False, "error": "这些路径上都已经有了。想改已有的那几项，就用 edit_plan 直接改", "already": dropped}
+            return {"ok": False, "error": "这些路径上都已经有了。想改已有的那几项，就用 edit_plan 直接改", "already": dropped,
+                    "tip": "这些在路上已经有了"}
         for h in plan["habits"]:
             h["freq"] = "weekly" if h.get("freq") == "weekly" else "daily"
+        if _plan_titles(plan) == _plan_titles(_pending_plan(store, w["id"]) or {}):
+            return {"ok": True, "unchanged": True,
+                    "note": "和上面那张还没点的卡片一模一样，没有再出一张。请 TA 在那张卡片上点「加进计划」；TA 想改哪一项再出新的一版"}
         return {"ok": True, "pending": True, "note": "只是提议，用户勾选后才会加入计划",
                 "already_on_path": dropped, "wish_id": w["id"], "wish_title": w["title"], "plan": plan, "why": clip(str(args.get("note") or ""), 80)}
     if name == "add_habit":
         ws = journey.wishes(store)
         if not ws:
-            return {"ok": False, "error": "还没有愿望"}
-        w = _match_wish(store, ws, str(args.get("wish") or ""))
+            return {"ok": False, "error": "还没有愿望", "tip": "还没有愿望"}
+        w = _match_wish(store, ws, str(args.get("wish") or ""), strict=True)
+        if not w:
+            return _no_wish(str(args.get("wish") or ""))
         try:
             h = journey.add_habit(store, w["id"], str(args.get("title") or ""), str(args.get("freq") or "daily"),
                                   args.get("per_week") or 3)
@@ -1067,7 +1142,7 @@ def chat(store: Store, user_text: str, *, extract: bool = True, topic: str = "")
                 if c["name"] == "search_memory":
                     yield ("mood", {"id": MOODS["searching"]})
                 snap = acts.before(store, c["name"], args)
-                result = run_tool(store, c["name"], args, user_text)
+                result = run_tool(store, c["name"], args, user_text, route.get("tool") or "")
                 tool_log.append({"name": c["name"], "args": args, "result": result})
                 if result.get("skipped"):
                     blocked.add(c["name"])
@@ -1093,6 +1168,7 @@ def chat(store: Store, user_text: str, *, extract: bool = True, topic: str = "")
         all_acts.append(extra)
     meta = {"memories": [m["id"] for m in retrieved], "tools": [{"name": t["name"], "args": t["args"]} for t in tool_log],
             "acts": all_acts}
+    replace_old_plans(store, all_acts)
     mid = store.add_message("assistant", reply, meta)
     yield ("done", {"message_id": mid["id"]})
     yield ("mood", {"id": MOODS["idle"]})
@@ -1100,6 +1176,24 @@ def chat(store: Store, user_text: str, *, extract: bool = True, topic: str = "")
     # 隐性记忆改为日终统一整理（core/digest.py）；逐轮抽取只在显式打开时运行
     if extract and reply and os.environ.get("MANIFEST_TURN_EXTRACT") == "1":
         threading.Thread(target=_extract_bg, args=(store.uid, user_text, reply), daemon=True).start()
+
+
+def replace_old_plans(store: Store, new_acts: list[dict]) -> None:
+    """这一轮给某个愿望出了新的一版安排：之前还没点的同一个愿望的安排卡片标成「已换成新的一版」，不能再点。"""
+    wids = {a.get("wish_id") for a in new_acts if a.get("type") == "ask" and a.get("ask") == "plan" and a.get("wish_id")}
+    if not wids:
+        return
+    rows = store.c.execute("SELECT id, meta FROM msg WHERE role='assistant' ORDER BY created_at DESC LIMIT 30").fetchall()
+    for r in rows:
+        meta = loads(r["meta"], {}) or {}
+        hit = False
+        for a in meta.get("acts") or []:
+            if a.get("type") == "ask" and a.get("ask") == "plan" and a.get("wish_id") in wids and not a.get("state"):
+                a["state"] = "replaced"
+                hit = True
+        if hit:
+            with store.lock:
+                store.c.execute("UPDATE msg SET meta=? WHERE id=?", (dumps(meta), r["id"]))
 
 
 def _extract_bg(uid: str, user_text: str, reply: str) -> None:

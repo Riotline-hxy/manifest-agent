@@ -58,10 +58,10 @@ _calls: dict[str, list] = {}
 _orig_run_tool = agent.run_tool
 
 
-def _run_tool(store, name, args, user_text=""):
-    result = _orig_run_tool(store, name, args, user_text)
+def _run_tool(store, name, args, user_text="", routed=""):
+    result = _orig_run_tool(store, name, args, user_text, routed)
     _calls.setdefault(store.uid, []).append({"name": name, "args": args, "ok": result.get("ok"),
-                                              "skipped": bool(result.get("skipped"))})
+                                              "skipped": bool(result.get("skipped") or result.get("unchanged"))})   # 和上一版一样、没出新卡片的，不算调用
     return result
 
 
@@ -105,6 +105,16 @@ def build_user(profile: dict, persona: str) -> Store:
     return st
 
 
+def plan_card(st, card: dict) -> dict:
+    """前情里的「提议安排」→ 和 core/acts.py 画的一样的待确认卡片（还没点）。"""
+    w = next((x for x in journey.wishes(st) if x["title"] == card.get("愿望")), None) or journey.wishes(st)[0]
+    plan = {"milestones": [{"title": t} for t in card.get("里程碑") or []],
+            "habits": [{"title": t, "freq": "weekly", "per_week": 3} for t in card.get("习惯") or []],
+            "steps": [{"title": t} for t in card.get("小步") or []]}
+    return {"type": "ask", "ask": "plan", "icon": "flag", "color": "var(--c-orange)", "question": f"给「{w['title']}」的一套安排，勾掉不想要的",
+            "plan": plan, "why": "", "wish_id": w["id"], "wish_title": w["title"], "state": ""}
+
+
 def merged_profile(base: dict, case: dict) -> dict:
     p = dict(base)
     p.update(case.get("档案改动") or {})
@@ -116,8 +126,12 @@ def merged_profile(base: dict, case: dict) -> dict:
 def run_one(base: dict, case: dict, pname: str) -> dict:
     st = build_user(merged_profile(base, case), PERSONAS[pname])
     for turn in case.get("前情") or []:     # 这句话之前已经发生的对话
+        card = turn.get("提议安排")             # 小光那句话下面还挂着一张没点的安排卡片
         for who, text in turn.items():
-            st.add_msg("user" if who == "用户" else "assistant", str(text))
+            if who == "提议安排":
+                continue
+            meta = {"acts": [plan_card(st, card)]} if card and who != "用户" else None
+            st.add_msg("user" if who == "用户" else "assistant", str(text), meta)
     t0 = time.time()
     first, reply, errors = None, "", []
     try:

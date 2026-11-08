@@ -2172,6 +2172,51 @@ class ApiTest(unittest.TestCase):
             wish = next(x for x in journey.wishes(st) if x["title"] == "学吉他")
             self.assertEqual(wish["target_day"], (date.today() + timedelta(days=60)).isoformat())
 
+    def test_new_wish_and_revising_a_pending_plan(self):
+        """2026-11-08 的两段对话：「我想要做一个新愿望，是健身」被许可检查挡掉、一直陪聊；
+        提议的安排还没加进计划，TA 说其中一个小步麻烦，小光却去计划里找。"""
+        c, uid = self.onboarded("wish_flow")
+        from core import acts, agent, router
+        with Store(uid) as st:
+            ok = agent.run_tool(st, "edit_plan", {"action": "add", "kind": "wish", "title": "健身"}, "我想要做一个新愿望，是健身")
+            self.assertTrue(ok["ok"], ok)
+            routed = agent.run_tool(st, "edit_plan", {"action": "add", "kind": "step", "title": "换上运动鞋", "wish": "健身"},
+                                    "早上起来很昏沉", routed="edit_plan")
+            self.assertTrue(routed["ok"], routed)                        # 路由判断就是要加：放行
+            gone = agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "step", "target": "换上运动鞋"},
+                                  "最近好累", routed="edit_plan")
+            self.assertTrue(gone.get("need_consent"))                    # 删东西仍然只认 TA 的原话
+            empty = agent.run_tool(st, "propose_plan", {})
+            self.assertFalse(empty["ok"])
+            self.assertNotIn("已经有了", empty["error"])
+            nowish = agent.run_tool(st, "propose_plan", {"wish": "学钢琴", "steps": [{"title": "找一首曲子"}]})
+            self.assertFalse(nowish["ok"])
+            self.assertIn("学钢琴", nowish["error"])
+            slip = acts.view(st, "propose_plan", {}, nowish, {})[0]
+            self.assertTrue(slip["fail"])
+            self.assertNotRegex(slip["new"], r"[a-z_]{4,}")              # 给 TA 看的那行没有工具名
+            self.assertIn("edit_plan", slip["why"])                      # 给小光看的原因还在
+
+        plan = {"wish": "健身", "milestones": [{"title": "一周能练上三次", "due_in_days": 14}],
+                "habits": [{"title": "练完拉伸五分钟", "freq": "weekly", "per_week": 3}],
+                "steps": [{"title": "今晚挑一个想练的部位，存个视频"}, {"title": "现在站起来走十分钟"}]}
+        self.fake.turns = [[("tool_calls", [{"id": "p1", "name": "propose_plan", "arguments": json.dumps(plan, ensure_ascii=False)}])],
+                           [("text", "拆好啦，你看看哪些想加进来～")]]
+        c.sse("帮我拆一下吧")
+        with Store(uid) as st:
+            self.assertIn("今晚挑一个想练的部位", "".join(router.pending_plan(st)))
+            last = [m for m in agent.history(st) if m["role"] == "system"][-1]["content"]
+            self.assertIn("还没加进计划", last)
+            self.assertIn("今晚挑一个想练的部位，存个视频", last)
+        plan2 = {**plan, "steps": [{"title": "现在站起来走十分钟"}]}
+        self.fake.turns = [[("tool_calls", [{"id": "p2", "name": "propose_plan", "arguments": json.dumps(plan2, ensure_ascii=False)}])],
+                           [("text", "把存视频那条拿掉了，你再看看～")]]
+        c.sse("今晚挑一个想练的部位，存个视频这个小步，我觉得有点麻烦")
+        with Store(uid) as st:
+            asks = [a for m in st.messages(20) for a in (m.get("meta") or {}).get("acts") or [] if a.get("ask") == "plan"]
+            self.assertEqual([a["state"] for a in asks], ["replaced", ""])   # 旧的一版作废，新的一版等 TA 点
+            self.assertNotIn("存个视频", "".join(router.pending_plan(st)))
+
     def test_look_up_and_app_guide_cover_every_area(self):
         c, uid = self.onboarded("lookup")
         c.req("POST", "/api/record", {"type": "good", "text": "楼下的猫冲我叫了一声"})

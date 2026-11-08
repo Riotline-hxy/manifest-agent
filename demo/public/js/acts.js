@@ -113,7 +113,10 @@ function askPlan(el, v, i, ctx) {
   const foot = el.querySelector(".act-foot");
   if (v.state === "added") { foot.innerHTML = `<span class="act-done">${icon("check")}加进计划了</span><button class="act-link" data-go="plan">去看看</button>`; }
   else if (v.state === "skipped") { foot.innerHTML = `<span class="act-note">这次先不加</span>`; el.classList.add("dim"); }
+  else if (v.state === "replaced") { foot.innerHTML = `<span class="act-note">已换成下面新的一版</span>`; el.classList.add("dim"); }
   else {
+    el.dataset.planWish = v.wish_id || "";
+    el._v = v;
     const groups = [["milestones", "里程碑"], ["habits", "习惯"], ["steps", "小步"]];
     foot.classList.add("act-pick");
     foot.innerHTML = `${v.why ? `<p class="act-why">${esc(v.why)}</p>` : ""}
@@ -178,6 +181,15 @@ export function actsBlock(acts, ctx) {
 
 // 正在回复时，一个动作刚做完：画出来，顺手飞一下经验
 export function liveAct(v, i, ctx, gainFrom) {
+  if (v?.type === "ask" && v.ask === "plan" && v.wish_id) {   // 同一个愿望出了新的一版：上面还没点的旧卡片作废（服务器那边也会标上）
+    document.querySelectorAll(`.act-ask[data-plan-wish="${CSS.escape(v.wish_id)}"]`).forEach((old) => {
+      if (!old._v || old._v.state) return;
+      old._v.state = "replaced";
+      old.querySelector(".act-foot").classList.remove("act-pick");
+      delete old.dataset.planWish;
+      askPlan(old, old._v);
+    });
+  }
   const el = actEl(v, i, ctx);
   if (!el) return null;
   if (v.type === "slip" && v.gain) setTimeout(() => flyGain(el.querySelector(".act-gain") || el, gainFrom || { amount: v.gain }), 250);
