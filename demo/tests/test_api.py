@@ -26,7 +26,7 @@ os.environ["MANIFEST_ADMIN_KEY"] = "test-admin"
 sys.path.insert(0, DEMO)
 
 import server  # noqa: E402
-from core import auth, llm, scheduler, tasks, webpush  # noqa: E402
+from core import auth, llm, scheduler, tasks, town, webpush  # noqa: E402
 from core.store import Store  # noqa: E402
 
 ONBOARD = {"agent_name": "阿光", "agent_avatar_id": "stardust", "intent_primary": "健康作息",
@@ -1220,7 +1220,7 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(t["size"], 7)
         self.assertEqual(t["welcome"]["kind"], "migrated")
         self.assertIsNone(g["level_up"])                               # 老账号已经到的等级不补庆祝
-        self.assertEqual({i["kind"] for i in t["items"]}, {"sign", "road"})
+        self.assertEqual({i["kind"] for i in t["items"]}, {"cottage", "road", "sign", "lamp"})   # 新手小镇
         with Store(uid) as st:
             self.assertEqual(st.get_memory(pet["id"])["status"], "archived")
             self.assertEqual(st.get_memory(keep["id"])["status"], "active")
@@ -1250,22 +1250,25 @@ class ApiTest(unittest.TestCase):
         c, uid = self.onboarded("town")
         _, d = c.req("GET", "/api/bootstrap")
         self.assertEqual(d["growth"]["coins"], 0)
-        s, err = c.req("POST", "/api/town", {"action": "buy", "kind": "cottage", "x": 2, "y": 2, "nonce": "first-try"})
+        self.assertEqual(sorted((i["kind"], i["x"], i["y"]) for i in d["town"]["items"]),          # 新手小镇：屋、路、路牌、两盏灯
+                         sorted(town.STARTER))
+        s, err = c.req("POST", "/api/town", {"action": "buy", "kind": "cottage", "x": 0, "y": 0, "nonce": "first-try"})
         self.assertEqual(s, 400)                                       # 还没做事，没有金币
         c.req("POST", "/api/step", {"action": "add", "title": "整理书桌"})
         sid = next(x for x in c.req("GET", "/api/bootstrap")[1]["steps"] if x["status"] == "todo")["id"]
         _, d = c.req("POST", "/api/step", {"action": "done", "id": sid})
         self.assertEqual(d["growth"]["coins"], 60)
-        buy = {"action": "buy", "kind": "cottage", "x": 2, "y": 2, "nonce": "click-0001"}
+        buy = {"action": "buy", "kind": "cottage", "x": 0, "y": 0, "nonce": "click-0001"}
         s, d = c.req("POST", "/api/town", buy)
         self.assertEqual(s, 200, d)
+        hid = d["built"]["id"]
         self.assertEqual(d["built"]["name"], "小木屋")
         self.assertIn("整理书桌", d["built"]["story"]["text"])        # 记下那之前做成的事
         self.assertEqual(d["growth"]["coins"], 20)
         s, d = c.req("POST", "/api/town", buy)                        # 同一次点击重发：不再扣钱
         self.assertTrue(d["built"]["again"])
         self.assertEqual(d["growth"]["coins"], 20)
-        self.assertEqual(sum(1 for i in d["town"]["items"] if i["kind"] == "cottage"), 1)
+        self.assertEqual(sum(1 for i in d["town"]["items"] if i["kind"] == "cottage"), 2)   # 送的那间 + 买的这间
         for bad, why in ((dict(buy, nonce="click-0002"), "这里已经有东西了"),
                          (dict(buy, nonce="click-0003", x=1, y=1), "金币还差"),
                          (dict(buy, nonce="click-0004", kind="house", x=1, y=1), "Lv3"),
@@ -1274,14 +1277,13 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(s, 400, bad)
             self.assertIn(why, err["error"])
         self.assertEqual(c.req("GET", "/api/bootstrap")[1]["growth"]["coins"], 20)   # 失败的不扣钱
-        hid = next(i for i in d["town"]["items"] if i["kind"] == "cottage")["id"]
         _, d = c.req("POST", "/api/town", {"action": "move", "id": hid, "x": 4, "y": 1})
         self.assertEqual((d["moved"]["x"], d["moved"]["y"]), (4, 1))
-        self.assertEqual(c.req("POST", "/api/town", {"action": "move", "id": hid, "x": 0, "y": 0})[0], 400)   # 路牌在那儿
+        self.assertEqual(c.req("POST", "/api/town", {"action": "move", "id": hid, "x": 1, "y": 4})[0], 400)   # 路牌在那儿
         _, d = c.req("POST", "/api/town", {"action": "store", "id": hid})
         self.assertIn(hid, [i["id"] for i in d["town"]["warehouse"]])
         self.assertNotIn(hid, [i["id"] for i in d["town"]["items"]])
-        _, d = c.req("POST", "/api/town", {"action": "place", "id": hid, "x": 3, "y": 3})
+        _, d = c.req("POST", "/api/town", {"action": "place", "id": hid, "x": 4, "y": 4})
         self.assertIn(hid, [i["id"] for i in d["town"]["items"]])
         self.assertEqual(d["growth"]["coins"], 20)                    # 挪、收、放都不花钱
         _, d = c.req("POST", "/api/town", {"action": "rename", "name": "晴 天 镇"})
@@ -1289,6 +1291,23 @@ class ApiTest(unittest.TestCase):
         ledger = c.req("GET", "/api/bootstrap")[1]["growth"]["ledger"]
         self.assertIn(("建造：小木屋", -40), [(e["note"], e["coins"]) for e in ledger])
         self.assertIn(("完成：整理书桌", 10, 10), [(e["note"], e["xp"], e["coins"]) for e in ledger])   # 同一件事一行
+
+    def test_old_starter_town_upgrades_only_if_untouched(self):
+        """以前开镇只有路牌和两格路：原样没动过的换成新手小镇；自己摆过东西的一样都不碰。只做一次。"""
+        old = [("sign", 0, 0), ("road", 2, 4), ("road", 2, 3)]
+        accounts = {}
+        for name, extra in (("starter_old", None), ("starter_built", ("tree", 4, 0))):
+            c, uid = self.onboarded(name)
+            with Store(uid) as st:
+                st.c.execute("DELETE FROM town_item")
+                for kind, x, y in old + ([extra] if extra else []):
+                    town._insert(st, kind, x, y, source="gift" if not extra or (kind, x, y) != extra else "shop")
+                st.set_profile({"town_v": 2})
+            accounts[name] = c
+        _, d = accounts["starter_old"].req("GET", "/api/bootstrap")
+        self.assertEqual(sorted((i["kind"], i["x"], i["y"]) for i in d["town"]["items"]), sorted(town.STARTER))
+        _, d = accounts["starter_built"].req("GET", "/api/bootstrap")
+        self.assertEqual(sorted((i["kind"], i["x"], i["y"]) for i in d["town"]["items"]), sorted(old + [("tree", 4, 0)]))
 
     def test_daily_tasks_pay_once_and_chat_gives_no_coins(self):
         from core.util import day_key
@@ -1405,9 +1424,9 @@ class ApiTest(unittest.TestCase):
         sid = next(x for x in c.req("GET", "/api/bootstrap")[1]["steps"] if x["status"] == "todo")["id"]
         _, d = c.req("POST", "/api/step", {"action": "done", "id": sid})
         coins = d["growth"]["coins"]
-        _, d = c.req("POST", "/api/town", {"action": "buy", "kind": "cottage", "x": 3, "y": 3, "nonce": "cheap-0001"})
+        _, d = c.req("POST", "/api/town", {"action": "buy", "kind": "cottage", "x": 4, "y": 0, "nonce": "cheap-0001"})
         self.assertEqual(d["growth"]["coins"], coins - 25)            # 按后台改过的价格扣
-        self.assertEqual(c.req("POST", "/api/town", {"action": "buy", "kind": "bush", "x": 1, "y": 3, "nonce": "bush-0001"})[0], 400)
+        self.assertEqual(c.req("POST", "/api/town", {"action": "buy", "kind": "bush", "x": 0, "y": 3, "nonce": "bush-0001"})[0], 400)
         for bad in ({"nope": {"price": 1}}, {"cottage": {"price": -1}}, {"cottage": {"lv": "x"}}):
             self.assertEqual(a.req("POST", "/api/admin/town", {"items": bad})[0], 400, bad)
         _, cat = a.req("POST", "/api/admin/town", {"items": {"cottage": None, "bush": None}})   # 恢复默认

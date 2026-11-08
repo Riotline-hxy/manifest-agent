@@ -442,8 +442,8 @@ function welcomeSheet(t) {
   const body = h("div", { class: "tn-welcome", html: `
     <div class="tw-hero">${townSVG(t, { still: true })}</div>
     ${old ? `<p>小芽和徽章收起来了，换成了你自己的小镇。你的 <b>${w.xp}</b> 经验都在，小镇现在是 <b>Lv ${w.lv}</b>，过去的经验还换成了 <b>${w.coins}</b> 金币。</p>`
-      : `<p>现在只是一小块地。</p>`}
-    <p>每做成一件小事，都会得到经验和金币：经验让小镇升级，金币用来盖东西。${old ? "" : "做成第一件，就够盖一栋小木屋。"}</p>` });
+      : `<p>一间小木屋，一条小路，路口立着写着小镇名字的路牌，天黑了路灯会亮。剩下的地，等你慢慢盖。</p>`}
+    <p>每做成一件小事，都会得到经验和金币：经验让小镇升级，金币用来盖东西。${old ? "" : "做成第一件，就够再添点什么。"}</p>` });
   const done = () => api.town("welcome_seen").then((out) => setData(out, { silent: true })).catch(() => {});
   const s = sheet({ title: old ? "欢迎来到你的小镇" : "这是你的小镇", sticker: "home", body, onClose: done,
     footer: [h("button", { class: "btn btn-main", onclick: () => s.close() }, "好，去看看")] });

@@ -26,7 +26,7 @@ import threading
 from . import growth
 from .util import DATA, clip, dumps, iso, loads, new_id, now
 
-TOWN_V = 2                  # 1：开镇；2：等级换成递增曲线，老账号记下保底等级
+TOWN_V = 3                  # 1：开镇；2：等级换成递增曲线，老账号记下保底等级；3：新手小镇换成有屋有路有灯的样子
 OLD_LEVEL_XP = 40           # 3.0 之前：每 40 经验一级
 MIGRATE_RATE = 0.5          # 老账号：过去的经验换成金币的比例
 
@@ -142,6 +142,13 @@ def bundle_js() -> bytes:
 # (从第几级起, 土地边长)
 LAND = ((1, 5), (3, 6), (6, 7), (10, 8), (15, 9), (20, 10), (26, 11), (32, 12))
 
+# 新开的小镇（5×5 的地）：一间小木屋，门口一条小路通到地边，路口立着路牌，路两边各一盏路灯。都算小镇送的。
+# 小木屋的门朝 +y（屏幕左下），所以路从 (2,2) 往 +y 铺到地边。
+STARTER = (("cottage", 2, 1), ("road", 2, 2), ("road", 2, 3), ("road", 2, 4),
+           ("sign", 1, 4), ("lamp", 1, 2), ("lamp", 3, 3))
+# 以前开镇只放的那三样（路牌和一小段路），一直没动过的账号升级成上面的样子
+OLD_STARTER = {("sign", 0, 0), ("road", 2, 4), ("road", 2, 3)}
+
 # 小光关于下架功能的记忆：开镇时收起来（不是删除，「小光记得的」里也就看不到了）
 RETIRED = re.compile(r"小芽|宠物|徽章|勋章|焰尾狐|花角鹿|澜灵|星灵|涟芽|进化图|分化成")
 
@@ -195,7 +202,7 @@ def unlock_text() -> str:
 
 def ensure(st) -> None:
     """每个账号第一次用到小镇时做一次：老账号把过去的经验换成金币、按旧算法到过的等级记成保底，
-    收起小光关于宠物和徽章的记忆，放下路牌和一小段路。之后每次调用只读一个画像字段。"""
+    收起小光关于宠物和徽章的记忆，放下新手小镇（STARTER）。之后每次调用只读一个画像字段。"""
     if int(st.profile().get("town_v") or 0) >= TOWN_V:
         return
     with st.tx():
@@ -212,11 +219,25 @@ def ensure(st) -> None:
             if gift:
                 growth._coin(st, "migrate", gift, "migrate:v1", f"过去的 {total} 经验换成了建材")
             if not st.c.execute("SELECT 1 FROM town_item LIMIT 1").fetchone():
-                for kind, x, y in (("sign", 0, 0), ("road", 2, 4), ("road", 2, 3)):
-                    _insert(st, kind, x, y, source="gift")
+                _starter(st)
             _retire_memories(st, p)
             patch["town_welcome"] = {"kind": "migrated" if total else "new", "xp": total, "coins": gift, "lv": lv}
+        elif v < 3:
+            _upgrade_starter(st)
         st.set_profile(patch)
+
+
+def _starter(st) -> None:
+    for kind, x, y in STARTER:
+        _insert(st, kind, x, y, source="gift")
+
+
+def _upgrade_starter(st) -> None:
+    """老的新手小镇（只有路牌和两格路）原样没动过：换成新手小镇。摆过、挪过、买过东西的不碰。"""
+    rows = st.c.execute("SELECT kind, x, y, placed, source FROM town_item").fetchall()
+    if {(r["kind"], r["x"], r["y"]) for r in rows} == OLD_STARTER and len(rows) == len(OLD_STARTER)             and all(r["placed"] and r["source"] == "gift" for r in rows):
+        st.c.execute("DELETE FROM town_item")
+        _starter(st)
 
 
 def _retire_memories(st, p: dict) -> None:
@@ -238,7 +259,7 @@ def seed_demo(st) -> None:
         total = growth.total_xp(st)
         if total and not st.c.execute("SELECT 1 FROM coin WHERE ref='migrate:v1'").fetchone():
             growth._coin(st, "migrate", round(total * MIGRATE_RATE), "migrate:v1", f"过去的 {total} 经验换成了建材")
-        for kind, x, y in (("cottage", 1, 1), ("tree", 3, 1), ("flowers", 1, 3), ("bush", 0, 3), ("road", 2, 2), ("road", 2, 1)):
+        for kind, x, y in (("tree", 3, 1), ("flowers", 1, 3), ("bush", 0, 2), ("tree", 4, 4)):   # 新手小镇上再添几样
             if not _taken(st) & _cells(x, y, 1, 1):
                 _insert(st, kind, x, y, source="demo", story=_story(st))
         st.set_profile({"town_seen_level": growth.level(st)["lv"], "town_welcome": ""})
