@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="mist">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>调整现有计划 · 演示</title>
+<link rel="stylesheet" href="../../demo/public/css/fonts.css">
+<link rel="stylesheet" href="../../demo/public/css/base.css">
+<link rel="stylesheet" href="../../demo/public/css/components.css">
+<link rel="stylesheet" href="../../demo/public/css/chat.css">
+<link rel="stylesheet" href="../../demo/public/css/tune.css">
+<link rel="stylesheet" href="../聊聊现在的你/flow.css">
+<link rel="stylesheet" href="demo.css">
+<script src="../聊聊现在的你/icons.js"></script>
+<script src="../聊聊现在的你/shared.js"></script>
+<script src="../聊聊现在的你/ill2.js"></script>
+<script src="engine.js"></script>
+<script src="data.js"></script>
+</head>
+<body>
+<script>
+// 演示：阿青的计划（两个愿望、三个习惯、一个放了 6 天的小步、一个里程碑）。
+// 三个问题 → 把回答和整份计划发给模型 → 一份调整方案（看到的你 + 几条改动）→ 不对就说一句重新调 → 一键调整 → 小报告。
+// 方案和重新调整都是真模型（DeepSeek flash，温柔）用 gen.py 里的提示词预先跑出来的。
+const O = window.OPT;
+const SELF = "（原型里自己写的不调模型；正式版会把你写的一起发给小光）";
+const PLAN = [
+  { label: "每天背 20 个单词", hint: "习惯 · 每天 · 本周 2/7", prog: 2 / 7, icon: "check" },
+  { label: "跟读一段对话", hint: "习惯 · 每周 3 次 · 本周 1/3", prog: 1 / 3, icon: "check" },
+  { label: "约 Mia 周末练口语", hint: "小步 · 放了 6 天", icon: "flag" },
+  { label: "12 点前放下手机", hint: "习惯 · 每天 · 本周 4/7 · 睡好一点", prog: 4 / 7, icon: "check" },
+];
+const WEEK = `<div class="rowcs wk">${PLAN.map((p) => `<div class="rowc">${icon(p.icon)}<span><b>${p.label}</b><small>${p.hint}</small></span>${p.prog != null ? `<em class="prog"><i style="width:${Math.round(p.prog * 100)}%"></i></em>` : ""}</div>`).join("")}</div>
+  <p class="tb-note">里程碑「能用英语做 3 分钟自我介绍」还有 10 天。</p>`;
+const ILLS = { busy: "busy", steady: "steady", change: "change", slow: "slow", seed: "pot1", sprout: "pot2", more: "pot3",
+  smooth: "sunrise", stuck: "stone", full: "busy", none: "battery" };
+const short = (s) => s.split("（")[0];
+const hint = (s) => (s.split("（")[1] || "").replace("）", "");
+const cards = (obj, react) => Object.entries(obj).map(([v, s]) => ({ v, label: short(s), hint: hint(s), ill: ILLS[v], react: react[v] }));
+const KIND = { habit_small: "改小一点", habit_freq: "降频率", habit_cue: "换个时间", habit_pause: "这周先停", step_small: "先做第一下",
+  step_move: "换个日子", ms_delay: "推后一点", step_add: "加一小步" };
+
+runFlow({
+  title: "调整现有计划",
+  sub: "说说现在的你，我帮你把计划调顺",
+  endSub: "这是给你的调整方案",
+  state: { total: 3 },
+  first: "state",
+  steps: {
+    state: { type: "cards", q: "最近的你，更像哪一种？", opts: cards(O.STATE, { busy: "最近事情不少呀。", steady: "有自己的节奏，挺好。",
+      change: "变化的时候，计划也该跟着变一变。", slow: "好，那我们不着急。" }), custom: "说说最近的你", next: "energy" },
+    energy: { type: "cards", q: "现在，你能拿出多少劲？", opts: cards(O.ENERGY, { seed: "好，那每件事都要小到两分钟做得完。",
+      sprout: "好，每天一小会，刚刚好。", more: "好，那可以多安排一点。" }), custom: "说说你的劲头", next: "feel" },
+    feel: { type: "cards", q: "这阵子的计划，做起来怎么样？", body: WEEK, opts: cards(O.FEEL, {}), custom: "说说哪里不顺", next: null },
+  },
+
+  ending: async (st, ui) => {
+    const { xg, me, dock } = ui;
+    const key = `${st.a.state}|${st.a.energy}|${st.a.feel}`;
+    let plan = D.plan[key], round = 0;
+    if (!plan) { await xg(`${SELF}<br>原型里三题都点卡片，才有预先跑好的方案。`); ui.bar("", `<button class="tb-skip" data-again>再来一遍</button>`); dock.querySelector("[data-again]").onclick = () => document.querySelector(".tb-x").click(); return; }
+
+    // 一份方案：看到的你 + 几条改动（同一项只留第一条），每条都能取消
+    const show = async (p, think) => {
+      const seen = new Set();
+      const ch = (p.changes || []).filter((c) => KIND[c.kind] && !seen.has(c.target) && seen.add(c.target));
+      const list = ch.length ? `<div class="chg">${ch.map((c, i) => `<label class="chg-row" style="--i:${i}"><input type="checkbox" checked data-i="${i}">
+          <span><small class="k">${KIND[c.kind]}</small><b>${c.kind === "step_add" ? `加进「${esc(c.target)}」：${esc(c.to)}` : `<s>${esc(c.target)}</s> → ${esc(c.to)}`}</b><em>${esc(c.why)}</em></span></label>`).join("")}</div>`
+        : `<div class="chg-none">${icon("check")} 计划不用改，照现在的来就好。</div>`;
+      const row = await xg(`<div class="bub">${esc(p.see)}</div>${list}
+        ${ch.length ? `<div class="tb-acts"><button class="btn btn-good" data-go>一键调整</button></div>` : ""}`, { wide: true, think });
+      if (!row) return;
+      // 底下：觉得不对就说一句，重新调；几句现成的
+      const revs = round === 0 && D.revise[`${key}#0`] ? O.REVISIONS : [];
+      dock.innerHTML = "";
+      ui.bar("", "");
+      const composer = document.createElement("div");
+      composer.style.cssText = "flex:1;display:grid;gap:8px;min-width:0";
+      composer.innerHTML = `${revs.length ? `<div class="tb-chips rev">${revs.map((r, i) => `<button class="chip" data-r="${i}">${esc(r)}</button>`).join("")}</div>` : ""}
+        <div class="tb-composer"><input maxlength="40" placeholder="哪里不对？说一句，我重新调"><button class="tb-send" aria-label="发送">${icon("send")}</button></div>`;
+      dock.querySelector(".tb-hint").replaceWith(composer);
+      const revise = async (text, i) => {
+        dock.innerHTML = "";
+        me(text);
+        round++;
+        const next = i != null ? D.revise[`${key}#${i}`] : null;
+        if (!next) { await xg(`${SELF}<br>原型里只给「忙忙碌碌 · 一点点就好 · 太满了」和「按自己的节奏 · 每天一小会 · 有点卡」预跑了重新调整，点下面现成的那几句试试。`); round--; return show(plan, 1); }
+        plan = next;
+        show(plan, 1600);
+      };
+      composer.querySelectorAll("[data-r]").forEach((b) => b.onclick = () => revise(b.textContent, +b.dataset.r));
+      const inp = composer.querySelector("input");
+      const send = () => { const v = inp.value.trim(); if (v) revise(v, null); };
+      composer.querySelector(".tb-send").onclick = send;
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) send(); });
+      row.querySelector("[data-go]")?.addEventListener("click", async () => {
+        const picked = [...row.querySelectorAll(".chg-row input:checked")].map((x) => ch[+x.dataset.i]);
+        if (!picked.length) { row.querySelector(".tb-acts").insertAdjacentHTML("beforeend", `<span class="tb-note">勾一条再调，或者点右上角回去</span>`); return; }
+        row.querySelectorAll("input").forEach((x) => (x.disabled = true));
+        row.querySelector(".tb-acts").remove();
+        ui.bar("", "", { canBack: false });
+        me("一键调整");
+        await xg(`<div class="wcard"><small>改好了</small><b>这周的计划</b>
+            <div class="plan-list">${picked.map((c) => `<p>${icon("check")}<span>${c.kind === "step_add" ? `「${esc(c.to)}」加进了「${esc(c.target)}」` : `「${esc(c.target)}」${esc(KIND[c.kind])}：${esc(c.to)}`}</span></p>`).join("")}</div></div>
+          ${keeps([{ html: `让小光记住现在的你：${esc(short(O.STATE[st.a.state]))}，劲头${esc(short(O.ENERGY[st.a.energy]))}`, to: "记忆", on: false }])}
+          <div class="tb-acts"><button class="btn btn-good" data-ok>好</button></div>`, { wide: true, think: 900 });
+        const okRow = [...document.querySelectorAll(".msg.assistant")].pop();
+        okRow.querySelector("[data-ok]").onclick = async () => { okRow.querySelector(".tb-acts").remove(); await xg("蜕变计划里已经改好了。过一阵状态变了，再回来调。"); };
+      });
+    };
+    await xg("我看看你现在的计划……", { think: 500 });
+    show(plan, 1800);
+  },
+});
+</script>
+</body>
+</html>

@@ -436,7 +436,7 @@ function dayCard(root, M, ds, kind = "") {
       html += e.moments.map((m) => `<article class="j-m" data-id="${esc(m.id)}">
         <p class="j-m-t">${esc(m.text)}</p>
         ${m.feeling ? `<p class="j-m-f">当时的感受：${esc(m.feeling)}</p>` : ""}
-        <div class="j-m-meta">${m.mood ? `<span class="pill">${esc(m.mood)}</span>` : ""}${m.source === "chat" ? `<span class="pill">${icon("chat")}来自和小光的对话</span>` : m.source === "scene" ? `<span class="pill">${icon("sparkles")}许个愿</span>` : ""}
+        <div class="j-m-meta">${m.mood ? `<span class="pill">${esc(m.mood)}</span>` : ""}${m.source === "chat" ? `<span class="pill">${icon("chat")}来自和小光的对话</span>` : m.source === "scene" ? `<span class="pill">${icon("sparkles")}显化你的愿望</span>` : ""}
           <span class="sp"></span><button class="btn btn-quiet btn-sm" data-edit>${icon("edit")}编辑</button><button class="btn btn-quiet btn-sm" data-del>${icon("trash")}删除</button></div>
       </article>`).join("");
       if (good.length) html += `<div class="j-good"><div class="lbl">那天的好消息</div>${good.map((r) => `<p>${icon("star")}${esc(r.text)}</p>`).join("")}</div>`;

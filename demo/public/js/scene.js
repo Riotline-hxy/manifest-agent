@@ -21,7 +21,7 @@ export function toStep(s, title) {
 }
 
 export function startScene(sceneId, { onFinish } = {}) {
-  // 许个愿、让愿望落地：对话样子的一页（tune.js，问题在 flows.js）
+  // 显化你的愿望、调整现有计划：对话样子的一页（tune.js，问题在 flows.js）
   if (sceneId === "relearn" || sceneId === "seven_steps_lite") return openTune(sceneId);
   let runId = null, title = "";
   // 背景音乐要在点击的这一下就开始放（手机浏览器的规矩），所以不等接口返回

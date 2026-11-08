@@ -22,8 +22,8 @@ from .util import clip, dumps, loads, now, parse_iso
 FEATURES = {
     "meditation": {"title": "冥想体验", "icon": "wind", "color": "var(--c-sky)", "open": {"scene": "meditation"}},
     "gratitude": {"title": "三分钟感恩", "icon": "heart", "color": "var(--c-pink)", "open": {"scene": "gratitude"}},
-    "seven_steps_lite": {"title": "许个愿", "icon": "star", "color": "var(--c-orange)", "open": {"scene": "seven_steps_lite"}},
-    "relearn": {"title": "让愿望落地", "icon": "sprout", "color": "var(--c-violet)", "open": {"scene": "relearn"}},
+    "seven_steps_lite": {"title": "显化你的愿望", "icon": "star", "color": "var(--c-orange)", "open": {"scene": "seven_steps_lite"}},
+    "relearn": {"title": "调整现有计划", "icon": "sprout", "color": "var(--c-violet)", "open": {"scene": "relearn"}},
     "kickstart": {"title": "两分钟启动", "icon": "footsteps", "color": "var(--c-mint)", "minutes": 2,
                   "desc": "把开不了头的事拆成一两分钟的小动作，我陪你一步步做", "open": {"kick": True}},
     "plan": {"title": "蜕变计划", "icon": "flag", "color": "var(--c-orange)", "desc": "看看愿望、里程碑和这周的习惯", "open": {"go": "plan"}},
@@ -41,7 +41,7 @@ READ_ONLY = {"look_up", "app_guide", "search_memory", "search_chats", "kick_hist
 
 # 小光嘴上推荐了一个练习、却忘了调 suggest_feature：照它说的名字补一个入口（说了「试试」就一定有入口）
 MENTION = [("两分钟启动", "kickstart"), ("冥想", "meditation"), ("三分钟感恩", "gratitude"), ("感恩练习", "gratitude"),
-           ("许个愿", "seven_steps_lite"), ("让愿望落地", "relearn")]
+           ("显化你的愿望", "seven_steps_lite"), ("调整现有计划", "relearn"), ("调整计划", "relearn")]
 SUGGEST_CUE = re.compile(r"试试|要不要|可以用|用一下|来个|做个|做一次|陪你做")
 
 

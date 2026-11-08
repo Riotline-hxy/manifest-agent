@@ -92,6 +92,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _body(self) -> dict:
+        self._body_read = True
         n = int(self.headers.get("Content-Length") or 0)
         if n > MAX_BODY:
             raise ApiError(413, "内容太长")
@@ -136,6 +137,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         path = url.path
         t0 = time.time()
+        self._body_read = False
         metrics.reset_user()
         try:
             if not path.startswith("/api/"):
@@ -158,10 +160,12 @@ class Handler(BaseHTTPRequestHandler):
                 metrics.bump("req_ms", ms)
                 if ms > 1000:
                     metrics.bump("req_slow")
-        except ApiError as e:
-            self._json(e.status, {"error": e.message})
-        except auth.AuthError as e:
-            self._json(e.status, {"error": str(e)})
+        except (ApiError, auth.AuthError) as e:
+            # 没登录、来源不对这类在读请求体之前就拒绝的：体还留在连接里，会把同一条连接上的下一个请求弄坏，所以这次就关掉连接
+            unread = method != "GET" and not getattr(self, "_body_read", False) and int(self.headers.get("Content-Length") or 0) > 0
+            if unread:
+                self.close_connection = True
+            self._json(e.status, {"error": getattr(e, "message", None) or str(e)}, {"Connection": "close"} if unread else None)
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception:

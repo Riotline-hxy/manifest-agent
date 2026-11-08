@@ -50,7 +50,7 @@ def cat_of(m: dict) -> str:
 
 
 SRC = {"confirmed": "你确认过", "onboarding": "建档时", "chat:explicit": "你让我记的", "digest": "夜里整理",
-       "scene:relearn": "让愿望落地", "scene:seven_steps_lite": "许个愿"}
+       "scene:relearn": "调整现有计划", "scene:seven_steps_lite": "显化你的愿望"}
 
 
 def _src(s: str) -> str:

@@ -9,12 +9,12 @@ VERSION = "3.16.0"
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
 IDEAS = [
-    {"id": "seven_steps_lite", "title": "许个愿", "scene": "seven_steps_lite", "kind": "tune", "minutes": 2, "cta": "许个愿",
-     "group": "愿望", "prompt": "想许一个愿望，或者给已有的愿望添点信心。",
-     "desc": "说出想要的，看见它实现的那一天；或者看看走过的路，给它添点信心。"},
-    {"id": "relearn", "title": "让愿望落地", "scene": "relearn", "kind": "tune", "minutes": 2, "cta": "调一调",
-     "group": "愿望", "prompt": "这周的计划有点卡，想调一调。",
-     "desc": "看看这周做得怎么样，把卡住的那一件调到做得成。"},
+    {"id": "seven_steps_lite", "title": "显化你的愿望", "scene": "seven_steps_lite", "kind": "tune", "minutes": 4, "cta": "开始显化",
+     "group": "愿望", "prompt": "想用显化七步，把一个愿望想清楚、更相信它。",
+     "desc": "跟着显化七步走一遍：说清它，消除怀疑，今天就行动，把它交给时间。"},
+    {"id": "relearn", "title": "调整现有计划", "scene": "relearn", "kind": "tune", "minutes": 2, "cta": "调一调",
+     "group": "愿望", "prompt": "最近状态变了，想把计划调一调。",
+     "desc": "说说现在的你，小光按你的状态一键调整现有计划。"},
     {"id": "kickstart", "title": "两分钟启动", "scene": "", "kind": "kick", "minutes": 2,
      "group": "日常", "prompt": "有件事想做，但一直开始不了。",
      "desc": "把任务变得不靠意志也能做。"},

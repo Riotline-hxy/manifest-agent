@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="mist">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>显化你的愿望 · 调整现有计划（演示）</title>
+<link rel="stylesheet" href="../../demo/public/css/fonts.css">
+<link rel="stylesheet" href="../../demo/public/css/base.css">
+<link rel="stylesheet" href="../../demo/public/css/components.css">
+<script src="../聊聊现在的你/icons.js"></script>
+<script src="../聊聊现在的你/shared.js"></script>
+<script src="data.js"></script>
+<style>
+  body { overflow: auto; height: auto; }
+  .doc { max-width: 1180px; margin: 0 auto; padding: 34px 26px 90px; }
+  .doc > h1 { font-size: 28px; margin: 0 0 8px; }
+  .lead { color: var(--text-2); max-width: 940px; margin: 0; line-height: 1.85; font-size: 15px; }
+  .themes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 18px 0 6px; font-size: 13px; font-weight: 800; color: var(--text-3); }
+  .themes button { height: 32px; padding: 0 14px; border-radius: 99px; border: 1.5px solid var(--line-2); background: var(--surface); font-size: 13px; font-weight: 800; }
+  .themes button.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  h2.part { font-size: 21px; margin: 52px 0 10px; }
+  .logic { padding: 18px 22px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); font-size: 15px; line-height: 1.95; max-width: 940px; }
+  .logic b { color: var(--accent); }
+  .frames { display: flex; gap: 26px; align-items: flex-start; flex-wrap: wrap; margin-top: 18px; }
+  .lbl { font-size: 12px; font-weight: 900; color: var(--text-3); letter-spacing: .04em; margin: 0 0 8px; }
+  .phone { width: 390px; height: 800px; border-radius: 34px; border: 9px solid #1d1b24; overflow: hidden; background: var(--bg); box-shadow: 0 20px 50px -24px rgba(0,0,0,.45); }
+  .phone iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .side { flex: 1; min-width: 320px; max-width: 700px; }
+  .open { display: inline-block; margin: 10px 0 0; font-size: 13px; font-weight: 800; color: var(--accent); }
+  .tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; background: var(--surface); border-radius: 18px; overflow: hidden; border: 1px solid var(--line); }
+  .tbl th, .tbl td { text-align: left; padding: 9px 12px; border-top: 1px solid var(--line); vertical-align: top; line-height: 1.65; }
+  .tbl th { color: var(--text-3); font-weight: 800; border-top: 0; font-size: 12.5px; }
+  .tbl td:first-child { font-weight: 800; white-space: nowrap; }
+  .ex { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 10px; margin-top: 12px; }
+  .ex .card { padding: 12px 14px; font-size: 13.5px; line-height: 1.7; }
+  .ex small { display: block; color: var(--text-3); font-weight: 800; font-size: 12px; margin-bottom: 4px; }
+  .ex span { display: block; color: var(--text-2); }
+  details.pr { margin-top: 10px; }
+  details.pr summary { cursor: pointer; font-size: 14px; font-weight: 800; color: var(--accent); }
+  pre.prompt { margin: 10px 0 0; white-space: pre-wrap; font: inherit; font-size: 13px; line-height: 1.8; padding: 14px 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+  .note { font-size: 12.5px; color: var(--text-3); margin-top: 10px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="doc">
+  <h1>显化你的愿望 · 调整现有计划</h1>
+  <p class="lead">两个功能都按「两分钟启动」的思路重做：一条说得清的流程，模型在每个该出力的地方出力，用户看到结果、觉得不对能改，最后勾了的才存。
+  这是可以点的离线演示；小光说的每一句、给的每个方案，都是用下面的提示词让真模型（DeepSeek flash，不思考，温柔）预先跑出来的。演示人物：阿青。</p>
+  <div class="themes">主题：<span id="themes"></span></div>
+
+  <h2 class="part">一、显化你的愿望</h2>
+  <div class="logic">先选：<b>已有的愿望</b>（从第 2 步开始，6 步，坚定信念）还是<b>一个新的愿望</b>（完整 7 步）→
+  每一步一屏：小光问一句，用户点卡片或者自己写 → 把回答、前面的回答、这个愿望和这一步的提示词发给模型 →
+  模型接住用户的话，给出这一步的收获（更具体的愿望、那一刻的画面、肯定语、今天的行动……），用户挑一个、自己写、或者上一步 →
+  七步走完，攒下的变成一张<b>显化卡</b>，勾了的才存进蜕变计划、好消息和记忆。</div>
+  <div class="frames">
+    <div><p class="lbl">手机 390 · 可以点</p><div class="phone"><iframe data-src="显化你的愿望.html"></iframe></div>
+      <a class="open" data-open href="显化你的愿望.html" target="_blank">单独打开 →</a></div>
+    <div class="side">
+      <table class="tbl">
+        <tr><th>显化七步</th><th>小光问</th><th>模型给</th></tr>
+        <tr><td>1 清晰愿景<br><small>新愿望才有</small></td><td>你想要什么？→ 挑一个更具体的 → 闭眼想象它实现了，那一刻的感觉</td><td>两个更具体的版本；那一刻的画面（「我……」）</td></tr>
+        <tr><td>2 消除怀疑</td><td>心里有没有一个声音说「我做不到」？</td><td>接住那个声音；两句对着它的肯定语</td></tr>
+        <tr><td>3 调整行为</td><td>如果你已经是实现了它的人，今天会做什么？</td><td>两件今天能做、稍微走出舒适区的小事</td></tr>
+        <tr><td>4 克服考验</td><td>最近有没有想将就、想退回去的时候？</td><td>接住；两句「下次它出现时，我会……」</td></tr>
+        <tr><td>5 无条件感恩</td><td>什么让你觉得有幸？（或者写一句「我必须……」）</td><td>改写成「我有幸能……」</td></tr>
+        <tr><td>6 嫉妒变动力</td><td>看到活成你想要样子的人，你心里……</td><td>这份感觉说明你真正想要什么；可以向 TA 学的一件事</td></tr>
+        <tr><td>7 信任</td><td>想到它什么时候会来，你心里……很急 / 怕它一直不来 / 能慢慢等 → 挑一句心急时对自己说的话</td><td>接住这份心情，把「今天能做的」和「交给时间的」分开；两句交给时间的话</td></tr>
+        <tr><td>走完</td><td>（不提问）</td><td>一张小纸条：用上你说的那个声音、挑的那句话、今天要做的事，串成你自己的一段路；最后一句落在好好爱自己，写在显化卡最下面</td></tr>
+      </table>
+      <p class="note">显化卡会存的（都能取消）：新愿望和那一刻的样子 → 蜕变计划；肯定语 → 愿望轨迹上的一个瞬间；今天去做的事 → 今天的小步（「现在就去做」打开两分钟启动）；
+      感恩 → 幸福墙；怀疑和考验 → 记忆（默认不勾）；每天提醒念一遍肯定语（默认不勾）。<br>
+      模型：每一步答完调一次，走完再写一次小纸条（每次约 2 秒）；新愿望大约 10 次，已有的愿望大约 8 次。</p>
+    </div>
+  </div>
+  <div class="ex" id="exWish"></div>
+
+  <h2 class="part">二、调整现有计划</h2>
+  <div class="logic">用户答三个关于现在状态的小问题（点卡片或者自己写）→ 把回答、TA 现在的整份计划（愿望、习惯和本周打卡、没做的小步、里程碑）和提示词发给模型 →
+  模型给一份<b>调整方案</b>：一句看到的你 + 几条具体改动（改哪一项、怎么改、为什么）→ 用户觉得哪条不对就取消，或者说一句，把意见、上下文和上一版方案发给模型重新调 →
+  点<b>一键调整</b>，勾了的改进蜕变计划，看到一份小报告，选要不要让小光记住这次的状态。</div>
+  <div class="frames">
+    <div><p class="lbl">手机 390 · 可以点</p><div class="phone"><iframe data-src="调整现有计划.html"></iframe></div>
+      <a class="open" data-open href="调整现有计划.html" target="_blank">单独打开 →</a></div>
+    <div class="side">
+      <table class="tbl">
+        <tr><th>问题</th><th>选项</th><th>影响什么</th></tr>
+        <tr><td>最近的你，更像哪一种？</td><td>忙忙碌碌 / 按自己的节奏 / 正在变化 / 想慢下来</td><td>改动的力度；要不要停一停</td></tr>
+        <tr><td>现在，你能拿出多少劲？</td><td>一点点就好 / 每天一小会 / 可以多一点</td><td>留下来的事改到多小</td></tr>
+        <tr><td>这阵子的计划，做起来怎么样？</td><td>挺顺的 / 有点卡 / 太满了 / 顾不上（上面先放这周的计划）</td><td>改小、减掉，还是加一点</td></tr>
+      </table>
+      <p class="note">模型能做的改动是固定几种，每种都对得上 App 里真的能改的东西：习惯改小一点 / 降频率 / 换个时间 / 这周先停；小步先做第一下 / 换个日子；
+      里程碑推后一点；顺的时候加一小步。最多 5 条，同一项只改一次；没什么要改就说「照现在的来就好」。<br>
+      模型：出方案调一次，每重新调整一次再调一次。演示里「忙忙碌碌 · 一点点就好 · 太满了」和「按自己的节奏 · 每天一小会 · 有点卡」预跑了重新调整，点底下现成的几句试试。</p>
+    </div>
+  </div>
+  <div class="ex" id="exPlan"></div>
+
+  <h2 class="part">三、提示词</h2>
+  <div id="prompts"></div>
+</div>
+<script>
+const THEMES = [["mist", "雾"], ["paper", "纸"], ["peach", "桃"], ["forest", "森林"], ["midnight", "夜"]];
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.getElementById("themes").innerHTML = THEMES.map(([k, l]) => `<button class="${k === t ? "on" : ""}" data-t="${k}">${l}</button>`).join("");
+  document.querySelectorAll("[data-t]").forEach((b) => (b.onclick = () => setTheme(b.dataset.t)));
+  document.querySelectorAll("iframe[data-src]").forEach((f) => { f.src = `${f.dataset.src}?theme=${t}`; });
+  document.querySelectorAll("a[data-open]").forEach((a) => { a.href = a.getAttribute("href").split("?")[0] + `?theme=${t}`; });
+}
+setTheme(new URLSearchParams(location.search).get("theme") || "mist");
+const O = window.OPT, card = (k, lines) => `<div class="card"><small>${k}</small>${lines.map((x) => `<span>${esc(x)}</span>`).join("")}</div>`;
+document.getElementById("exWish").innerHTML = [
+  card(`说想要：${O.NEW_WISHES[0]}`, [`更具体：${D.spec[0].opts.join(" / ")}`, `那一刻（平静）：${D.vision["0|0|calm"].vision}`]),
+  card(`「${O.OLD.title}」· 心里的声音：我不配`, [`小光：${D.doubt["old|worth"].say}`, `肯定语：${D.doubt["old|worth"].opts.join(" / ")}`]),
+  card(`「${O.OLD.title}」· 今天去做`, [D.act.old.opts.join(" / "), `小光：${D.act_say["old|0"].say}`]),
+  card(`「${O.OLD.title}」· 考验：想将就一下`, [`小光：${D.test["old|settle"].say}`, ...D.test["old|settle"].opts]),
+  card(`「${O.OLD.title}」· 感恩：我必须每天上课`, [D.thanks["old|0"].line, `小光：${D.thanks["old|0"].say}`]),
+  card(`「${O.OLD.title}」· 看到 TA：有点酸`, [`小光：${D.envy["old|sour"].say}`, `可以学的：${D.envy["old|sour"].learn}`]),
+  card(`「${O.OLD.title}」· 想到它什么时候来：怕它一直不来`, [`小光：${D.trust["old|fear"].say}`, `交给时间：${D.trust["old|fear"].opts.join(" / ")}`]),
+  card(`走完 · 心里的声音「我不配」+ 很急`, [`小纸条：${D.close["old|worth|1|0|rush"].letter}`, `最后一句：${D.close["old|worth|1|0|rush"].love}`]),
+].join("");
+const KIND = { habit_small: "改小一点", habit_freq: "降频率", habit_cue: "换个时间", habit_pause: "这周先停", step_small: "先做第一下", step_move: "换个日子", ms_delay: "推后一点", step_add: "加一小步" };
+const planCard = (title, p) => card(title, [`小光：${p.see}`, ...(p.changes || []).map((c) => `${KIND[c.kind] || c.kind} · ${c.target} → ${c.to}（${c.why}）`)]);
+document.getElementById("exPlan").innerHTML = [
+  planCard("忙忙碌碌 · 一点点就好 · 太满了", D.plan["busy|seed|full"]),
+  planCard("↑ 再说一句「背单词我不想减，别的可以」", D.revise["busy|seed|full#0"]),
+  planCard("按自己的节奏 · 每天一小会 · 有点卡", D.plan["steady|sprout|stuck"]),
+  planCard("正在变化 · 可以多一点 · 挺顺的", D.plan["change|more|smooth"]),
+].join("");
+const NAMES = { spec: "1 清晰愿景 · 说具体", vision: "1 清晰愿景 · 那一刻", doubt: "2 消除怀疑", act: "3 调整行为 · 今天去做", act_say: "3 调整行为 · 接一句",
+  test: "4 克服考验", thanks: "5 无条件感恩", envy: "6 嫉妒变动力", trust: "7 信任", close: "走完 · 小纸条", plan: "调整现有计划 · 出方案", revise: "调整现有计划 · 重新调" };
+document.getElementById("prompts").innerHTML = Object.entries(NAMES).map(([k, n]) =>
+  `<details class="pr"><summary>${n}</summary><pre class="prompt">${esc(PROMPTS[k])}</pre></details>`).join("");
+</script>
+</body>
+</html>

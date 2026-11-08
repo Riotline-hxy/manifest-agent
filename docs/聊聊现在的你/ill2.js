@@ -51,6 +51,9 @@
     // ---- 现在能拿出多少劲（落地里用来定「更小的版本」，保留） ----
     pot1: POT + `<path class="s" d="M48 42v-8"/>` + L(36, .7) + R(36, .7),
     pot2: POT + `<path class="s" d="M48 42V20"/>` + L(36, .8) + R(36, .8) + L(26, .9) + R(26, .9),
+    pot3: POT + `<path class="s" d="M48 42V14"/>` + L(36, .8) + R(36, .8) + L(27, .95) + R(27, .95)
+      + `<circle class="fp" cx="44" cy="11" r="3.6"/><circle class="fp" cx="52" cy="11" r="3.6"/><circle class="fp" cx="48" cy="7" r="3.6"/><circle class="fp" cx="48" cy="15" r="3.6"/><circle class="fl" cx="48" cy="11" r="2.8"/>`,
   };
-  window.ill = (k) => `<svg class="ill" viewBox="0 0 96 64" aria-hidden="true">${window.ILL[k] || ""}</svg>`;
+  const VIEW = { pot1: "22 0 52 64", pot2: "22 0 52 64", pot3: "22 0 52 64" };
+  window.ill = (k) => `<svg class="ill" viewBox="${VIEW[k] || "0 0 96 64"}" aria-hidden="true">${window.ILL[k] || ""}</svg>`;
 })();

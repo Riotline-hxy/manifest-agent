@@ -5,7 +5,7 @@
 - 先确认再存（review=True：「遇见更好的自己」）：答题时什么都不写，也不进聊天记录。
   冥想的结束页问一句「有没有什么让你想记住」：记下感受 / 和小光聊聊 / 直接结束。
   不保存就把这次的回答清掉（discard）。练习经验在答完时就给，存不存都算。
-「许个愿」（seven_steps_lite）和「让愿望落地」（relearn）不走这里一题一题的问法：它们是对话样子的全屏层，
+「显化你的愿望」（seven_steps_lite）和「调整现有计划」（relearn）不走这里一题一题的问法：它们是对话样子的全屏层，
 问题和分支在前端（public/js/flows.js、tune.js），开始、建议、结尾、保存在 core/flows.py。这里只留名字和介绍。
 
 题目字段：q 问题，hint 气泡里的小字；chips 选项；ask {选项: 占位}：选了它才出输入框，答案是输入的文字；
@@ -56,12 +56,12 @@ ENERGY = ["早上", "下午", "晚上", "不太固定"]
 SCENES = {
     # 对话样子的两个：问题在前端，流程在 core/flows.py
     "relearn": {
-        "title": "让愿望落地", "minutes": 2, "stage": "落地", "icon": "sprout", "review": True, "kind": "tune", "flow": True,
-        "desc": "看看这周做得怎么样，把卡住的那一件调到做得成。", "steps": [],
+        "title": "调整现有计划", "minutes": 2, "stage": "计划", "icon": "sprout", "review": True, "kind": "tune", "flow": True,
+        "desc": "说说现在的你，小光按你的状态一键调整现有计划。", "steps": [],
     },
     "seven_steps_lite": {
-        "title": "许个愿", "minutes": 2, "stage": "愿望", "icon": "star", "review": True, "kind": "tune", "flow": True,
-        "desc": "说出想要的，看见它实现的那一天；或者看看走过的路，给它添点信心。", "steps": [],
+        "title": "显化你的愿望", "minutes": 4, "stage": "显化", "icon": "star", "review": True, "kind": "tune", "flow": True,
+        "desc": "跟着显化七步走一遍：说清它，消除怀疑，今天就行动，把它交给时间。", "steps": [],
     },
     "gratitude": {
         "title": "三分钟感恩", "minutes": 3, "stage": "感恩",
@@ -122,7 +122,7 @@ def _render_step(store: Store, scene_id: str, i: int) -> dict:
 
 
 def start(store: Store, scene_id: str) -> dict:
-    if scene_id not in SCENES or SCENES[scene_id].get("flow"):    # 许个愿、让愿望落地走 core/flows.py
+    if scene_id not in SCENES or SCENES[scene_id].get("flow"):    # 显化你的愿望、调整现有计划走 core/flows.py
         raise KeyError(scene_id)
     run = store.start_scene(scene_id)
     store.log("scene", f"开始灵感场景「{SCENES[scene_id]['title']}」")
@@ -225,7 +225,7 @@ def save(store: Store, run_id: str, chosen: list, extra: str = "", talk: bool = 
     if not run["answers"]:
         raise ValueError("这次聊到的已经处理过了")
     sid = run["scene"]
-    if sid != "meditation":     # 许个愿、让愿望落地存在 core/flows.py
+    if sid != "meditation":     # 显化你的愿望、调整现有计划存在 core/flows.py
         raise KeyError(run_id)
     out = _meditation_talk(run["answers"]) if talk else _meditation_note(store, extra)
     store.update_scene(run_id, run["step"], [], "done")

@@ -1,7 +1,8 @@
-// 「许个愿」「让愿望落地」：对话样子的全屏层。小光问一句，插图卡片放在小光的话下面，点一张变成你说的话，小光回一句接着问。
-// 问题和分支在 flows.js；后端 core/flows.py：开始拿 TA 自己的记录，要建议时调一次模型，答完算结尾，勾了的才存。
+// 「显化你的愿望」「调整现有计划」：对话样子的全屏层。小光问一句，插图卡片放在小光的话下面，点一张变成你说的话，小光回一句接着问。
+// 问题在 flows.js；后端 core/flows.py：开始拿 TA 自己的记录，答完一题需要时调一次模型，答完算结尾，勾了的才存。
 // 能反悔：底下的「上一步」回到上一题；前面答过的题，点另一张卡片就从那一题重新走（后面的都撤掉）。结尾也能上一步。
-// 存好以后回到对话（小光的那句话已经在里面）；「现在就做」打开两分钟启动；「让它落地」接着打开让愿望落地。
+// 结尾两种：显化卡（小光的小纸条 + 卡片 + 会存的东西）；调整方案（一条条改动，能取消、能说一句重新调，「一键调整」）。
+// 存好以后回到对话（小光的那句话已经在里面）；「现在就去做」打开两分钟启动。
 import { api } from "./api.js";
 import { setData, go } from "./store.js";
 import { esc, icon, toast } from "./ui.js";
@@ -34,9 +35,12 @@ export function openTune(sceneId = "relearn", { wishId = "" } = {}) {
   let frames = [];
 
   const down = () => requestAnimationFrame(() => thread.scrollTo({ top: thread.scrollHeight, behavior: "smooth" }));
+  // 进度点：每一题可以带 dot（亮到第几个，几题同属一步时用）和 stage（顶栏小字，比如「显化第 2 步 · 消除怀疑」）
   const dots = (end = false) => {
-    const n = st.total || 4, done = Math.max(0, frames.length - 1) + (end ? 1 : 0);
+    const n = st.total || 4, f = frames[frames.length - 1], s = f && F?.steps[f.id];
+    const done = end ? n : s && s.dot != null ? val(s.dot) : Math.max(0, frames.length - 1);
     $(".tb-dots").innerHTML = Array.from({ length: n }, (_, i) => `<i class="${i < done || end ? "on" : ""} ${!end && i === done ? "now" : ""}"></i>`).join("");
+    if (F) $(".tb-top small").textContent = end ? (F.endSub || F.sub) : (s && val(s.stage)) || F.sub;
   };
   const me = (text) => { list.insertAdjacentHTML("beforeend", `<div class="msg user"><div class="bub">${esc(text)}</div></div>`); down(); };
   // 小光的一条：先冒三个点，等 job 回来（或者等一小会儿）再换成内容。中途上一步 / 关掉了就返回 null
@@ -92,13 +96,18 @@ export function openTune(sceneId = "relearn", { wishId = "" } = {}) {
     close();
   };
   $(".tb-x").addEventListener("click", quit);
-  const onKey = (e) => { if (e.key === "Escape") quit(); };
+  const onKey = (e) => {
+    if (e.key !== "Escape") return;
+    const card = el.querySelector(".mc-wrap");     // 显化卡开着：先收起卡片
+    if (card) card.querySelector(".mc-x").click(); else quit();
+  };
   document.addEventListener("keydown", onKey);
 
   // ---------------------------------------------------------------- 一题一题 ----
   // 回到第 k 题：后面的消息都撤掉，答案退回到进这一题之前，这一题重新能点
   function rewind(k) {
     token++;
+    el.querySelector(".mc-wrap")?.remove();
     ending = false;
     const f = frames[k];
     while (f.row.nextElementSibling) f.row.nextElementSibling.remove();
@@ -169,7 +178,7 @@ export function openTune(sceneId = "relearn", { wishId = "" } = {}) {
       const last = !val(s.next);
       const r = last ? "" : typeof s.react === "function" ? s.react(o ? o.v : "custom", st, text) : (o?.react || (o ? "" : (s.customReact ?? "嗯，我记下了。")));
       // 自己写的话，小光要先听懂再回（调一次模型）：三个点冒到回来为止
-      if (r && typeof r.then === "function") { if (!(await xg((t) => esc(t || "嗯，我听到了。"), { job: () => r }))) return; }
+      if (r && typeof r.then === "function") { if (!(await xg((t) => (t && t.startsWith("<") ? t : esc(t || "嗯，我听到了。")), { job: () => r }))) return; }
       else if (r && !(await xg(r))) return;
       next();
     };
@@ -223,7 +232,8 @@ export function openTune(sceneId = "relearn", { wishId = "" } = {}) {
     dots(true);
     let r;
     try {
-      r = await xg((out) => esc(out.say || ""), { job: () => api.flow("finish", { run_id: run.id, answers: F.answers(st) }), min: 900 });
+      r = await xg((out) => (out.letter ? `<div class="bub letter">${esc(out.letter)}</div>` : esc(out.say || "")),
+        { job: () => api.flow("finish", { run_id: run.id, answers: F.answers(st) }), min: 900 });
     } catch (e) {
       toast(e.message || "没连上，再试一次", "err");
       return bar("", `<button class="tb-skip" data-retry>再试一次</button>`), dock.querySelector("[data-retry]").addEventListener("click", finish);
@@ -234,45 +244,126 @@ export function openTune(sceneId = "relearn", { wishId = "" } = {}) {
     if (out.state) setData(out.state);        // 练习的经验、金币先到账；聊到的内容等勾了再存
     if (out.xp?.amount) r.row.querySelector(".col").insertAdjacentHTML("beforeend",
       `<div class="tb-xp">${icon("bolt")}经验 +${out.xp.amount}${out.xp.coins ? ` · 金币 +${out.xp.coins}` : ""}</div>`);
-    if (!out.card) {        // 「保持现在就好」「不用改了」：小光说一句就结束
-      bar("", `<button class="btn btn-good tb-go" data-ok>好</button>`);
-      dock.querySelector("[data-ok]").addEventListener("click", () => { saved = true; api.sceneDiscard(run.id).catch(() => {}); close(); go("chat"); });
-      return;
-    }
-    const c = out.card;
-    const cardHtml = `<div class="wcard"><small>${esc(c.small)}</small><b>${esc(c.title)}</b>
-      ${c.list ? `<div class="plan-list">${c.list.map((t) => `<p>${icon("check")}<span>${esc(t)}</span></p>`).join("")}</div>` : ""}
-      ${(c.lines || []).map((x) => `<p class="wc-line"><em>${esc(x.em)}</em>${esc(x.text)}</p>`).join("")}
-      ${c.vow ? `${c.vow_em ? `<p class="wc-line"><em>${esc(c.vow_em)}</em></p>` : ""}<span class="vow">「${esc(c.vow)}」</span>` : ""}</div>`;
-    const keeps = `<div class="keeps">${out.keeps.map((it) => `<label class="keep ${it.off ? "off" : ""}"><input type="checkbox" data-k="${esc(it.key)}" ${it.off ? "disabled" : it.on === false ? "" : "checked"}>
+    if (out.changes) return planEnding(out);
+    return cardEnding(out);
+  }
+
+  const keepsHtml = (list) => `<div class="keeps">${list.map((it) => `<label class="keep ${it.off ? "off" : ""}"><input type="checkbox" data-k="${esc(it.key)}" ${it.off ? "disabled" : it.on === false ? "" : "checked"}>
       <span>${esc(it.html)}${it.note ? `<em>${esc(it.note)}</em>` : ""}</span><small>${esc(it.to)}</small></label>`).join("")}</div>`;
-    const acts = (out.acts || []).includes("land") ? `<button class="btn btn-ghost" data-land>${esc(out.land || "让它落地")}</button>`
-      : (out.acts || []).includes("now") ? `<button class="btn btn-ghost" data-now>现在就做</button>` : "";
-    const r2 = await xg(`${cardHtml}${keeps}<div class="tb-acts"><button class="btn btn-good" data-save>存好</button>${acts}</div>`, { wide: true, min: 200 });
+
+  // 存：只存勾了的。then：save 回到对话 / now 打开两分钟启动 / 一个函数（调整计划：留在这里看改了什么）
+  async function saveKeys(row, keys, then, nowTask = "") {
+    row.querySelectorAll(".tb-acts .btn").forEach((b) => b.classList.add("off"));
+    try {
+      const res = keys.length ? await api.flow("save", { run_id: run.id, keys }) : null;
+      saved = true;
+      if (res?.state) setData(res.state);
+      if (!res) api.sceneDiscard(run.id).catch(() => {});
+      if (typeof then === "function") return then(res);
+      close();
+      if (then === "now") openKick({ task: res?.step?.title || nowTask, stepId: res?.step?.id || "" });
+      else { go("chat"); toast("存好了", "", "check"); }
+    } catch (e) {
+      row.querySelectorAll(".tb-acts .btn").forEach((b) => b.classList.remove("off"));
+      toast(e.message || "没存上，再试一次", "err");
+    }
+  }
+
+  // 显化卡：一条横栏，点开看整张卡（卡片在 openCard）；下面是会存的东西
+  const STAR = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l2.5 6.1 6.6.5-5 4.3 1.6 6.4L12 16.6l-5.7 3.5 1.6-6.4-5-4.3 6.6-.5z"/></svg>`;
+  function openCard(c) {
+    el.querySelector(".mc-wrap")?.remove();
+    const n = c.steps || 7;
+    const lit = new Set((c.lines || []).map((x) => x.n));
+    const wrap = document.createElement("div");
+    wrap.className = "mc-wrap";
+    wrap.innerHTML = `<div class="mc" role="dialog" aria-label="我的显化卡">
+      <button class="mc-x" aria-label="收起">×</button>
+      <div class="mc-head">
+        <span class="mc-star">${STAR}</span><span class="mc-star s2">${STAR}</span><span class="mc-star s3">${STAR}</span>
+        <small>${esc(c.small || "我的显化卡")}${c.date ? ` · ${esc(c.date)}` : ""}</small>
+        <h3>${esc(c.title)}</h3>
+        <div class="mc-seven" aria-label="走过的步数">${Array.from({ length: 7 }, (_, i) => `<i class="${i >= 7 - n && lit.has(i + 1) ? "on" : i < 7 - n ? "skip" : ""}"></i>`).join("")}<em>${n === 7 ? "显化七步" : "显化六步"}</em></div>
+      </div>
+      <ol class="mc-list">${(c.lines || []).map((x) => `<li><i>${x.n}</i><div><small>${esc(x.stage || "")}</small><p><em>${esc(x.em)}</em>${esc(x.text)}</p></div></li>`).join("")}</ol>
+      ${c.vow ? `<div class="mc-vow">${esc(c.vow)}</div>` : ""}
+    </div>`;
+    el.append(wrap);
+    requestAnimationFrame(() => wrap.classList.add("in"));
+    const shut = () => { wrap.classList.remove("in"); setTimeout(() => wrap.remove(), 260); };
+    wrap.addEventListener("click", (e) => { if (e.target === wrap || e.target.closest(".mc-x")) shut(); });
+  }
+
+  async function cardEnding(out) {
+    const c = out.card;
+    const barHtml = `<button class="mc-bar" data-card><span class="mc-bar-ic">${STAR}</span>
+      <span class="mc-bar-t"><b>${esc(c.small || "我的显化卡")}</b><small>${esc(c.title)}</small></span><span class="mc-bar-go">查看</span></button>`;
+    const acts = (out.acts || []).includes("now") ? `<button class="btn btn-ghost" data-now>现在就去做</button>` : "";
+    const r2 = await xg(`${out.intro ? `<div class="bub">${esc(out.intro)}</div>` : ""}${barHtml}${keepsHtml(out.keeps || [])}
+      <div class="tb-acts"><button class="btn btn-good" data-save>存好</button>${acts}</div>`, { wide: true, min: 300 });
     if (!r2) return;
     const row = r2.row;
+    row.querySelector("[data-card]").addEventListener("click", () => openCard(c));
     bar("勾了的才存");
-    const save = async (then) => {
-      const keys = [...row.querySelectorAll(".keep input:checked")].map((x) => x.dataset.k);
-      if (!keys.length && then === "save") { toast("勾一项再存，或者点右上角关掉"); return; }
-      row.querySelectorAll(".tb-acts .btn").forEach((b) => b.classList.add("off"));
+    const keys = () => [...row.querySelectorAll(".keep input:checked")].map((x) => x.dataset.k);
+    row.querySelector("[data-save]").addEventListener("click", () => {
+      if (!keys().length) { toast("勾一项再存，或者点右上角关掉"); return; }
+      saveKeys(row, keys(), "save");
+    });
+    row.querySelector("[data-now]")?.addEventListener("click", () => saveKeys(row, keys(), "now", out.now));
+  }
+
+  // 调整方案：一条条改动（能取消），底下说一句重新调，「一键调整」后看改了什么
+  async function planEnding(out, think = 0) {
+    const rows = out.changes.length
+      ? `<div class="chg">${out.changes.map((c, i) => `<label class="chg-row" style="--i:${i}"><input type="checkbox" checked data-k="${esc(c.key)}">
+          <span><small class="k">${esc(c.label)}</small><b>${c.kind === "step_add" ? `加进「${esc(c.target)}」：${esc(c.to)}` : `<s>${esc(c.target)}</s> → ${esc(c.to)}`}</b>${c.why ? `<em>${esc(c.why)}</em>` : ""}</span></label>`).join("")}</div>`
+      : `<div class="chg-none">${icon("check")}计划不用改，照现在的来就好。</div>`;
+    const remember = (out.keeps || []).filter((k) => k.key === "remember");
+    const target = think ? await xg(`<div class="bub">${esc(out.say)}</div>`, { wide: true, min: 1 }) : { row: list.lastElementChild };
+    if (!target) return;
+    const r2 = await xg(`${rows}${remember.length ? keepsHtml(remember) : ""}
+      <div class="tb-acts"><button class="btn btn-good" data-go>${out.changes.length ? "一键调整" : "好"}</button></div>`, { wide: true, min: 300 });
+    if (!r2) return;
+    const row = r2.row;
+    // 底下：觉得不对就说一句，把意见、上下文和这一版方案发给小光重新调
+    dock.innerHTML = `${canBack() ? BACK : ""}<div class="tb-composer"><input maxlength="60" placeholder="哪里不对？说一句，我重新调" aria-label="哪里不对"><button class="tb-send" aria-label="发送">${icon("send")}</button></div>`;
+    dock.querySelector("[data-back]")?.addEventListener("click", back);
+    const inp = dock.querySelector("input");
+    const t = token;
+    const revise = async () => {
+      const text = inp.value.trim();
+      if (!text || t !== token) return;
+      dock.innerHTML = "";
+      row.querySelectorAll("input").forEach((x) => (x.disabled = true));
+      row.querySelector(".tb-acts")?.remove();
+      me(text);
       try {
-        const res = keys.length ? await api.flow("save", { run_id: run.id, keys }) : null;
-        saved = true;
-        if (res?.state) setData(res.state);
-        if (!res) api.sceneDiscard(run.id).catch(() => {});
-        close();
-        if (then === "land") openTune("relearn", { wishId: F.landWish?.(st, res) || "" });
-        else if (then === "now") openKick({ task: res?.step?.title || out.now, stepId: res?.step?.id || "" });
-        else { go("chat"); toast("存好了", "", "check"); }
+        const r3 = await xg((o) => esc(o.say), { wide: true, job: () => api.flow("step", { run_id: run.id, kind: "revise", text, answers: F.answers(st) }), min: 600 });
+        if (r3) planEnding(r3.out);
       } catch (e) {
-        row.querySelectorAll(".tb-acts .btn").forEach((b) => b.classList.remove("off"));
-        toast(e.message || "没存上，再试一次", "err");
+        toast(e.message || "没调成，再说一次试试", "err");
+        planEnding(out, 1);
       }
     };
-    row.querySelector("[data-save]").addEventListener("click", () => save("save"));
-    row.querySelector("[data-land]")?.addEventListener("click", () => save("land"));
-    row.querySelector("[data-now]")?.addEventListener("click", () => save("now"));
+    dock.querySelector(".tb-send").addEventListener("click", revise);
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) revise(); });
+    row.querySelector("[data-go]").addEventListener("click", () => {
+      const keys = [...row.querySelectorAll("input:checked")].map((x) => x.dataset.k);
+      if (!keys.length) { saved = true; api.sceneDiscard(run.id).catch(() => {}); close(); go("chat"); return; }
+      me(out.changes.length ? "一键调整" : "好");
+      saveKeys(row, keys, async (res) => {
+        row.querySelectorAll("input").forEach((x) => (x.disabled = true));
+        row.querySelector(".tb-acts")?.remove();
+        bar("", "");
+        const done = res?.done || [];
+        const r4 = await xg(`${done.length ? `<div class="wcard"><small>改好了</small><b>这周的计划</b>
+            <div class="plan-list">${done.map((d) => `<p>${icon("check")}<span>${esc(d)}</span></p>`).join("")}</div></div>` : ""}
+          <div class="bub">${esc(done.length ? "蜕变计划里已经改好了。过一阵状态变了，再回来调。" : "记下了。过一阵状态变了，再回来调。")}</div>
+          <div class="tb-acts"><button class="btn btn-good" data-ok>好</button></div>`, { wide: true, min: 700 });
+        r4?.row.querySelector("[data-ok]").addEventListener("click", () => { close(); go("chat"); });
+      });
+    });
   }
 
   // ---------------------------------------------------------------- 开始 ----
@@ -285,9 +376,9 @@ export function openTune(sceneId = "relearn", { wishId = "" } = {}) {
       $(".tb-top small").textContent = F.sub;
       st.total = F.total || 4;
       dots();
-      if (F.empty) {      // 让愿望落地，但还没有愿望：先去许一个
-        await xg("还没有愿望呢。先许一个，再来让它落地？");
-        bar("", `<button class="btn btn-good tb-go" data-wish>去许个愿</button>`);
+      if (F.empty) {      // 调整现有计划，但还没有愿望：先去显化一个
+        await xg("还没有愿望，也就还没有计划。先显化一个愿望？");
+        bar("", `<button class="btn btn-good tb-go" data-wish>显化你的愿望</button>`);
         dock.querySelector("[data-wish]").addEventListener("click", () => { api.sceneCancel().catch(() => {}); saved = true; close(); openTune("seven_steps_lite"); });
         return;
       }

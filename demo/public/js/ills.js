@@ -1,4 +1,4 @@
-// 「许个愿」「让愿望落地」的插图：柔和的扁平小画，颜色跟着主题（css/tune.css 里 .ill 的几种填色和线条，森林主题有自己的一套）。
+// 「显化你的愿望」「调整现有计划」的插图：柔和的扁平小画，颜色跟着主题（css/tune.css 里 .ill 的几种填色和线条，森林主题有自己的一套）。
 // 每张 viewBox 0 0 96 64；.f1 .f2 主色深浅，.fp 粉，.fm .fm2 嫩绿，.fl 暖黄，.fs 天蓝，.s .s2 线条，.star 白色。
 const POT = `<path class="pot" d="M35 46h26l-3 14H38z"/><rect class="pot2" x="33" y="42" width="30" height="6" rx="2.5"/>`;
 const L = (y, s, k = "fm") => `<path class="${k}" d="M48 ${y}c${-9 * s} 0 ${-13 * s}-4 ${-14 * s}-10 ${8 * s}-1 ${13 * s} 3 ${14 * s} 10z"/>`;
@@ -33,9 +33,20 @@ export const ILL = {
   bowl: `<path class="fs" d="M22 33h52a26 21 0 0 1-52 0z"/><rect class="f1" x="20" y="30" width="56" height="5" rx="2.5"/><path class="s2" d="M38 23c-4-4 4-8 0-12M48 23c-4-4 4-8 0-12M58 23c-4-4 4-8 0-12"/>`,
   bag: `<rect class="fm" x="31" y="18" width="34" height="38" rx="10"/><path class="s" d="M40 18v-4a8 8 0 0 1 16 0v4"/><rect class="fm2" x="38" y="35" width="20" height="13" rx="4"/>`,
   night: `<path class="f1" d="M54 10a20 20 0 1 0 16 32 16 16 0 0 1-16-32z"/><circle class="fl" cx="22" cy="18" r="2.6"/><circle class="fl" cx="80" cy="14" r="2"/><circle class="fl" cx="28" cy="46" r="1.8"/>`,
+  // ---- 显化你的愿望 / 调整现有计划 ----
+  change: `<path class="s2 dash" d="M6 46h30"/><path class="s" d="M36 46c14 0 18-24 34-26 8-1 12-2 16-4"/><circle class="fl" cx="88" cy="15" r="5"/>`,
+  slow: `<path class="s" d="M6 38h20M33 38h13M53 38h8M68 38h3"/><path class="f1" d="M83 14a10 10 0 1 0 7 16 8 8 0 0 1-7-16z"/>`,
+  light: `<path class="f2" d="M72 8C48 12 32 30 26 54c10-6 24-8 32-18 8-10 13-20 14-28z"/><path class="s" d="M72 8C58 24 44 38 26 54"/><path class="s2" d="M54 24l-9-2M47 32l-9-1M40 40l-9 0"/>`,
+  proud: `<path class="fs" d="M37 4h9l6 18h-9zM59 4h-9l-6 18h9z"/><circle class="fl" cx="48" cy="38" r="15"/><path class="star" d="M48 30l2.6 5.6 6 .6-4.6 4 1.4 6-5.4-3.2-5.4 3.2 1.4-6-4.6-4 6-.6z"/>`,
+  rain: `<path class="f2" d="M30 42a10 10 0 0 1-1-20 14 14 0 0 1 27-5 11 11 0 1 1 10 25z"/><path class="s2" d="M38 50l-3 7M50 50l-3 7M62 50l-3 7"/>`,
+  hourglass: `<path class="s" d="M32 7h32M32 57h32"/><path class="f2" d="M37 7h22c0 13-11 17-11 25 0-8-11-12-11-25zM37 57h22c0-13-11-17-11-25 0 8-11 12-11 25z"/><path class="fl" d="M42 53h12c-2-6-6-8-6-12 0 4-4 6-6 12z"/>`,
+  eyes: `<path class="f2" d="M8 32s8-12 20-12 20 12 20 12-8 12-20 12S8 32 8 32z"/><circle class="f1" cx="28" cy="32" r="6"/><path class="f2" d="M48 32s8-12 20-12 20 12 20 12-8 12-20 12-20-12-20-12z"/><circle class="f1" cx="68" cy="32" r="6"/>`,
+  fork: `<circle class="fl" cx="16" cy="44" r="5"/><path class="s" d="M21 44h14"/><path class="s2" d="M35 44c10 0 12-24 26-24h22M35 44c10 0 12 12 26 12h22"/><path class="s2 dash" d="M35 44h48"/>`,
+  pot3: POT + `<path class="s" d="M48 42V14"/>` + L(36, .8) + R(36, .8) + L(27, .95) + R(27, .95)
+    + `<circle class="fp" cx="44" cy="11" r="3.6"/><circle class="fp" cx="52" cy="11" r="3.6"/><circle class="fp" cx="48" cy="7" r="3.6"/><circle class="fp" cx="48" cy="15" r="3.6"/><circle class="fl" cx="48" cy="11" r="2.8"/>`,
   // 「我自己写」
   pen: `<path class="f2" d="M20 50l6-16 30-30 10 10-30 30z"/><path class="s" d="M56 4l10 10M20 50l16-6"/><path class="s2 dash" d="M40 56h40"/>`,
 };
 // 花盆画得窄，用窄一点的画框，小卡片里才不会显得太小
-const VIEW = { pot1: "22 0 52 64", pot2: "22 0 52 64" };
+const VIEW = { pot1: "22 0 52 64", pot2: "22 0 52 64", pot3: "22 0 52 64" };
 export const ill = (k) => `<svg class="ill" viewBox="${VIEW[k] || "0 0 96 64"}" aria-hidden="true">${ILL[k] || ""}</svg>`;

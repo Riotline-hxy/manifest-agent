@@ -56,7 +56,7 @@ DEFAULT_PROFILE = {
     "last_week_page": "",   # 笔记本：最近一次试着写定稿的那一周（周一的日期）
     "finds": [],            # 小光的发现：小光翻笔记本时注意到的事 [{id, text, evidence[], at}]（core/finds.py）
     "insight_fb": {},       # 小光的发现：TA 点的「像我」yes /「不太像」no，按发现 id
-    "flow_end": {},         # 「许个愿」「让愿望落地」答完那一下算好的结尾（小光的话、卡片、会改的东西），保存时照着它存，不再调模型（core/flows.py）
+    "flow_end": {},         # 「显化你的愿望」「调整现有计划」答完那一下算好的结尾（小纸条和显化卡 / 调整方案），保存时照着它存，不再调模型（core/flows.py）
     "topic": {},            # 正在聊的点子话题 {id, at}：30 分钟没再聊就算结束（core/topics.py）
     "last_digest_day": "", "current_wish": "", "cheer": {},
     "last_proactive_kind": "",   # 上一条主动消息聊的是哪种（chat / plan / feature / cheer），下一条换一种
@@ -208,7 +208,7 @@ class Store:
             self.c.execute("ALTER TABLE kick_run ADD COLUMN guess TEXT DEFAULT ''")
             self.c.execute("ALTER TABLE kick_run ADD COLUMN mark TEXT DEFAULT ''")
         hcols = {r["name"] for r in self.c.execute("PRAGMA table_info(habit)")}
-        if "cue" not in hcols:   # 习惯挂在每天哪个时候做（「让愿望落地」里定的：起床后 / 睡前……）
+        if "cue" not in hcols:   # 习惯挂在每天哪个时候做（「调整现有计划」里定的：起床后 / 睡前……）
             self.c.execute("ALTER TABLE habit ADD COLUMN cue TEXT DEFAULT ''")
         tcols = {r["name"] for r in self.c.execute("PRAGMA table_info(town_item)")}
         if "rot" not in tcols:   # 大建筑可以转 90°

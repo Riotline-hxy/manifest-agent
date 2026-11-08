@@ -245,7 +245,7 @@ def seed_guest(store: Store) -> None:
                           ("step", "完成一小步：约 Mia 周末一起练口语 20 分钟", 8),
                           ("memory", "猜了一条：可能其实会说，更怕的是说错", 10),
                           ("record", "记下好消息：小组里第一次主动提问", 10),
-                          ("scene", "做完「让愿望落地」", 11)]:
+                          ("scene", "做完「调整现有计划」", 11)]:
         store.log(kind, text)
         store.c.execute("UPDATE activity SET at=? WHERE id=(SELECT id FROM activity ORDER BY rowid DESC LIMIT 1)", (at(d, 22),))
     store.push_inbox("明天那一步不急。今天想说的话，我都在。", "checkin")

@@ -12,7 +12,7 @@ const META = {
   kickstart: ["footsteps", "var(--c-mint)"], meditation: ["wind", "var(--c-sky)"], gratitude: ["heart", "var(--c-pink)"],
   topic_blank_day: ["sun", "var(--c-lemon)"], topic_manual: ["book", "var(--c-sky)"], topic_parallel: ["sparkles", "var(--c-violet)"],
 };
-const GROUPS = [["愿望", "一个让你更相信，一个让它做得成"], ["日常", "几分钟就能做完"], ["话题", "不知道聊什么，点一个"]];
+const GROUPS = [["愿望", "一个让愿望更清楚，一个让计划贴着你走"], ["日常", "几分钟就能做完"], ["话题", "不知道聊什么，点一个"]];
 
 export function renderIdeas(root) {
   const ideas = state.data.ideas || [];

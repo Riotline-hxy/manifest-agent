@@ -789,215 +789,190 @@ class ApiTest(unittest.TestCase):
             outs.append(out)
         return rid, outs
 
-    # ---- 许个愿 / 让愿望落地（core/flows.py）--------------------------------------
+    # ---- 显化你的愿望 / 调整现有计划（core/flows.py）--------------------------------------
     def _flow(self, c, sid, wish_id=""):
         s, d = c.req("POST", "/api/flow", {"action": "start", "scene": sid, "wish_id": wish_id})
         self.assertEqual(s, 200, d)
         return d["run"]["id"], d["ctx"]
 
-    def test_wish_flow_new_wish_saves_card(self):
-        c, uid = self.onboarded("wish_new")
+    MANIFEST = {"pick": "new", "want": "换一份喜欢的工作", "spec": "明年春天前进一家做设计的小公司", "feel": "平静",
+                "vision": "我坐在窗边画图，心里很安静。", "doubt": "已经太晚了", "aff": "我现在开始也来得及",
+                "act": "整理三份作品发给老同学", "test": "想将就一下", "plan": "下次它出现时，我会写下为什么想换",
+                "thanks": "我必须早起", "thanks_line": "我有幸能早起看见清晨", "envy": "很羡慕", "learn": "看他怎么投简历",
+                "trust": "很急，想快点看到", "letgo": "我先做好今天这一件"}
+
+    def test_manifest_new_wish_walks_seven_steps(self):
+        c, uid = self.onboarded("manifest_new")
         _, boot = c.req("GET", "/api/bootstrap")
-        before = (len(boot["journey"]["wishes"]), len(boot["messages"]))
+        before = (len(boot["journey"]["wishes"]), len(boot["messages"]), len(boot["steps"]))
         rid, ctx = self._flow(c, "seven_steps_lite")
-        old = ctx["wishes"][0]
-        self.assertEqual(old["title"], boot["journey"]["wishes"][0]["title"])
-        for k in ("days", "steps", "checks", "moments", "quote", "vision", "picks"):
-            self.assertIn(k, old)
-        self.fake.json_out = {"title": "敢在课上发言", "day": "我举起手，声音稳稳地落进教室。", "say": "哪天你举手了，记得跟我说一声。"}
-        ans = {"pick": "new", "area": "people", "area_label": "关系与表达", "want": "敢在课上发言",
-               "day": "举手说话不再心跳加速", "words": "谢谢你那时候开始了"}
-        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": ans})
+        self.assertEqual(ctx["wishes"][0]["title"], boot["journey"]["wishes"][0]["title"])
+        self.assertEqual(list(ctx["doubts"]), ["worth", "able", "late", "others", "none"])
+        # 每一步调一次模型，接着 TA 的回答说
+        self.fake.json_out = {"say": "我们把它说细一点。", "opts": ["明年春天前进一家做设计的小公司", "通勤半小时内的设计岗"]}
+        s, out = c.req("POST", "/api/flow", {"action": "step", "run_id": rid, "kind": "spec", "answers": {"pick": "new", "want": "换一份喜欢的工作"}})
+        self.assertEqual((s, out["opts"][0]), (200, "明年春天前进一家做设计的小公司"))
+        self.assertIn("TA 说想要：换一份喜欢的工作", self.fake.seen_json[-1][1]["content"])
+        self.assertIn("清晰你的愿景", self.fake.seen_json[-1][0]["content"])
+        self.fake.json_out = {"say": "这个声音很常见。", "opts": ["我现在开始也来得及", "我的节奏我来定"]}
+        _, out = c.req("POST", "/api/flow", {"action": "step", "run_id": rid, "kind": "doubt", "answers": self.MANIFEST})
+        self.assertIn("TA 心里冒出来的声音：已经太晚了", self.fake.seen_json[-1][1]["content"])
+        self.fake.json_out = None                                             # 模型不在：这一步也能接着走
+        _, out = c.req("POST", "/api/flow", {"action": "step", "run_id": rid, "kind": "trust", "answers": self.MANIFEST})
+        self.assertEqual(len(out["opts"]), 2)
+        _, out = c.req("POST", "/api/flow", {"action": "step", "run_id": rid, "kind": "thanks", "answers": {**self.MANIFEST, "thanks": "我必须上班"}})
+        self.assertEqual(out["line"], "我有幸能上班")
+        self.assertEqual(c.req("POST", "/api/flow", {"action": "step", "run_id": rid, "kind": "nope", "answers": self.MANIFEST})[0], 400)
+        # 走完：小纸条 + 显化卡，什么都还没存
+        self.fake.json_out = {"letter": "阿青，那句「已经太晚了」冒出来时，就对自己说现在开始也来得及。今天先整理三份作品。", "love": "记得对自己温柔一点。"}
+        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": self.MANIFEST})
         self.assertEqual(s, 200, out)
-        self.assertEqual(out["say"], "哪天你举手了，记得跟我说一声。")
-        self.assertEqual((out["card"]["title"], out["card"]["lines"][0]["text"], out["card"]["vow"]),
-                         ("敢在课上发言", "我举起手，声音稳稳地落进教室。", "谢谢你那时候开始了"))
-        self.assertEqual([k["key"] for k in out["keeps"]], ["wish"])
+        self.assertTrue(out["letter"].startswith("阿青"))
+        self.assertEqual(out["card"]["vow"], "记得对自己温柔一点。")
+        self.assertEqual([x["em"] for x in out["card"]["lines"]], ["那一刻", "对自己说", "今天去做", "下次它出现", "我有幸能", "可以学的", "交给时间"])
+        self.assertEqual(out["card"]["lines"][3]["text"], "我会写下为什么想换")
+        self.assertEqual([(k["key"], k.get("on", True)) for k in out["keeps"]],
+                         [("wish", True), ("aff", True), ("act", True), ("thanks", True), ("mind", False), ("remind", False)])
         self.assertEqual(out["xp"]["amount"], 12)
         sent = self.fake.seen_json[-1][1]["content"]
-        for part in ("关系与表达", "敢在课上发言", "举手说话不再心跳加速"):
+        for part in ("已经太晚了", "我现在开始也来得及", "整理三份作品发给老同学"):
             self.assertIn(part, sent)
-        # 存之前什么都没写；在结尾点了上一步、原样再答完：不再问模型，经验不重复给
         _, boot = c.req("GET", "/api/bootstrap")
-        self.assertEqual((len(boot["journey"]["wishes"]), len(boot["messages"])), before)
+        self.assertEqual((len(boot["journey"]["wishes"]), len(boot["messages"]), len(boot["steps"])), before)
         calls = len(self.fake.seen_json)
-        s, again = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": ans})
-        self.assertEqual((s, len(self.fake.seen_json), again["say"]), (200, calls, out["say"]))
+        s, again = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": self.MANIFEST})   # 结尾上一步又原样答完
+        self.assertEqual((s, len(self.fake.seen_json), again["letter"]), (200, calls, out["letter"]))
         self.assertNotIn("xp", again)
-        self.assertEqual(c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": []})[0], 400)
-        s, out = c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": ["wish"]})
+        s, out = c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": ["wish", "aff", "act", "thanks", "remind"]})
         self.assertEqual(s, 200, out)
-        self.assertEqual(len(self.fake.seen_json), calls)                    # 保存时不再问模型
-        w = next(x for x in out["state"]["journey"]["wishes"] if x["title"] == "敢在课上发言")
-        self.assertEqual((w["vision_text"], w["category"], out["wish_id"]), ("我举起手，声音稳稳地落进教室。", "relation", w["id"]))
-        self.assertEqual(out["state"]["journey"]["current"], w["id"])
-        mo = [m for m in out["state"]["journey"]["moments"] if m["wish_id"] == w["id"]]
-        self.assertEqual([(m["text"], m["source"]) for m in mo], [("未来的我说：「谢谢你那时候开始了」", "scene")])
-        self.assertEqual(out["state"]["messages"][-1]["content"], out["reply"])
+        st_ = out["state"]
+        w = next(x for x in st_["journey"]["wishes"] if x["title"] == "明年春天前进一家做设计的小公司")
+        self.assertEqual(w["vision_text"], "我坐在窗边画图，心里很安静。")
+        self.assertIn(("对自己说：「我现在开始也来得及」", "scene"), [(m["text"], m["source"]) for m in st_["journey"]["moments"] if m["wish_id"] == w["id"]])
+        step = next(x for x in st_["steps"] if x["title"] == "整理三份作品发给老同学")
+        self.assertEqual((step["wish_id"], out["step"]["id"]), (w["id"], step["id"]))
+        self.assertIn("我有幸能早起看见清晨", [r["text"] for r in st_["records"]])
+        self.assertIn(("念一遍：我现在开始也来得及", "08:00", "daily"), [(t["title"], t["time"], t["repeat"]) for t in st_["tasks"]])
+        self.assertFalse(any(m["source"] == "scene:seven_steps_lite" for m in st_["memories"]))      # 怀疑和考验没勾：不记
+        self.assertEqual(st_["messages"][-1]["content"], out["reply"])
         self.assertEqual(c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": ["wish"]})[0], 400)   # 同一次不能存两遍
-        self.assertEqual(c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {"pick": "new"}})[0], 400)
 
-    def test_wish_flow_keep_wish_adds_moment(self):
-        from core import journey
-        c, uid = self.onboarded("wish_keep")
-        with Store(uid) as st:
-            w = journey.current(st)
-            journey.add_moment(st, w["id"], "第一次早睡成功", source="user")
-            st.c.execute("UPDATE step SET status='done', done_at=? WHERE id=?",
-                         ("2026-11-01T10:00:00", st.add_step("十一点关灯", wish_id=w["id"])["id"]))
-        rid, ctx = self._flow(c, "seven_steps_lite")
-        me = ctx["wishes"][0]
-        self.assertEqual((me["id"], me["quote"], me["steps"], me["moments"]), (w["id"], "第一次早睡成功", 1, 1))
-        self.assertEqual({p["label"] for p in me["picks"]}, {"第一次早睡成功", "十一点关灯"})
-        self.fake.json_out = None                                             # 模型不在：按心情给一句写好的
-        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {
-            "pick": w["id"], "moment": "第一次早睡成功", "heart": "far", "onward": "慢一点也是在走"}})
+    def test_manifest_existing_wish_starts_at_step_two(self):
+        c, uid = self.onboarded("manifest_old")
+        _, boot = c.req("GET", "/api/bootstrap")
+        w = boot["journey"]["wishes"][0]
+        rid, ctx = self._flow(c, "seven_steps_lite", w["id"])
+        self.assertEqual(ctx["wishes"][0]["vision"], w["vision_text"])
+        a = {**self.MANIFEST, "pick": w["id"], "want": "", "spec": "", "vision": "随便写的不算"}
+        self.fake.json_out = {"letter": "你已经在路上了。", "love": "好好睡一觉。"}
+        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": a})
         self.assertEqual(s, 200, out)
-        self.assertEqual(out["say"], "远一点也没关系，它一直在那儿等你。")
-        self.assertEqual(out["card"]["lines"][1], {"em": "最有感觉的一刻", "text": "第一次早睡成功"})
-        self.assertIn("land", out["acts"])
-        s, out = c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": ["moment"]})
+        self.assertEqual((out["card"]["title"], out["card"]["lines"][0]["text"]), (w["title"], w["vision_text"]))   # 那一刻用当初写下的样子
+        self.assertEqual(out["intro"], "这是你今天走过的六步，收好它：")
+        self.assertNotIn("wish", [k["key"] for k in out["keeps"]])
+        s, out = c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": ["aff", "mind"]})
         self.assertEqual(s, 200, out)
-        mo = next(m for m in out["state"]["journey"]["moments"] if m["source"] == "scene")
-        self.assertEqual((mo["wish_id"], mo["feeling"]), (w["id"], "有点远了"))
-        self.assertIn("留给自己：「慢一点也是在走」", mo["text"])
+        self.assertIn("对自己说：「我现在开始也来得及」", [m["text"] for m in out["state"]["journey"]["moments"] if m["wish_id"] == w["id"]])
+        mem = next(m for m in out["state"]["memories"] if m["source"] == "scene:seven_steps_lite")
+        self.assertIn("已经太晚了", mem["text"])
+        self.assertEqual(len(out["state"]["journey"]["wishes"]), len(boot["journey"]["wishes"]))
         rid, _ = self._flow(c, "seven_steps_lite")
         self.assertEqual(c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {"pick": "w_nope"}})[0], 400)
 
-    def test_land_flow_adjusts_plan_only_when_checked(self):
+    def test_adjust_plan_applies_only_checked_and_revises(self):
+        from datetime import date, timedelta
         from core import journey
-        c, uid = self.onboarded("land")
+        c, uid = self.onboarded("adjust")
         with Store(uid) as st:
             w = journey.current(st)
-            h = journey.add_habit(st, w["id"], "背单词", "daily")
-            h2 = journey.add_habit(st, w["id"], "跟读", "weekly", 3)
+            h1 = journey.add_habit(st, w["id"], "背单词", "daily")
+            h2 = journey.add_habit(st, w["id"], "跟读一段对话", "weekly", 3)
             stp = st.add_step("约 Mia 练口语", wish_id=w["id"])
+            due = (date.today() + timedelta(days=10)).isoformat()
+            ms = journey.add_milestone(st, w["id"], "三分钟自我介绍", due)
         rid, ctx = self._flow(c, "relearn")
         me = next(x for x in ctx["wishes"] if x["id"] == w["id"])
-        hv, sv = "h:" + h["id"], "s:" + stp["id"]
-        self.assertEqual(next(i for i in me["items"] if i["v"] == hv)["hint"], "习惯 · 每天 · 本周 0/7")
-        self.assertIn(sv, [i["v"] for i in me["items"]])
-        self.assertEqual([x["v"] for x in ctx["when"]["habit"]], ["wake", "lunch", "after", "bed"])
-        # 改小一点：小光给两个更小的版本，习惯还能降一档频率
-        self.fake.json_out = {"opts": ["每天背 5 个单词", "睡前背 2 分钟"]}
-        s, sug = c.req("POST", "/api/flow", {"action": "suggest", "run_id": rid, "kind": "smaller", "wish_id": w["id"], "ref": hv})
-        self.assertEqual(s, 200, sug)
-        self.assertEqual((sug["opts"], sug["ease"]), (["每天背 5 个单词", "睡前背 2 分钟"], "每周 3 次"))
-        self.assertIn("习惯「背单词」", self.fake.seen_json[-1][1]["content"])
-        calls = len(self.fake.seen_json)
-        ans = {"wish": w["id"], "feel": "stuck", "which": hv, "how": "small", "small": "o0", "small_label": "每天背 5 个单词"}
+        self.assertIn({"kind": "habit", "title": "背单词", "hint": "习惯 · 每天 · 本周 0/7", "prog": 0}, me["items"])
+        self.assertIn("三分钟自我介绍", [i["title"] for i in me["items"]])
+        self.fake.json_out = {"see": "你最近很满，先把每件事放轻。", "changes": [
+            {"kind": "habit_small", "target": "背单词", "to": "每天背 5 个", "why": "两分钟做得完"},
+            {"kind": "habit_freq", "target": "背单词", "to": "每周 3 次", "why": "同一项第二条，不要"},
+            {"kind": "habit_freq", "target": "跟读", "to": "每周 1 次", "why": "先留一次"},
+            {"kind": "habit_pause", "target": "约 Mia 练口语", "to": "", "why": "小步不能用习惯的改法"},
+            {"kind": "step_move", "target": "约 Mia 练口语", "to": "明天", "why": "换个日子"},
+            {"kind": "ms_delay", "target": "三分钟自我介绍", "to": "推后 7 天", "why": "给忙碌留余量"},
+            {"kind": "habit_small", "target": "不存在的习惯", "to": "x", "why": "对不上"}]}
+        ans = {"state": "busy", "energy": "seed", "feel": "full", "feel_label": "太满了"}
         s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": ans})
         self.assertEqual(s, 200, out)
-        self.assertEqual(len(self.fake.seen_json), calls)                    # 结尾不调模型
-        self.assertEqual((out["card"]["list"], out["say"]), (["「背单词」先改成「每天背 5 个单词」"], "小一点，这周就做得成。"))
-        self.assertEqual([k["key"] for k in out["keeps"]], ["plan"])
-        with Store(uid) as st:
-            self.assertEqual(journey.habits(st, w["id"])[0]["title"], "背单词")       # 没存之前不改
-        s, out = c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": ["plan"]})
-        self.assertEqual(s, 200, out)
-        with Store(uid) as st:
-            self.assertEqual(journey.habits(st, w["id"])[0]["title"], "每天背 5 个单词")
-        # 换个时间：习惯下面写着「睡前」；提醒默认不勾，勾了才建
-        rid, _ = self._flow(c, "relearn", w["id"])
-        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {
-            "wish": w["id"], "feel": "full", "which": "h:" + h2["id"], "how": "time", "when": "bed"}})
-        self.assertEqual(out["card"]["list"], ["「跟读」放到睡前"])
-        self.assertEqual(out["keeps"][1], {"key": "remind", "html": "每天 22:00 提醒我", "to": "例行任务", "on": False})
-        s, out = c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": ["plan", "remind"]})
-        self.assertEqual(s, 200, out)
-        hb = next(x for x in out["state"]["journey"]["wishes"] if x["id"] == w["id"])["habits"]
-        self.assertEqual(next(x for x in hb if x["id"] == h2["id"])["cue"], "睡前")
-        self.assertIn(("该跟读了", "22:00", "daily"), [(t["title"], t["time"], t["repeat"]) for t in out["state"]["tasks"]])
-        # 顾不上：只保小步（改成更小的第一下，加进今天），其余的习惯这周先停一停
-        rid, _ = self._flow(c, "relearn", w["id"])
-        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {
-            "wish": w["id"], "feel": "none", "which": sv, "small": "custom", "small_label": "先给 Mia 发条消息"}})
-        self.assertEqual(out["card"]["list"], ["先做：「先给 Mia 发条消息」（今天）", "其余的习惯这周先停一停"])
-        self.assertIn("now", out["acts"])
-        s, out = c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": ["plan"]})
-        self.assertEqual(out["step"]["title"], "先给 Mia 发条消息")
-        hb = next(x for x in out["state"]["journey"]["wishes"] if x["id"] == w["id"])["habits"]
-        self.assertTrue(all(x["skipped"] for x in hb))
-        # 挺顺的，保持现在就好：没有卡片，也没什么可存
-        rid, _ = self._flow(c, "relearn", w["id"])
-        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {"wish": w["id"], "feel": "smooth", "more": "same"}})
-        self.assertEqual((out["card"], out["say"]), (None, "这周照现在的来，挺好。有变化随时回来调。"))
-        self.assertEqual(c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": ["plan"]})[0], 400)
-
-    def test_land_flow_reads_own_words(self):
-        from core import journey
-        c, uid = self.onboarded("land_words")
-        with Store(uid) as st:
-            w = journey.current(st)
-            stp = st.add_step("只抠开头那一小段，练到不用看谱", wish_id=w["id"])
-            h = journey.add_habit(st, w["id"], "每次练琴半小时", "weekly", 3)
-        rid, _ = self._flow(c, "relearn", w["id"])
-        sv = "s:" + stp["id"]
-        # 自己说这周的感觉：小光听出是哪种，接一句
-        self.fake.json_out = {"feel": "full", "say": "事情挤在一起，难怪顾不过来。我们看看是哪一件。"}
-        s, out = c.req("POST", "/api/flow", {"action": "suggest", "run_id": rid, "kind": "feel", "wish_id": w["id"], "text": "期中周，啥都顾不上"})
-        self.assertEqual((s, out["feel"]), (200, "full"))
-        self.assertIn("TA 说：期中周，啥都顾不上", self.fake.seen_json[-1][1]["content"])
-        self.fake.json_out = {"feel": "乱说"}
-        _, out = c.req("POST", "/api/flow", {"action": "suggest", "run_id": rid, "kind": "feel", "wish_id": w["id"], "text": "嗯"})
-        self.assertEqual(out["feel"], "stuck")                               # 听不出来就当作有一件卡住
-        # 「我想这样调……」写的是卡点：小光听懂了，给两个对症的调整，不照搬进计划
-        self.fake.json_out = {"say": "不知道从哪下手最磨人，我们把第一下定小一点。", "opts": [
-            {"kind": "small", "text": "先只弹前两个小节，弹 3 遍"}, {"kind": "time", "text": "睡前"}, {"kind": "nope", "text": "x"}]}
-        s, out = c.req("POST", "/api/flow", {"action": "suggest", "run_id": rid, "kind": "adjust", "wish_id": w["id"], "ref": sv, "text": "我不知道怎么启动"})
-        self.assertEqual(s, 200, out)
-        self.assertEqual(out["opts"], [{"kind": "small", "text": "先只弹前两个小节，弹 3 遍"}, {"kind": "time", "text": "睡前"}])
+        self.assertEqual(out["say"], "你最近很满，先把每件事放轻。")
+        self.assertEqual([(x["kind"], x["target"], x["to"]) for x in out["changes"]], [
+            ("habit_small", "背单词", "每天背 5 个"), ("habit_freq", "跟读一段对话", "每周 1 次"),
+            ("step_move", "约 Mia 练口语", "明天"), ("ms_delay", "三分钟自我介绍", "推后 7 天")])
+        self.assertEqual(out["keeps"][-1]["key"], "remember")
         sent = self.fake.seen_json[-1][1]["content"]
-        self.assertIn("一次性的小步「只抠开头那一小段，练到不用看谱」", sent)
-        self.assertIn("TA 说：我不知道怎么启动", sent)
-        base = {"wish": w["id"], "feel": "custom", "feel_kind": "stuck", "which": sv, "how": "custom", "how_label": "我不知道怎么启动"}
-        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {
-            **base, "adjust": "small:0", "adjust_kind": "small", "adjust_label": "先只弹前两个小节，弹 3 遍"}})
+        for part in ("忙忙碌碌（事情一件接一件）", "一点点就好", "习惯「背单词」：每天，本周做到 0/7", "小步「约 Mia 练口语」", "里程碑「三分钟自我介绍」：还有 10 天"):
+            self.assertIn(part, sent)
+        # 说一句哪里不对：带着上一版方案和意见重新调
+        self.fake.json_out = {"see": "背单词按你的来，别的放轻。", "changes": [
+            {"kind": "habit_freq", "target": "跟读一段对话", "to": "每周 1 次", "why": "先留一次"},
+            {"kind": "step_move", "target": "约 Mia 练口语", "to": "明天", "why": "换个日子"},
+            {"kind": "ms_delay", "target": "三分钟自我介绍", "to": "推后 7 天", "why": "留余量"}]}
+        s, out = c.req("POST", "/api/flow", {"action": "step", "run_id": rid, "kind": "revise", "text": "背单词我不想减", "answers": ans})
+        self.assertEqual((s, len(out["changes"])), (200, 3))
+        sent = self.fake.seen_json[-1][1]["content"]
+        self.assertIn("TA 的意见：背单词我不想减", sent)
+        self.assertIn("上一版方案", sent)
+        with Store(uid) as st:
+            self.assertEqual(journey.habits(st, w["id"])[0]["title"], "背单词")       # 没点一键调整之前什么都不改
+        s, out = c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": ["c0", "c1", "c2", "remember"]})
         self.assertEqual(s, 200, out)
-        self.assertEqual(out["card"]["list"], ["先做：「先只弹前两个小节，弹 3 遍」（今天）"])
-        self.assertNotIn("我不知道怎么启动", "".join(out["card"]["list"]))
-        self.assertIn("now", out["acts"])
-        # 选了「换个时间」：习惯挂到那个时候，认得出的时候还能勾提醒
-        rid, _ = self._flow(c, "relearn", w["id"])
-        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {
-            "wish": w["id"], "feel": "stuck", "which": "h:" + h["id"], "how": "custom", "how_label": "老是忘",
-            "adjust": "time:1", "adjust_kind": "time", "adjust_label": "睡前"}})
-        self.assertEqual(out["card"]["list"], ["「每次练琴半小时」放到睡前"])
-        self.assertEqual([k["key"] for k in out["keeps"]], ["plan", "remind"])
-        # 再自己写一句：当作这周打算的做法；「先不改了」：没有卡片
-        rid, _ = self._flow(c, "relearn", w["id"])
-        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {
-            "wish": w["id"], "feel": "stuck", "which": "h:" + h["id"], "how": "custom", "how_label": "太长了", "adjust": "custom", "adjust_label": "每次只练 10 分钟"}})
-        self.assertEqual(out["card"]["list"], ["「每次练琴半小时」先改成「每次只练 10 分钟」"])
-        rid, _ = self._flow(c, "relearn", w["id"])
-        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {
-            "wish": w["id"], "feel": "stuck", "which": sv, "how": "custom", "how_label": "随便", "adjust": "keep"}})
-        self.assertIsNone(out["card"])
-        # 模型不在：给写好的两个调整，照样能往下走
-        self.fake.json_out = None
-        _, out = c.req("POST", "/api/flow", {"action": "suggest", "run_id": rid, "kind": "adjust", "wish_id": w["id"], "ref": sv, "text": "不想做"})
-        self.assertEqual((len(out["opts"]), bool(out["say"])), (2, True))
+        self.assertEqual(len(out["done"]), 3)
+        with Store(uid) as st:
+            hs = {h["id"]: h for h in journey.habits(st, w["id"])}
+            self.assertEqual((hs[h1["id"]]["title"], hs[h2["id"]]["per_week"]), ("背单词", 1))
+            self.assertEqual(st.c.execute("SELECT due_day FROM step WHERE id=?", (stp["id"],)).fetchone()[0],
+                             (date.today() + timedelta(days=1)).isoformat())
+            self.assertEqual(st.c.execute("SELECT due_day FROM milestone WHERE id=?", (ms["id"],)).fetchone()[0],
+                             (date.today() + timedelta(days=17)).isoformat())
+        mem = next(m for m in out["state"]["memories"] if "最近的状态：" in m["text"])
+        self.assertEqual((mem["source"], mem["kind"]), ("scene:relearn", "event"))
+        self.assertEqual(out["state"]["messages"][-1]["content"], out["reply"])
+        # 再来一次：改小、这周先停、加一小步；只勾一条就只改一条
+        rid, _ = self._flow(c, "relearn")
+        self.fake.json_out = {"see": "顺的时候多走一步。", "changes": [
+            {"kind": "habit_small", "target": "背单词", "to": "每天背 5 个", "why": "x"},
+            {"kind": "habit_pause", "target": "跟读一段对话", "to": "这周先停", "why": "x"},
+            {"kind": "step_add", "target": w["title"], "to": "用英语点一次咖啡", "why": "x"}]}
+        _, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {"state": "steady", "energy": "more", "feel": "smooth"}})
+        self.assertEqual([x["kind"] for x in out["changes"]], ["habit_small", "habit_pause", "step_add"])
+        s, out = c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": ["c1", "c2"]})
+        self.assertEqual(s, 200, out)
+        hb = next(x for x in out["state"]["journey"]["wishes"] if x["id"] == w["id"])["habits"]
+        self.assertTrue(next(x for x in hb if x["id"] == h2["id"])["skipped"])
+        self.assertEqual(next(x for x in hb if x["id"] == h1["id"])["title"], "背单词")
+        self.assertIn("用英语点一次咖啡", [x["title"] for x in out["state"]["steps"]])
 
-    def test_land_flow_empty_plan_and_cancel_keep_nothing(self):
+    def test_adjust_plan_empty_and_cancel_keep_nothing(self):
         from core import journey
-        c, uid = self.member("land_empty")                                   # 还没有愿望
+        c, uid = self.member("adjust_empty")                                 # 还没有愿望
         rid, ctx = self._flow(c, "relearn")
         self.assertEqual(ctx["wishes"], [])
         c.req("POST", "/api/scene/cancel")
         with Store(uid) as st:
             w = journey.add_wish(st, "睡好一点", "body")
         rid, ctx = self._flow(c, "relearn")
-        self.assertEqual(ctx["wishes"][0]["items"], [])                      # 计划还是空的：先定第一件事
-        self.fake.json_out = {"opts": ["今晚十一点关灯"]}                       # 只给了一个：用写好的两个
-        _, sug = c.req("POST", "/api/flow", {"action": "suggest", "run_id": rid, "kind": "first", "wish_id": w["id"]})
-        self.assertEqual(len(sug["opts"]), 2)
-        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {
-            "wish": w["id"], "first": "custom", "first_label": "今晚十一点关灯"}})
-        self.assertEqual(out["card"]["list"], ["第一件事：「今晚十一点关灯」"])
+        self.assertEqual(ctx["wishes"][0]["items"], [])
+        self.assertEqual(c.req("POST", "/api/flow", {"action": "step", "run_id": rid, "kind": "revise", "text": "x", "answers": {}})[0], 400)
+        self.fake.json_out = {"see": "计划还是空的，先放两件很小的事。", "changes": [
+            {"kind": "step_add", "target": "睡好", "to": "今晚十一点关灯", "why": "先开个头"}]}
+        s, out = c.req("POST", "/api/flow", {"action": "finish", "run_id": rid, "answers": {"state": "custom", "state_label": "期中周好累"}})
+        self.assertEqual((s, out["changes"][0]["target"]), (200, "睡好一点"))
+        self.assertIn("最近的状态：期中周好累", self.fake.seen_json[-1][1]["content"])       # 自己写的照原话发给模型
         self.assertEqual(c.req("POST", "/api/scene/discard", {"run_id": rid})[0], 200)   # 结尾不存
         with Store(uid) as st:
             self.assertEqual(st.get_scene(rid)["answers"], [])
-        self.assertEqual(c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": ["plan"]})[0], 400)
+        self.assertEqual(c.req("POST", "/api/flow", {"action": "save", "run_id": rid, "keys": ["c0"]})[0], 400)
         _, boot = c.req("GET", "/api/bootstrap")
         self.assertEqual(boot["steps"], [])
         self.assertEqual(c.req("POST", "/api/flow", {"action": "start", "scene": "gratitude"})[0], 404)

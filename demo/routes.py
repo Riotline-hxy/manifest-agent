@@ -641,11 +641,11 @@ def scene_discard(h, u, b, q):
         return 200, {"ok": True}
 
 
-FLOW_LLM = {"suggest", "finish"}
+FLOW_LLM = {"step", "finish"}
 
 
 def flow_api(h, u, b, q):
-    """许个愿 / 让愿望落地（core/flows.py）：开始 / 要建议 / 答完 / 保存。问题和分支都在前端。"""
+    """显化你的愿望 / 调整现有计划（core/flows.py）：开始 / 一步（调模型）/ 答完 / 保存。问题都在前端。"""
     act = str(b.get("action") or "")
     if act in FLOW_LLM:
         key = "flow:" + u["id"]
@@ -657,9 +657,9 @@ def flow_api(h, u, b, q):
         try:
             if act == "start":
                 return 200, flows.start(st, str(b.get("scene") or ""), str(b.get("wish_id") or ""))
-            if act == "suggest":
-                return 200, flows.suggest(st, rid, str(b.get("kind") or ""), str(b.get("wish_id") or ""),
-                                          str(b.get("ref") or ""), str(b.get("label") or ""), str(b.get("text") or ""))
+            if act == "step":
+                return 200, flows.step(st, rid, str(b.get("kind") or ""), b.get("answers") if isinstance(b.get("answers"), dict) else {},
+                                       str(b.get("text") or ""))
             if act == "finish":
                 first = (st.get_scene(rid) or {}).get("status") == "open"
                 out = flows.finish(st, rid, b.get("answers") if isinstance(b.get("answers"), dict) else {})

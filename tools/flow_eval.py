@@ -1,13 +1,13 @@
-"""「许个愿」「让愿望落地」提示词的试跑：用真模型把几种结尾和建议跑一遍，打印出来看。
+"""「显化你的愿望」「调整现有计划」提示词的试跑：用真模型把每一步和结尾跑一遍，打印出来看。
 
 用法（在 manifest-agent 目录）：
-  python tools/flow_eval.py            # 全跑：新愿望的愿望卡、坚定旧愿望的那句话、改小一点、再加一件、第一件事
-  python tools/flow_eval.py new keep   # 只跑这几种（new / keep / smaller / add / first / words）
-改了 demo/core/wish_flow.py（NEW、KEEP）或 demo/core/relearn.py（SMALLER、ADD、FIRST）以后跑一下，看：
-  - 小光那句话有没有复述卡片上的东西、有没有说教和口号；
-  - 「那一天」是不是用了 TA 选的画面、写得具体；
-  - 改小一点的两个版本是不是还是这件事本身（小步要给做成它的第一下），而且明显更容易；
-  - TA 自己写了一句（「我不知道怎么启动」「最近太忙」）：小光有没有听懂卡在哪、给的调整是不是对症。
+  python tools/flow_eval.py              # 全跑
+  python tools/flow_eval.py manifest     # 只跑显化七步（新愿望 + 已有的愿望）
+  python tools/flow_eval.py adjust       # 只跑调整现有计划（几种状态 + 一次重新调整）
+改了 demo/core/manifest_flow.py（P 里每一步）或 demo/core/relearn.py（PLAN、REVISE）以后跑一下，看：
+  - 小光每一步有没有接着 TA 的回答说，有没有说教、口号、玄的词；
+  - 小纸条有没有用上 TA 说的那个声音、挑的那句话、今天要做的事，最后一句是不是落在自爱；
+  - 调整方案是不是贴着状态（累就放轻、顺就加一点），每条都对得上计划里的东西。
 用的是 .env 里的模型 key，数据写在临时目录，不碰真实用户。
 """
 from __future__ import annotations
@@ -16,6 +16,7 @@ import os
 import sys
 import tempfile
 import time
+from datetime import date, timedelta
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -28,35 +29,8 @@ sys.stdout.reconfigure(encoding="utf-8")
 from core.util import load_dotenv  # noqa: E402
 
 load_dotenv(HERE.parent / ".env")
-from core import journey, relearn, wish_flow  # noqa: E402
+from core import journey, manifest_flow as mf, relearn  # noqa: E402
 from core.store import Store  # noqa: E402
-
-# 新愿望：(哪一块, 想要的, 那一天的画面, 未来的你说)
-NEW = [
-    ("people", "关系与表达", "敢在课上发言", "举手说话不再心跳加速", "谢谢你那时候开始了"),
-    ("body", "身体与作息", "每天 12 点前睡", "早上不用闹钟也自然醒", ""),
-    ("mood", "心情与内在", "对自己温柔一点", "对自己说话温柔了", "别急，你会走到的"),
-    ("life", "生活与自由", "存下一笔旅行基金", "订好了想去的旅行", ""),
-    ("", "", "学会弹一首完整的曲子", "", ""),
-]
-# 坚定旧愿望：(最有感觉的一刻, 现在心里)
-# TA 自己写的：(这周的感觉) 和 (哪一件, 想怎么调时写的话)
-FEEL_WORDS = ["期中周，啥都顾不上", "还行吧，就是单词老忘背", "说不上来，有点烦", "这周状态很好，还想多练点"]
-ADJUST_WORDS = [("s1", "我不知道怎么启动"), ("h1", "最近太忙了，没时间"), ("h2", "老是忘"), ("h1", "一想到就烦，不想做"),
-                ("s1", "怕约了 Mia 她不理我")]
-KEEP = [("第一次在课上用英语提问，声音在抖但说完了", "still"), ("录了一段 30 秒的自我介绍", "far"),
-        ("和 Mia 用英语聊了十分钟", "more"), ("", "unsure")]
-
-
-def setup(st):
-    st.set_profile({"nickname": "阿青", "persona": "gentle"})
-    w = journey.add_wish(st, "敢开口说英语", "confidence", vision_text="能在小组讨论里自然地用英语说出自己的想法")
-    h1 = journey.add_habit(st, w["id"], "每天背 20 个单词", "daily")
-    h2 = journey.add_habit(st, w["id"], "跟读一段对话", "weekly", 3)
-    s1 = st.add_step("约 Mia 周末练口语", wish_id=w["id"])
-    journey.add_moment(st, w["id"], "第一次在课上用英语提问，声音在抖但说完了", source="user")
-    empty = journey.add_wish(st, "睡好一点", "body", vision_text="早上醒来不再昏昏沉沉")
-    return w, h1, h2, s1, empty
 
 
 def timed(fn, *a):
@@ -65,48 +39,88 @@ def timed(fn, *a):
     return out, time.time() - t
 
 
-def main(kinds):
-    with Store("u_" + "f" * 16) as st:
-        w, h1, h2, s1, empty = setup(st)
-        if "new" in kinds:
-            print("\n=== 许个愿 · 新的愿望 ===")
-            for area, label, want, day, words in NEW:
-                a = wish_flow.clean(st, {"pick": "new", "area": area, "area_label": label, "want": want, "day": day, "words": words})
-                e, s = timed(wish_flow.ending, st, a)
-                print(f"\n[{label or '自己写'}] {want} / {day or '（没选画面）'}  {s:.1f}s{'' if e['by_model'] else '  （模型没回，用了写好的）'}")
-                print(f"  愿望名：{e['card']['title']}\n  那一天：{e['day']}\n  小光：{e['say']}")
-        if "keep" in kinds:
-            print("\n=== 许个愿 · 已有的愿望 ===")
-            for moment, heart in KEEP:
-                a = wish_flow.clean(st, {"pick": w["id"], "moment": moment, "heart": heart, "onward": "慢一点也是在走"})
-                e, s = timed(wish_flow.ending, st, a)
-                print(f"\n[{moment or '没选那一刻'} · {wish_flow.HEART[heart]}]  {s:.1f}s\n  小光：{e['say']}")
-        if "smaller" in kinds:
-            print("\n=== 让愿望落地 · 改小一点 ===")
-            for ref, label in (("h:" + h1["id"], ""), ("h:" + h2["id"], ""), ("s:" + s1["id"], ""), ("", "周末去图书馆自习")):
-                out, s = timed(relearn.suggest, st, "smaller", w["id"], ref, label)
-                name = label or next(i["label"] for i in relearn._items(st, w["id"]) if i["v"] == ref)
-                print(f"\n[{name}]  {s:.1f}s\n  " + " / ".join(out["opts"]) + (f"\n  频率降一档：{out['ease']}" if out.get("ease") else ""))
-        if "words" in kinds:
-            print("\n=== 让愿望落地 · TA 自己写的感觉 ===")
-            for t in FEEL_WORDS:
-                out, s = timed(relearn.suggest, st, "feel", w["id"], "", "", t)
-                print(f"\n[{t}]  {s:.1f}s  → {out['feel']}\n  小光：{out['say']}")
-            print("\n=== 让愿望落地 · 「我想这样调……」自己写的 ===")
-            refs = {"h1": "h:" + h1["id"], "h2": "h:" + h2["id"], "s1": "s:" + s1["id"]}
-            for k, t in ADJUST_WORDS:
-                out, s = timed(relearn.suggest, st, "adjust", w["id"], refs[k], "", t)
-                name = next(i["label"] for i in relearn._items(st, w["id"]) if i["v"] == refs[k])
-                print(f"\n[{name} · {t}]  {s:.1f}s\n  小光：{out['say']}\n  " + " / ".join(f"{o['kind']}「{o['text']}」" for o in out["opts"]))
-        if "add" in kinds:
-            print("\n=== 让愿望落地 · 挺顺的，再加一件 ===")
-            out, s = timed(relearn.suggest, st, "add", w["id"])
-            print(f"  {s:.1f}s  " + " / ".join(out["opts"]))
-        if "first" in kinds:
-            print("\n=== 让愿望落地 · 计划还是空的，第一件事 ===")
-            out, s = timed(relearn.suggest, st, "first", empty["id"])
-            print(f"  {s:.1f}s  " + " / ".join(out["opts"]))
+def setup(st):
+    st.set_profile({"nickname": "阿青", "persona": "gentle"})
+    w = journey.add_wish(st, "敢开口说英语", "confidence", vision_text="我在小组讨论里自然地用英语说出想法，大家都在认真听。")
+    journey.add_habit(st, w["id"], "每天背 20 个单词", "daily")
+    journey.add_habit(st, w["id"], "跟读一段对话", "weekly", 3)
+    st.add_step("约 Mia 周末练口语", wish_id=w["id"])
+    journey.add_milestone(st, w["id"], "能用英语做 3 分钟自我介绍", (date.today() + timedelta(days=10)).isoformat())
+    w2 = journey.add_wish(st, "睡好一点", "body")
+    journey.add_habit(st, w2["id"], "12 点前放下手机", "daily")
+    return w
+
+
+def manifest(st, w):
+    print("\n=== 显化你的愿望 · 新的愿望（每一步都调一次模型）===")
+    a = mf.clean(st, {"pick": "new", "want": "换一份喜欢的工作"})
+    r, s = timed(mf.step, st, "spec", a)
+    print(f"\n[1 说具体 · 换一份喜欢的工作] {s:.1f}s\n  小光：{r['say']}\n  " + " / ".join(r["opts"]))
+    a = mf.clean(st, {**a, "spec": r["opts"][0], "feel": "平静"})
+    r, s = timed(mf.step, st, "vision", a)
+    print(f"\n[1 那一刻 · 平静] {s:.1f}s\n  画面：{r['vision']}\n  小光：{r['say']}")
+    a = mf.clean(st, {**a, "vision": r["vision"], "doubt": "已经太晚了"})
+    for kind, extra, show in [
+        ("doubt", {}, lambda r: f"小光：{r['say']}\n  肯定语：" + " / ".join(r["opts"])),
+        ("act", {}, lambda r: "今天去做：" + " / ".join(r["opts"])),
+        ("test", {"test": "想将就一下"}, lambda r: f"小光：{r['say']}\n  " + " / ".join(r["opts"])),
+        ("thanks", {"thanks": "我必须早起"}, lambda r: f"{r['line']}\n  小光：{r['say']}"),
+        ("envy", {"envy": "有点酸"}, lambda r: f"小光：{r['say']}\n  可以学的：{r['learn']}"),
+    ]:
+        a = mf.clean(st, {**a, **extra})
+        r, s = timed(mf.step, st, kind, a)
+        print(f"\n[{kind}] {s:.1f}s\n  {show(r)}")
+        if kind == "doubt":
+            a = mf.clean(st, {**a, "aff": r["opts"][0]})
+        if kind == "act":
+            a = mf.clean(st, {**a, "act": r["opts"][0]})
+            r2, s2 = timed(mf.step, st, "act_say", a)
+            print(f"  小光（挑了第一件）：{r2['say']}  {s2:.1f}s")
+        if kind == "test":
+            a = mf.clean(st, {**a, "plan": r["opts"][0]})
+        if kind == "thanks":
+            a = mf.clean(st, {**a, "thanks_line": r["line"]})
+        if kind == "envy":
+            a = mf.clean(st, {**a, "learn": r["learn"]})
+    for t in ("很急，想快点看到", "能慢慢等"):
+        r, s = timed(mf.step, st, "trust", mf.clean(st, {**a, "trust": t}))
+        print(f"\n[7 信任 · {t}] {s:.1f}s\n  小光：{r['say']}\n  " + " / ".join(r["opts"]))
+    a = mf.clean(st, {**a, "trust": "很急，想快点看到", "letgo": r["opts"][0]})
+    e, s = timed(mf.ending, st, a)
+    print(f"\n[走完 · 小纸条] {s:.1f}s\n  {e['letter']}\n  最后一句：{e['card']['vow']}")
+
+    print("\n=== 显化你的愿望 · 已有的愿望「敢开口说英语」===")
+    a = mf.clean(st, {"pick": w["id"], "doubt": "怕别人怎么看", "aff": "我开口是为了把话说完", "act": "用英语点一次咖啡", "trust": "怕它一直不来"})
+    for kind in ("doubt", "trust"):
+        r, s = timed(mf.step, st, kind, a)
+        print(f"\n[{kind}] {s:.1f}s\n  小光：{r['say']}\n  " + " / ".join(r["opts"]))
+    e, s = timed(mf.ending, st, a)
+    print(f"\n[走完 · 小纸条] {s:.1f}s\n  {e['letter']}\n  最后一句：{e['card']['vow']}")
+
+
+def adjust(st):
+    print("\n=== 调整现有计划 ===")
+    cases = [("busy", "seed", "full"), ("slow", "seed", "none"), ("steady", "sprout", "stuck"), ("change", "more", "smooth")]
+    first = None
+    for s_, e_, f_ in cases:
+        a = relearn.clean(st, {"state": s_, "energy": e_, "feel": f_})
+        e, s = timed(relearn.ending, st, a)
+        first = first or (a, e)
+        print(f"\n[{a['state'].split('（')[0]} · {a['energy'].split('（')[0]} · {a['feel'].split('（')[0]}] {s:.1f}s\n  小光：{e['say']}")
+        for c in e["changes"]:
+            print(f"  {c['label']} · {c['target']} → {c['to']}（{c['why']}）")
+    a, e = first
+    r, s = timed(relearn.revise, st, a, e, "背单词我不想减，别的可以")
+    print(f"\n[重新调 · 背单词我不想减，别的可以] {s:.1f}s\n  小光：{r['say']}")
+    for c in r["changes"]:
+        print(f"  {c['label']} · {c['target']} → {c['to']}（{c['why']}）")
 
 
 if __name__ == "__main__":
-    main(set(sys.argv[1:]) or {"new", "keep", "smaller", "add", "first", "words"})
+    which = set(sys.argv[1:]) or {"manifest", "adjust"}
+    with Store("u_" + "f" * 16) as st:
+        w = setup(st)
+        if "manifest" in which:
+            manifest(st, w)
+        if "adjust" in which:
+            adjust(st)

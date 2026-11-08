@@ -54,7 +54,7 @@ DAILY = {
     "good": {"slot": "record", "label": "记下一件小确幸", "hint": "今天让你嘴角上扬的一件小事", "xp": 5, "coins": 8, "go": "goodnews"},
     "moment": {"slot": "record", "label": "在愿望的轨迹上留下一个瞬间", "hint": "为愿望做了什么、当时什么感受", "xp": 5, "coins": 8, "go": "plan", "needs": "wish"},
     "pick": {"slot": "explore", "label": "做今天推荐的练习", "hint": "点子页最上面那张", "xp": 8, "coins": 12, "go": "ideas", "weight": 3},
-    "practice": {"slot": "explore", "label": "做 1 次练习", "hint": "冥想、感恩、许个愿，挑一个", "xp": 8, "coins": 12, "go": "ideas"},
+    "practice": {"slot": "explore", "label": "做 1 次练习", "hint": "冥想、感恩、显化你的愿望，挑一个", "xp": 8, "coins": 12, "go": "ideas"},
     "read": {"slot": "explore", "label": "在心灵学堂读一篇", "hint": "挑一篇还没读过的", "xp": 8, "coins": 12, "go": "academy", "needs": "unread"},
     "plan": {"slot": "explore", "label": "给愿望想一个新的小步", "hint": "自己加，或者让小光帮你想", "xp": 8, "coins": 12, "go": "plan", "needs": "few_steps", "weight": 3},
     "reflect": {"slot": "explore", "label": "写一段阶段回望", "hint": "蜕变计划里的「阶段回望」", "xp": 8, "coins": 12, "go": "plan", "needs": "moments"},

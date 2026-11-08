@@ -1,0 +1,22 @@
+/* 两个演示自己的几块（对话层、卡片、愿望卡都用 App 的 css/tune.css） */
+.msg .col > .quote { margin: 2px 0; }
+.msg .col > .tb-note { display: flex; align-items: center; gap: 6px; margin: 2px 0 0 4px; }
+.msg .col > .tb-note .ic-svg { width: 14px; height: 14px; color: var(--accent); flex: none; }
+/* 调整现有计划：一条条改动 */
+.chg { display: grid; gap: 8px; }
+.chg-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 16px; background: var(--surface); border: 1.5px solid var(--line); cursor: pointer;
+  transition: border-color .2s, background .2s, opacity .2s; animation: tb-in .45s var(--spring) backwards; animation-delay: calc(var(--i) * 70ms + 60ms); }
+.chg-row input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); flex: none; }
+.chg-row > span { flex: 1; min-width: 0; }
+.chg-row small.k { display: inline-block; margin-bottom: 3px; padding: 1px 8px; border-radius: 99px; font-size: 11.5px; font-weight: 900; color: var(--accent); background: var(--accent-soft); }
+.chg-row b { display: block; font-size: 14.5px; line-height: 1.45; }
+.chg-row b s { color: var(--text-4); font-weight: 700; }
+.chg-row em { display: block; margin-top: 2px; font-style: normal; font-size: 12.5px; font-weight: 700; color: var(--text-3); }
+.chg-row:has(input:not(:checked)) { opacity: .5; }
+.chg-row:has(input:checked) { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.chg-none { padding: 14px; border-radius: 16px; background: var(--surface); border: 1px dashed var(--line-2); font-size: 14px; font-weight: 700; color: var(--text-2); }
+.tb-chips.rev { margin-top: 0; }
+.report { display: grid; gap: 6px; }
+/* 七步走完，小光写的小纸条 */
+.msg .bub.letter { position: relative; padding: 16px 18px; line-height: 1.85; background: color-mix(in srgb, var(--c-lemon) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--c-lemon) 40%, var(--line)); }
