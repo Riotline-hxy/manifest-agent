@@ -1,5 +1,4 @@
-// 蜕变计划的轨迹图形：一条从「定下愿望那天」到「计划实现那天」的柔和曲线。
-// 走过的部分实线发光，还没到的部分是淡淡的虚线。小人坐在起点，愿景图形在终点。
+// 蜕变计划的愿望类别、细线图形（选方向时的愿景、空状态的小人）和点亮动效。
 // 所有线条同一种笔触（圆头、细线、一点光晕），颜色跟随当前氛围。
 
 export const CATS = {
@@ -20,41 +19,6 @@ export const CATS = {
 };
 export const catOf = (id) => CATS[id] || CATS.other;
 export const MOODS = ["平静", "开心", "紧张", "疲惫", "温暖", "骄傲", "有点难过"];
-
-// ---- 曲线：用比例定义，按舞台的真实像素尺寸生成，宽屏窄屏都不变形 ----
-const SHAPE = [[0.13, 0.80], [0.30, 0.79], [0.36, 0.55], [0.50, 0.52], [0.64, 0.49], [0.70, 0.27], [0.86, 0.22]];
-export function curvePath(w, h) {
-  const p = SHAPE.map(([x, y]) => [Math.round(x * w * 10) / 10, Math.round(y * h * 10) / 10]);
-  return `M${p[0]} C${p[1]} ${p[2]} ${p[3]} C${p[4]} ${p[5]} ${p[6]}`;
-}
-
-// 背景：几层很淡的远山，加一层按类别区分的小纹理
-export function backdropSVG(cat, w, h) {
-  const hill = (y0, amp, seed) => {
-    let d = `M0,${h}`;
-    for (let i = 0; i <= 8; i++) {
-      const x = (w / 8) * i;
-      const y = h * y0 - Math.sin(i * 1.3 + seed) * amp * h - Math.cos(i * 0.7 + seed * 2) * amp * 0.6 * h;
-      d += ` L${x.toFixed(1)},${y.toFixed(1)}`;
-    }
-    return d + ` L${w},${h}Z`;
-  };
-  const hills = `<defs><linearGradient id="jHill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="currentColor" stop-opacity=".09"/>
-    <stop offset=".7" stop-color="currentColor" stop-opacity=".02"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs>
-    <path class="bd-hill h1" d="${hill(0.56, 0.07, 1)}" fill="url(#jHill)"/><path class="bd-hill h2" d="${hill(0.68, 0.05, 2.4)}" fill="url(#jHill)"/>`;
-  let tex = "";
-  if (cat === "calm") {
-    tex = [0, 1, 2, 3].map((i) => `<path class="bd-wave" style="--i:${i}" d="M${-60},${h * (0.80 + i * 0.05)} ${Array.from({ length: 14 }, (_, k) => `q${w / 26},-6 ${w / 13},0`).join(" ")}"/>`).join("");
-  } else if (cat === "confidence" || cat === "wealth") {
-    tex = [[0.12, 0.15], [0.27, 0.10], [0.42, 0.24], [0.58, 0.12], [0.70, 0.06], [0.33, 0.36], [0.95, 0.45], [0.62, 0.70]]
-      .map(([x, y], i) => `<circle class="bd-dot" style="--i:${i}" cx="${x * w}" cy="${y * h}" r="${i % 3 ? 1.6 : 2.4}"/>`).join("");
-  } else if (cat === "relation") {
-    tex = `<path class="bd-web" d="M${w * 0.1},${h * 0.28} L${w * 0.26},${h * 0.16} L${w * 0.42},${h * 0.3} L${w * 0.58},${h * 0.18} L${w * 0.72},${h * 0.1}"/>`;
-  } else if (cat === "freedom") {
-    tex = `<path class="bd-beam" d="M${w},0 L${w * 0.62},${h} L${w * 0.78},${h} L${w},${h * 0.25}Z"/>`;
-  }
-  return `<g class="bd" aria-hidden="true">${hills}${tex}</g>`;
-}
 
 const S = 'fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
 

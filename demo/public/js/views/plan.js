@@ -1,298 +1,145 @@
-// 蜕变计划：一个愿望 = 一条从「定下那天」走到「计划实现那天」的轨迹 + 一条路（里程碑 · 习惯 · 小步）。
-// 轨迹卡片里只有时间节点能点：起点、终点、做过事的日子、里程碑。点开是那几天具体做了什么。
-// 下面是这条路本身：今天要做的习惯和小步、路上的里程碑，以及和小光一起规划的入口。
+// 蜕变计划 · 成长日历。
+// 上面：愿望卡（左右滑，一个愿望一张：愿景、站点线、习惯）+ 所有愿望的小步（今天 / 之后 / 还没安排）；
+// 下面：日历「走过的日子」（周 / 月）+ 选中那天的详情。小步可以拖进日历，或者点日历按钮选一天。
+// 页面订阅数据：面板、两分钟启动、偷懒、小光在对话里改了计划，这里都会就地更新，不跳回顶部。
 import { api } from "../api.js";
-import { state, setData, go, xpNote } from "../store.js";
+import { state, setData, go, xpNote, subscribe } from "../store.js";
 import { esc, toast, confirmSheet, icon, tile, sheet, h } from "../ui.js";
 import { flyGain, burstAt, confetti } from "../fx.js";
-import { agentMini, celebrate } from "../ball.js";
-import { CATS, catOf, MOODS, curvePath, backdropSVG, figureSVG, visionSVG, playFx } from "../journey.js";
-import { restBannerHTML, bindRestBanner } from "../rest.js";
+import { mountBall, celebrate } from "../ball.js";
+import { CATS, catOf, MOODS, figureSVG, visionSVG, playFx } from "../journey.js";
+import { restBannerHTML, bindRestBanner, openLazy } from "../rest.js";
 import { openKick } from "../kick.js";
+import { addDays, diffDays, md, wk, planOf, planLabel, planModel, calendarHTML, dayHTML, shiftPeriod,
+  scheduleSheet, pickSheet, bindDrag, bindSwipe, reduced } from "../plan-cal.js";
 
-const WEEK = "日一二三四五六";
-const BUCKETS = [1, 2, 3, 7, 14, 30];
+// 重画时保留：正在看哪个愿望、日历选中哪天、周还是月
+const ui = { owner: null, wish: "", serverWish: "", day: "", mode: "week", data: null, fx: null, gain: null, flash: "" };
+let mounted = null, subbed = false, ball = null, ctl = null, selTimer = 0;
 
-// ---- 日期：一律以服务端给的「今天」为准做日历加减 ----
-const D = (s) => new Date(s.slice(0, 10) + "T00:00:00Z");
-const K = (d) => d.toISOString().slice(0, 10);
-const addDays = (s, n) => K(new Date(D(s).getTime() + n * 864e5));
-const diffDays = (a, b) => Math.round((D(a) - D(b)) / 864e5);
-const md = (s) => `${+s.slice(5, 7)}月${+s.slice(8, 10)}日`;
-const mdy = (s, ref) => (s.slice(0, 4) !== ref.slice(0, 4) ? `${s.slice(0, 4)}年` : "") + md(s);
-const wk = (s) => "周" + WEEK[D(s).getUTCDay()];
-const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-let _path, _ro;
-function measure(d) {
-  if (!_path) _path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  _path.setAttribute("d", d);
-  return _path;
+function onData() {
+  if (state.route !== "plan" || !mounted?.isConnected) { cleanup(); return; }
+  if (state.data !== ui.data) renderPlan(mounted, { quiet: true });
+}
+function cleanup() {
+  ctl?.abort(); ctl = null;
+  ball?.destroy(); ball = null;
+  clearTimeout(selTimer);
 }
 
-// 这个愿望每天做过的事
-function dayMap(w, J) {
-  const m = new Map();
-  const at = (d) => {
-    if (!m.has(d)) m.set(d, { steps: [], habits: [], ms: [], moments: [] });
-    return m.get(d);
-  };
-  for (const s of state.data.steps || []) if (s.wish_id === w.id && s.status === "done" && s.done_at) at(s.done_at.slice(0, 10)).steps.push(s);
-  for (const hb of w.habits || []) for (const d of hb.days) at(d).habits.push(hb);
-  for (const x of w.milestones || []) if (x.status === "done" && x.done_at) at(x.done_at.slice(0, 10)).ms.push(x);
-  for (const x of J.moments || []) if (x.wish_id === w.id) at(x.day).moments.push(x);
-  return m;
-}
-const countOf = (e) => e.steps.length + e.habits.length + e.ms.length + e.moments.length;
+export function renderPlan(root, { quiet = false } = {}) {
+  mounted = root;
+  if (!subbed) { subbed = true; subscribe(onData); }
+  cleanup();
+  ctl = new AbortController();
+  const signal = ctl.signal;
+  const data = state.data;
+  ui.data = data;
+  if (ui.owner !== state.user?.id) Object.assign(ui, { owner: state.user?.id, wish: "", serverWish: "", day: "", mode: "week" });
+  const J = data.journey || { wishes: [], moments: [] };
+  if (!(J.wishes || []).length) return renderStart(root, J);
+  const M = planModel(data);
+  // 别处换了正在看的愿望（新开了一个、小光帮你收起了一个）：跟着换
+  if (ui.serverWish && J.current !== ui.serverWish) ui.wish = J.current;
+  ui.serverWish = J.current;
+  if (!M.wishes.some((w) => w.id === ui.wish)) ui.wish = M.wishes.some((w) => w.id === J.current) ? J.current : M.wishes[0].id;
+  if (!ui.day) ui.day = M.today;
+  const top = root.scrollTop;
+  root.innerHTML = pageHTML(M, quiet);
+  if (quiet) root.scrollTop = top;
 
-export function renderPlan(root, { fresh = "" } = {}) {
-  _ro?.disconnect();
-  const J = state.data.journey || { wishes: [], moments: [] };
-  const wishes = J.wishes || [];
-  if (!wishes.length) return renderStart(root, J);
-  const w = wishes.find((x) => x.id === J.current) || wishes[0];
+  mountCarousel(root, M, signal);
+  bindRestBanner(root, () => {});
+  bindDrag(root, { scroller: root, signal, onDrop: (id, day) => schedule(id, day) });
+  const cal = root.querySelector(".pc-cal");
+  bindSwipe(cal, (n) => { ui.day = shiftPeriod(ui, n); drawCal(root, M); }, signal);
+  cal.addEventListener("keydown", (e) => {
+    const b = e.target.closest("[data-day]");
+    const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+    if (!b || !step) return;
+    e.preventDefault();
+    ui.day = addDays(b.dataset.day, step);
+    drawCal(root, M);
+    root.querySelector(`.pc-date[data-day="${ui.day}"]`)?.focus();
+  }, { signal });
+  root.addEventListener("click", (e) => onClick(e, root, M), { signal });
+  drawCal(root, M);
+  afterRender(root, M);
+}
+
+// ---------------------------------------------------------------- 页面 ----
+function pageHTML(M, quiet) {
+  const resting = M.rest.has(M.today);
+  const insight = (M.J.insights || {})[ui.wish];
+  const month = M.today.slice(0, 7);
+  const active = [...M.days.keys()].filter((d) => d.startsWith(month) && d <= M.today && M.count(d)).length;
+  return `<div class="view-inner wide plan pl ${quiet ? "quiet" : ""}">
+    <div class="page-head pl-head"><div><h1>蜕变计划</h1><p>每个愿望从一小步开始，做过的都会留在日子里</p></div>
+      <div class="pl-acts">
+        <button class="btn btn-ghost btn-sm pl-rest ${resting ? "on" : ""}" data-rest-me aria-pressed="${resting}">${icon("moon")}${resting ? "偷懒中" : "偷个懒"}</button>
+        <button class="btn btn-main btn-sm" data-compose>${icon("plus")}留下一个瞬间</button></div></div>
+    <div class="pl-top">${carouselHTML(M)}${stepsHTML(M, resting)}</div>
+    <div class="pl-sec"><h2>走过的日子</h2><span class="muted">${active ? `这个月有 ${active} 天留下了记录` : "做过的每件小事，都会记在那一天"}</span></div>
+    <div class="pl-journal">
+      <section class="card pc-card"><div class="pc-cal"></div><div class="j-fx" aria-hidden="true"></div></section>
+      <section class="card pd-card" aria-live="polite"></section>
+    </div>
+    <div class="pl-more">
+      ${insight ? `<section class="card j-insight">
+        <div class="sec-title">${icon("sparkles")}小光的小发现 <span class="pill">猜的，你说了算</span></div>
+        <p class="j-guess">${esc(insight.text)}</p>
+        <div class="j-answers">${[["yes", "像我"], ["partly", "有一部分"], ["no", "不太像"], ["skip", "跳过"]].map(([a, l]) =>
+          `<button class="btn btn-sm ${a === "yes" ? "btn-main" : "btn-ghost"}" data-answer="${a}" data-insight="${esc(insight.id)}">${l}</button>`).join("")}</div>
+        <small class="muted">选「像我」或「有一部分」，小光会把它记成对你的了解。</small></section>` : ""}
+      <button class="report-entry card" data-go-report>${tile("report", "var(--c-pink)", 40)}<span class="re-txt"><b>蜕变报告</b><small>回头看看这段时间的你</small></span>${icon("arrow")}</button>
+    </div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------- 愿望卡 ----
+function carouselHTML(M) {
+  const more = M.wishes.length < 6;
+  const n = M.wishes.length + (more ? 1 : 0);
+  return `<section class="pw" aria-roledescription="轮播" aria-label="我的愿望">
+    <div class="pw-track" tabindex="0">${M.wishes.map((w) => wishCardHTML(w, M)).join("")}
+      ${more ? `<article class="pw-card card pw-new" aria-label="开启新愿望"><div class="pw-new-in">${tile("plus", "var(--accent)", 44)}
+        <b>开启新愿望</b><p>想靠近的另一种自己，也可以从今天开始。</p><button class="btn btn-main btn-sm" data-new-wish>新的愿望</button></div></article>` : ""}</div>
+    ${n > 1 ? `<div class="pw-nav"><button class="icon-btn sm" data-pw="-1" aria-label="上一个愿望">${icon("back")}</button>
+      <span class="pw-dots">${Array.from({ length: n }, (_, i) => `<button class="pw-dot" data-pw-i="${i}" aria-label="${i < M.wishes.length ? `看「${esc(M.wishes[i].title)}」` : "开启新愿望"}"></button>`).join("")}</span>
+      <button class="icon-btn sm" data-pw="1" aria-label="下一个愿望">${icon("arrow")}</button></div>` : ""}
+    <span class="pw-ball" role="button" tabindex="0" aria-label="和小光聊聊这条路" aria-expanded="false"></span>
+    <div class="pw-say" hidden></div>
+  </section>`;
+}
+
+function wishCardHTML(w, M) {
   const cat = catOf(w.category);
-  const today = J.today;
-  const days = dayMap(w, J);
-  const active = [...days.keys()].sort();
-  const start = [w.started.slice(0, 10), active[0] || w.started].sort()[0];
-  const target = w.target_day;
-  const walked = Math.max(0, diffDays(today, start));
-  const left = diffDays(target, today);
-  const activeDays = active.filter((d) => d <= today).length;
-  const resting = (J.rest_days || []).includes(today);
-  const steps = (state.data.steps || []).filter((s) => s.wish_id === w.id || (!s.wish_id && w.id === wishes[0].id));
-  const todo = steps.filter((s) => s.status === "todo");
-  const dropped = steps.filter((s) => s.status === "dropped");
-  const hbs = w.habits || [];
+  const start = w.started.slice(0, 10);
+  const walked = Math.max(0, diffDays(M.today, start)), left = diffDays(w.target_day, M.today);
+  const pct = Math.min(100, Math.round((walked / Math.max(1, diffDays(w.target_day, start))) * 100));
   const mss = w.milestones || [];
-  const insight = (J.insights || {})[w.id];
-
-  root.innerHTML = `
-    <div class="view-inner wide plan journey" style="--jc:${cat.color}">
-      <div class="page-head"><div><h1>蜕变计划</h1><p>给每个愿望定一个日子，把路拆成里程碑、习惯和小步，一天一天走过去</p></div></div>
-
-      <div class="wish-tabs" role="tablist" aria-label="切换愿望">
-        ${wishes.map((x) => `<button class="wish-tab ${x.id === w.id ? "on" : ""}" role="tab" aria-selected="${x.id === w.id}" data-wish="${esc(x.id)}">
-          ${tile(catOf(x.category).icon, catOf(x.category).color, 26)}<span>${esc(x.title)}</span></button>`).join("")}
-        ${wishes.length < 6 ? `<button class="wish-tab add" id="newWish">${icon("plus")}<span>新的愿望</span></button>` : ""}
-      </div>
-
-      <section class="j-board card cat-${esc(w.category)}">
-        <header class="j-head">
-          <div class="j-title"><h2>${esc(w.title)}</h2>
-            <p><span class="j-catname">${esc(cat.label)}</span>${w.vision_text ? `<span class="j-vis">${esc(w.vision_text)}</span>` : ""}</p></div>
-          <div class="j-meta">
-            <div class="j-dates">${mdy(start, today)} 定下 <i></i> 计划 ${mdy(target, today)}</div>
-            <div class="j-count">${left > 0 ? `已经走了 <b>${walked}</b> 天 · 还有 <b>${left}</b> 天` : left === 0 ? `今天就是计划的日子` : `计划日已过 ${-left} 天 · 可以在编辑里换个日子`}</div>
-          </div>
-          <button class="icon-btn" id="editWish" title="编辑愿望" aria-label="编辑愿望">${icon("edit")}</button>
-        </header>
-        <div class="j-stage" aria-label="时间轨迹"></div>
-        <footer class="j-foot">
-          <span class="j-legend"><i></i>${activeDays ? `${walked + 1} 天里有 <b>${activeDays}</b> 天在为它做事` : "做过事的日子会在轨迹上亮起来"}<span class="j-k"></span></span>
-          <div class="row">
-            <button class="btn btn-ghost btn-sm" id="review">${icon("eye")}阶段回望</button>
-            <button class="btn btn-main" data-compose>${icon("plus")}留下一个瞬间</button>
-          </div>
-        </footer>
-      </section>
-
-      <div class="j-path">
-        <section class="card j-todayc ${resting ? "resting" : ""}">
-          <header class="j-sec-h"><h3>今天</h3><span class="muted">${md(today)} ${wk(today)}</span>${resting ? `<span class="pill">${icon("moon")}偷懒日 · 暂停中</span>` : ""}</header>
-          ${restBannerHTML()}
-          ${hbs.length ? `<div class="j-group">习惯 <small>重复做的事</small></div>
-            <div class="habits">${hbs.map((hb, i) => habitRow(hb, J, i)).join("")}</div>` : ""}
-          <div class="j-group">小步 <small>做一次就完成的事</small></div>
-          <div class="steps">${todo.map((s, i) => `<div class="step" style="--i:${i}">
-            <button class="check" data-done="${esc(s.id)}" aria-label="完成「${esc(s.title)}」">${icon("check")}</button>
-            <div class="step-main"><div class="st">${esc(s.title)}</div>${s.why ? `<div class="sw">${esc(s.why)}</div>` : ""}</div>
-            <button class="icon-btn step-kick" data-kick="${esc(s.id)}" aria-label="两分钟启动「${esc(s.title)}」" title="两分钟启动">${icon("footsteps")}</button>
-            <button class="btn btn-quiet btn-sm" data-drop="${esc(s.id)}">先放一放</button></div>`).join("")
-            || (steps.some((s) => s.status === "done")
-              ? `<div class="j-cleared"><span>${icon("checkc")}这个愿望的小步都做完了。</span><button class="btn btn-sm btn-main" data-think>${icon("sparkles")}和小光想想下一步</button></div>`
-              : `<p class="muted j-none">现在没有待做的小步。</p>`)}</div>
-          <div class="j-adds">
-            <button class="btn btn-ghost btn-sm" data-add="step">${icon("plus")}小步</button>
-            <button class="btn btn-ghost btn-sm" data-add="habit">${icon("plus")}习惯</button>
-            <button class="btn btn-ghost btn-sm" data-add="milestone">${icon("plus")}里程碑</button>
-          </div>
-          ${dropped.length ? `<details class="j-dropped"><summary>先放一放的 ${dropped.length} 件</summary>
-            ${dropped.map((s) => `<div class="done-row dim"><span>${esc(s.title)}</span><button class="btn btn-sm btn-ghost" data-back="${esc(s.id)}">放回来</button></div>`).join("")}</details>` : ""}
-        </section>
-
-        <div class="j-side">
-          <section class="card j-ms">
-            <header class="j-sec-h"><h3>里程碑</h3><span class="muted">${mss.filter((m) => m.status === "done").length}/${mss.length} 到达</span></header>
-            ${mss.length ? `<ol class="ms-list">${mss.map((m) => `<li class="ms ${m.status === "done" ? "done" : ""}">
-              <button class="ms-dot" data-ms="${esc(m.id)}" aria-label="${m.status === "done" ? "改回还没到" : "标记为已到达"}：${esc(m.title)}">${icon("check")}</button>
-              <div><b>${esc(m.title)}</b><small>${msWhen(m, today)}</small></div></li>`).join("")}</ol>`
-              : `<p class="muted j-none">路上可以设几个看得见的站点，比如「能连续跑 5 公里」。</p>`}
-            <button class="btn btn-quiet btn-sm" data-add="milestone">${icon("plus")}加一个里程碑</button>
-          </section>
-
-          <section class="card j-talk">
-            <div class="talk-head"><span class="talk-av">${agentMini()}</span>
-              <div><b>和小光聊聊这条路</b><p>说说你的情况，小光帮你拆成里程碑、习惯和小步，你来挑哪些加进来。</p></div></div>
-            <div class="talk-chips">${talkChips(w).map(([l, m], i) => `<button class="chip" data-talk="${i}">${esc(l)}</button>`).join("")}</div>
-          </section>
-        </div>
-      </div>
-
-      <div class="j-more">
-        ${insight ? `<section class="card j-insight">
-          <div class="sec-title">${icon("sparkles")}小光的小发现 <span class="pill">猜的，你说了算</span></div>
-          <p class="j-guess">${esc(insight.text)}</p>
-          <div class="j-answers">${[["yes", "像我"], ["partly", "有一部分"], ["no", "不太像"], ["skip", "跳过"]].map(([a, l]) =>
-            `<button class="btn btn-sm ${a === "yes" ? "btn-main" : "btn-ghost"}" data-answer="${a}">${l}</button>`).join("")}</div>
-          <small class="muted">选「像我」或「有一部分」，小光会把它记成对你的了解。</small></section>` : ""}
-        <details class="fold card j-list" ${state.planListOpen ? "open" : ""}><summary>${icon("list")}按日期看走过的每一天 <span class="muted">· ${activeDays} 天</span></summary>
-          ${active.filter((d) => d <= today).reverse().map((d) => { const e = days.get(d); return `<button class="j-li" data-open-day="${d}">
-            <span class="j-li-day"><b>${md(d)}</b><small>${wk(d)}</small></span><span class="j-li-sum">${daySummary(e)}</span></button>`; }).join("")
-            || `<p class="muted" style="padding:6px 4px">这里会按日期列出你为它做过的事。</p>`}
-        </details>
-        <button class="report-entry card" data-go-report>${tile("report", "var(--c-pink)", 40)}<span class="re-txt"><b>蜕变报告</b><small>回头看看这段时间的你</small></span>${icon("arrow")}</button>
-      </div>
-    </div>`;
-
-  // ---- 轨迹 ----
-  const board = root.querySelector(".j-board");
-  const stage = root.querySelector(".j-stage");
-  const model = { w, cat, J, days, start, target, today, fresh };
-  let lastW = 0;
-  const draw = () => {
-    if (Math.abs(stage.clientWidth - lastW) < 2) return;
-    lastW = stage.clientWidth;
-    drawStage(root, stage, board, model);
-  };
-  draw();
-  _ro = new ResizeObserver(draw);
-  _ro.observe(stage);
-
-  // ---- 交互 ----
-  root.querySelectorAll("[data-wish]").forEach((b) => b.addEventListener("click", async () => {
-    if (b.dataset.wish === w.id) return;
-    try { setData(await api.wish("select", { id: b.dataset.wish })); renderPlan(root); }
-    catch (e) { toast(e.message, "err"); }
-  }));
-  root.querySelector("[data-go-report]").addEventListener("click", () => go("report"));
-  root.querySelector("#newWish")?.addEventListener("click", () => wishSheet(root, null, J));
-  root.querySelector("#editWish").addEventListener("click", () => wishSheet(root, w, J));
-  root.querySelectorAll("[data-compose]").forEach((b) => b.addEventListener("click", () => composeSheet(root, w)));
-  root.querySelector("#review").addEventListener("click", () => reviewSheet(w));
-  root.querySelector(".j-list").addEventListener("toggle", (e) => { state.planListOpen = e.target.open; });
-  root.querySelectorAll("[data-open-day]").forEach((b) => b.addEventListener("click", () => dayCard(root, model, [b.dataset.openDay])));
-  root.querySelectorAll("[data-add]").forEach((b) => b.addEventListener("click", () => addSheet(root, w, b.dataset.add)));
-  root.querySelector("[data-think]")?.addEventListener("click", () => {
-    state.autoSend = `「${w.title}」的小步都做完了。帮我想想接下来可以做的两三个小步吧，先问问我现在的情况。`;
-    go("chat");
-  });
-  root.querySelectorAll("[data-talk]").forEach((b) => b.addEventListener("click", () => {
-    state.autoSend = talkChips(w)[+b.dataset.talk][1];
-    go("chat");
-  }));
-
-  bindRestBanner(root, () => renderPlan(root));
-  root.querySelectorAll("[data-hskip]").forEach((b) => b.addEventListener("click", async () => {
-    const hb = hbs.find((x) => x.id === b.dataset.hskip);
-    try {
-      setData(await api.habit(hb.skipped ? "unskip" : "skip", { id: hb.id }));
-      if (!hb.skipped) toast(`「${hb.title}」今天先休息，明天见`, "", "moon");
-      renderPlan(root);
-    } catch (e) { toast(e.message, "err"); }
-  }));
-
-  root.querySelectorAll("[data-hcheck]").forEach((b) => b.addEventListener("click", async () => {
-    const hb = hbs.find((x) => x.id === b.dataset.hcheck);
-    const undo = hb.today;
-    b.closest(".hrow").classList.toggle("done", !undo);
-    try {
-      const out = await api.habit(undo ? "uncheck" : "check", { id: hb.id });
-      if (!undo) {
-        burstAt(b, 26);
-        flyGain(b, out.xp);
-        celebrate();
-      }
-      setTimeout(() => { setData(out); renderPlan(root, { fresh: undo ? "" : today }); }, undo ? 0 : 420);
-    } catch (e) { toast(e.message, "err"); renderPlan(root); }
-  }));
-  root.querySelectorAll("[data-hedit]").forEach((b) => b.addEventListener("click", () => habitSheet(root, hbs.find((x) => x.id === b.dataset.hedit))));
-
-  root.querySelectorAll("[data-ms]").forEach((b) => b.addEventListener("click", async () => {
-    const m = mss.find((x) => x.id === b.dataset.ms);
-    if (m.status === "done") {
-      if (!(await confirmSheet("改回还没到？", `「${m.title}」会回到待到达的状态。`, "改回", "flag"))) return;
-      try { setData(await api.milestone("todo", { id: m.id })); renderPlan(root); } catch (e) { toast(e.message, "err"); }
-      return;
-    }
-    try {
-      const out = await api.milestone("done", { id: m.id });
-      const r = b.getBoundingClientRect();
-      confetti(r.left + r.width / 2, r.top + r.height / 2, 70, 0.8);
-      flyGain(b, out.xp);
-      celebrate(true);
-      toast(`到达「${m.title}」`, "", "flag");
-      setTimeout(() => { setData(out); renderPlan(root, { fresh: today }); }, 380);
-    } catch (e) { toast(e.message, "err"); }
-  }));
-
-  root.querySelectorAll("[data-answer]").forEach((b) => b.addEventListener("click", async () => {
-    try {
-      const out = await api.insight({ insight_id: insight.id, answer: b.dataset.answer });
-      setData(out);
-      toast({ yes: "记下了", partly: "记下了，标着「只有一部分像」", no: "好，这条就不记了", skip: "先跳过" }[b.dataset.answer], "", "sparkles");
-      renderPlan(root);
-    } catch (e) { toast(e.message, "err"); }
-  }));
-
-  root.querySelectorAll("[data-done]").forEach((b) => b.addEventListener("click", async () => {
-    const card = b.closest(".step");
-    card.classList.add("checking");
-    try {
-      const out = await api.step("done", { id: b.dataset.done });
-      burstAt(b, 30);
-      celebrate();
-      if (out.xp?.amount || out.xp?.coins > 0) flyGain(b, out.xp); else toast(xpNote(out.xp) || "完成了");
-      setTimeout(() => { setData(out); renderPlan(root, { fresh: today }); }, 480);
-    } catch (e) { card.classList.remove("checking"); toast(e.message, "err"); }
-  }));
-  root.querySelectorAll("[data-kick]").forEach((b) => b.addEventListener("click", () => {
-    const s = (state.data.steps || []).find((x) => x.id === b.dataset.kick);
-    if (s) openKick({ task: s.title, stepId: s.id });     // 从小步进来：任务填好，小光知道它挂在哪个愿望下
-  }));
-  root.querySelectorAll("[data-drop]").forEach((b) => b.addEventListener("click", async () => {
-    setData(await api.step("drop", { id: b.dataset.drop }));
-    toast("先放一放，想做的时候在下面放回来", "", "moon");
-    renderPlan(root);
-  }));
-  root.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", async () => {
-    setData(await api.step("todo", { id: b.dataset.back }));
-    renderPlan(root);
-  }));
-}
-
-function talkChips(w) {
-  const t = `「${w.title}」`;
-  return [
-    ["帮我规划这条路", `我想好好规划${t}这个愿望，计划在 ${md(w.target_day)} 前后实现。先问我几个问题，再帮我拆成里程碑、习惯和小步。`],
-    ["这周怎么安排", `${t}这周怎么安排比较合适？看看我现在的习惯和小步，帮我排一排。`],
-    ["我有点卡住了", `${t}这件事我最近有点卡住了，想跟你聊聊。`],
-    ["看看我最近怎么样", `帮我回看一下${t}最近这段时间：我做了些什么，有什么变化？`],
-  ];
-}
-
-function msWhen(m, today) {
-  if (m.status === "done") return `${md(m.done_at.slice(0, 10))} 到达`;
-  if (!m.due_day) return "还没定日子";
-  const n = diffDays(m.due_day, today);
-  return `${md(m.due_day)} · ${n > 0 ? `还有 ${n} 天` : n === 0 ? "就是今天" : `过了 ${-n} 天，不着急`}`;
+  const next = mss.find((m) => m.status !== "done");
+  const doneN = mss.filter((m) => m.status === "done").length;
+  const hbs = w.habits || [];
+  return `<article class="pw-card card" data-wish="${esc(w.id)}" style="--jc:${cat.color}" aria-label="${esc(w.title)}">
+    <header class="pw-head">${tile(cat.icon, cat.color, 38)}<div class="pw-t"><h2>${esc(w.title)}</h2><span>${esc(cat.label)}</span></div></header>
+    ${w.vision_text ? `<p class="pw-vision">${esc(w.vision_text)}</p>` : ""}
+    ${w.now_text ? `<p class="pw-now">出发时：${esc(w.now_text)}</p>` : ""}
+    <div class="pw-days"><span>走了 <b>${walked}</b> 天 · ${left > 0 ? `还有 <b>${left}</b> 天` : left === 0 ? "今天就是计划的日子" : "计划日已过，可以换个日子"}</span>
+      <i class="pw-bar" aria-hidden="true"><i style="width:${pct}%"></i></i></div>
+    <div class="pw-sec"><b>站点</b><small>${mss.length ? `${doneN}/${mss.length}${next ? ` · 下一站「${esc(next.title)}」` : " · 都到了"}` : "路上看得见的一站，比如「能连续跑 5 公里」"}</small></div>
+    <div class="pw-ms">${mss.map((m, k) => `${k ? `<i class="pw-seg ${m.status === "done" ? "on" : ""}"></i>` : ""}<button class="pw-st ${m.status === "done" ? "done" : m === next ? "next" : ""}"
+      data-ms="${esc(m.id)}" title="${esc(m.title)}" aria-label="站点「${esc(m.title)}」${m.status === "done" ? "，已到达" : ""}">${m.status === "done" ? icon("check") : ""}</button>`).join("")}
+      ${mss.length ? `<i class="pw-seg add"></i>` : ""}<button class="pw-st add" data-add-ms aria-label="加一个站点" title="加一个站点">${icon("plus")}</button></div>
+    <div class="pw-sec"><b>习惯</b><small></small><button class="btn btn-quiet btn-sm pw-add" data-add-habit>${icon("plus")}习惯</button></div>
+    <div class="habits">${hbs.map((hb, i) => habitRow(hb, M.J, i)).join("") || `<p class="pw-none">还没有习惯，可以从一个舒服的节奏开始。</p>`}</div>
+    <footer class="pw-foot"><button class="btn btn-quiet btn-sm" data-review>${icon("eye")}阶段回望</button><button class="btn btn-quiet btn-sm" data-edit-wish>${icon("edit")}编辑愿望</button></footer>
+  </article>`;
 }
 
 function habitRow(hb, J, i) {
-  const ws = J.week_start;
   const dots = Array.from({ length: 7 }, (_, k) => {
-    const d = addDays(ws, k);
+    const d = addDays(J.week_start, k);
     const cls = hb.days.includes(d) ? "on" : (J.rest_days || []).includes(d) || (hb.skips || []).includes(d) ? "rest" : d === J.today ? "now" : d > J.today ? "later" : "";
     return `<i class="${cls}" title="${md(d)} ${wk(d)}"></i>`;
   }).join("");
@@ -304,179 +151,357 @@ function habitRow(hb, J, i) {
       <div class="h-s">${esc(hb.freq_text)}${hb.cue ? ` · ${esc(hb.cue)}` : ""} · 本周 ${hb.week}/${hb.need}${met && hb.freq === "weekly" ? ` <span class="pill good">这周做到了</span>` : ""}${hb.skipped && !hb.today ? ` <span class="pill">${icon("moon")}今天先休息</span>` : ""}</div></div>
     <div class="h-week" aria-label="本周打卡">${dots}</div>
     ${hb.today || resting ? "" : `<button class="icon-btn sm ${hb.skipped ? "on" : ""}" data-hskip="${esc(hb.id)}" aria-label="${hb.skipped ? "取消：今天先不做" : "今天先不做"}：${esc(hb.title)}" title="${hb.skipped ? "取消今天先不做" : "今天先不做"}">${icon("moon")}</button>`}
-    <button class="icon-btn sm" data-hedit="${esc(hb.id)}" aria-label="编辑习惯">${icon("settings")}</button>
+    <button class="icon-btn sm" data-hedit="${esc(hb.id)}" aria-label="编辑习惯：${esc(hb.title)}">${icon("settings")}</button>
   </div>`;
 }
 
-function daySummary(e) {
-  const parts = [];
-  if (e.ms.length) parts.push(`到达「${esc(e.ms[0].title)}」`);
-  if (e.habits.length) parts.push(e.habits.map((x) => esc(x.title)).join("、"));
-  if (e.steps.length) parts.push(`完成 ${e.steps.length} 个小步`);
-  if (e.moments.length) parts.push(`留下 ${e.moments.length} 个瞬间`);
-  return parts.join(" · ");
+function mountCarousel(root, M, signal) {
+  const track = root.querySelector(".pw-track");
+  const cards = [...track.querySelectorAll(".pw-card")];
+  const stride = () => (cards[1] ? cards[1].offsetLeft - cards[0].offsetLeft : track.clientWidth) || 1;
+  let idx = Math.max(0, M.wishes.findIndex((w) => w.id === ui.wish));
+  const paint = () => {
+    cards.forEach((c, k) => { c.classList.toggle("on", k === idx); c.setAttribute("aria-hidden", String(k !== idx)); });
+    root.querySelectorAll(".pw-dot").forEach((d, k) => d.setAttribute("aria-current", String(k === idx)));
+    const [prev, next] = root.querySelectorAll("[data-pw]");
+    if (prev) { prev.disabled = idx === 0; next.disabled = idx === cards.length - 1; }
+  };
+  track.scrollLeft = idx * stride();
+  paint();
+  // 停在哪个愿望上，它就是「正在看的愿望」：小光在对话里加小步、加习惯，默认放进这里
+  const settle = () => {
+    const w = M.wishes[idx];
+    if (!w || w.id === ui.wish) return;
+    ui.wish = w.id;
+    ball?.pulse("bounce");
+    clearTimeout(selTimer);
+    selTimer = setTimeout(() => api.wish("select", { id: w.id })
+      .then((out) => { ui.serverWish = w.id; setData(out, { silent: true }); ui.data = state.data; }).catch(() => {}), 220);
+  };
+  let t = 0;
+  const land = (k) => {
+    if (k !== idx) { idx = k; paint(); closeSay(root); }
+    clearTimeout(t);
+    t = setTimeout(settle, 160);
+  };
+  // 按钮、圆点、方向键：马上换到那一张（不等滚动事件），再平滑滑过去
+  const goTo = (k) => {
+    k = Math.max(0, Math.min(cards.length - 1, k));
+    land(k);
+    track.scrollTo({ left: k * stride(), behavior: reduced() ? "instant" : "smooth" });
+  };
+  track.addEventListener("scroll", () => land(Math.max(0, Math.min(cards.length - 1, Math.round(track.scrollLeft / stride())))),
+    { passive: true, signal });
+  root._pwGo = (k) => goTo(k === "+" ? idx + 1 : k === "-" ? idx - 1 : k);
+  track.addEventListener("keydown", (e) => {
+    if (e.target !== track) return;
+    const k = { ArrowLeft: idx - 1, ArrowRight: idx + 1, Home: 0, End: cards.length - 1 }[e.key];
+    if (k !== undefined) { e.preventDefault(); goTo(k); }
+  }, { signal });
+  // 手机上露出来的半张卡：点它就滑过去
+  track.addEventListener("click", (e) => {
+    const c = e.target.closest(".pw-card");
+    const k = cards.indexOf(c);
+    if (c && k !== idx) { e.preventDefault(); e.stopPropagation(); goTo(k); }
+  }, { capture: true, signal });
+  addEventListener("resize", () => { if (track.isConnected) track.scrollLeft = idx * stride(); }, { signal });
+
+  // 小光：浮在愿望卡右上角，不跟着卡片滑走；点它聊聊这条路
+  const holder = root.querySelector(".pw-ball");
+  ball = mountBall(holder, { size: matchMedia("(max-width: 760px)").matches ? 52 : 62, interactive: false });
+  const toggle = () => (root.querySelector(".pw-say").hidden ? openSay(root, M) : closeSay(root));
+  holder.addEventListener("click", toggle, { signal });
+  holder.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } }, { signal });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".pw-say, .pw-ball")) closeSay(root); }, { signal });
 }
 
-// ---------------------------------------------------------------- 轨迹舞台 ----
-function drawStage(root, stage, board, M) {
-  const { w, cat, days, start, target, today, fresh } = M;
-  const W = stage.clientWidth, H = stage.clientHeight;
-  if (!W || !H) return;
-  const d = curvePath(W, H);
-  const path = measure(d);
-  const L = path.getTotalLength();
-  const end = target > today ? target : today;
-  const span = Math.max(1, diffDays(end, start));
-  const tOf = (day) => Math.min(1, Math.max(0, diffDays(day, start) / span));
-  const P = (t) => { const p = path.getPointAtLength(L * t); return { x: p.x, y: p.y }; };
-  const k = BUCKETS.find((b) => (L * b) / span >= 28) || 30;
-  const tToday = tOf(today);
-
-  // 按 k 天一组合并；第一组并进起点，靠近终点的并进终点
-  const groups = new Map();
-  for (const day of days.keys()) {
-    if (day > today || day < start) continue;
-    const g = Math.floor(diffDays(day, start) / k);
-    if (!groups.has(g)) groups.set(g, []);
-    groups.get(g).push(day);
-  }
-  const startDays = groups.get(0) || [];
-  groups.delete(0);
-  const goalGap = Math.max(k, 2) / span;
-  const goalDays = [];
-  const nodes = [];
-  for (const [g, ds] of groups) {
-    ds.sort();
-    const t = Math.min(1, (g * k + (k - 1) / 2) / span);
-    if (t > 1 - goalGap) { goalDays.push(...ds); continue; }
-    nodes.push({ days: ds, t, n: ds.reduce((s, x) => s + countOf(days.get(x)), 0), ...P(t) });
-  }
-  nodes.sort((a, b) => a.t - b.t);
-  const flags = (w.milestones || []).filter((m) => m.due_day || m.done_at).map((m) => {
-    const day = m.status === "done" ? m.done_at.slice(0, 10) : m.due_day;
-    const t = Math.min(0.97, Math.max(0.03, tOf(day)));
-    return { m, day, t, ...P(t) };
-  });
-  const S0 = P(0), S1 = P(1), T = P(tToday);
-  const figW = W < 560 ? 52 : 70;
-  const goalW = W < 560 ? 60 : 82;
-  const freshHit = (ds) => fresh && ds.includes(fresh);
-
-  stage.innerHTML = `
-    <svg class="j-back" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true">
-      ${backdropSVG(w.category, W, H)}
-      <path class="curve-future" d="${d}"/>
-      <path class="curve-past" d="${d}" style="stroke-dasharray:${(L * tToday).toFixed(1)} ${L.toFixed(1)}"/>
-      <path class="curve-lit" d="${d}"/>
-    </svg>
-    <div class="j-start" style="left:${Math.max(2, S0.x - figW * 0.9)}px;top:${S0.y - figW * 0.95}px;width:${figW}px">${figureSVG()}</div>
-    <div class="j-goal" style="left:${S1.x - goalW / 2}px;top:${S1.y - goalW - 10}px;width:${goalW}px">${visionSVG(w.category)}</div>
-    <span class="j-lbl start" style="left:${S0.x}px;top:${S0.y}px">${md(start)} · 出发</span>
-    <span class="j-lbl goal" style="left:${S1.x}px;top:${S1.y}px"><b>向往的我</b>${md(target)}</span>
-    ${tToday > 0.04 && tToday < 0.96 ? `<span class="j-now" style="left:${T.x}px;top:${T.y}px"><i></i><em>今天</em></span>` : ""}
-    <button class="j-node j-node-start ${startDays.length ? "has" : ""} ${freshHit(startDays) ? "fresh" : ""}" data-kind="start" data-days="${[start, ...startDays].filter((x, i, a) => a.indexOf(x) === i).join(",")}" data-t="0"
-      style="left:${S0.x}px;top:${S0.y}px" aria-label="起点：${md(start)} 定下这个愿望"><i></i></button>
-    <button class="j-node j-node-goal ${goalDays.length ? "has" : ""} ${freshHit(goalDays) ? "fresh" : ""}" data-kind="goal" data-days="${goalDays.join(",")}" data-t="1"
-      style="left:${S1.x}px;top:${S1.y}px" aria-label="终点：计划在 ${md(target)} 实现"><i></i></button>
-    ${flags.map((f) => `<button class="j-flag ${f.m.status === "done" ? "done" : ""}" data-days="${f.day}" data-t="${f.t}" style="left:${f.x}px;top:${f.y}px"
-      aria-label="里程碑「${esc(f.m.title)}」，${md(f.day)}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 15V2"/><path d="M3.5 2.5h8.5l-2 3 2 3H3.5"/></svg><em>${esc(f.m.title)}</em></button>`).join("")}
-    ${nodes.map((n) => `<button class="j-node ${freshHit(n.days) ? "fresh" : ""}" data-days="${n.days.join(",")}" data-t="${n.t}" style="left:${n.x}px;top:${n.y}px"
-      aria-label="${md(n.days[0])}${n.days.length > 1 ? ` 到 ${md(n.days[n.days.length - 1])}` : ""}，做了 ${n.n} 件事" title="${md(n.days[0])}${n.days.length > 1 ? " – " + md(n.days[n.days.length - 1]) : ""}"><i></i></button>`).join("")}
-    <div class="j-fx" aria-hidden="true"></div>`;
-  const kEl = board.querySelector(".j-k");
-  if (kEl) kEl.textContent = k > 1 ? ` · 每个点是 ${k} 天` : "";
-
-  const all = [...stage.querySelectorAll(".j-node")];
-  const open = (b) => {
-    const ds = b.dataset.days ? b.dataset.days.split(",").filter(Boolean) : [];
-    b.classList.remove("hit"); void b.offsetWidth; b.classList.add("hit");
-    const i = all.indexOf(b);
-    playFx(cat.fx, board, b, { frac: +b.dataset.t, neighbors: [all[i - 1], all[i + 1]].filter(Boolean) });
-    setTimeout(() => dayCard(root, M, ds, b.dataset.kind || ""), reduced() ? 0 : 480);
-  };
-  stage.querySelectorAll(".j-node, .j-flag").forEach((b) => b.addEventListener("click", () => open(b)));
-  const fr = stage.querySelector(".j-node.fresh");
-  if (fr) setTimeout(() => playFx(cat.fx, board, fr, { frac: +fr.dataset.t, neighbors: [] }), 350);
+function talkChips(w) {
+  const t = `「${w.title}」`;
+  return [
+    ["帮我规划这条路", `我想好好规划${t}这个愿望，计划在 ${md(w.target_day)} 前后实现。先问我几个问题，再帮我拆成里程碑、习惯和小步。`],
+    ["这周怎么安排", `${t}这周怎么安排比较合适？看看我现在的习惯和小步，帮我把小步排到这周的日子里。`],
+    ["我有点卡住了", `${t}这件事我最近有点卡住了，想跟你聊聊。`],
+  ];
+}
+function openSay(root, M) {
+  const w = M.wishOf(ui.wish);
+  const say = root.querySelector(".pw-say");
+  if (!w || !say) return;
+  say.innerHTML = `<p>想聊聊「${esc(w.title)}」的哪一块？</p><div>${talkChips(w).map(([l], i) => `<button class="chip" data-talk="${i}">${esc(l)}</button>`).join("")}</div>`;
+  say.hidden = false;
+  root.querySelector(".pw-ball").setAttribute("aria-expanded", "true");
+  ball?.set("curious");
+}
+function closeSay(root) {
+  const say = root.querySelector(".pw-say");
+  if (!say || say.hidden) return;
+  say.hidden = true;
+  root.querySelector(".pw-ball")?.setAttribute("aria-expanded", "false");
 }
 
-// ---------------------------------------------------------------- 时间节点卡片 ----
-function dayCard(root, M, ds, kind = "") {
-  const { w, J, today } = M;
-  const recs = state.data.records || [];
-  const list = [...new Set(ds)].sort();
-  const body = h("div", { class: "j-day" });
-  const draw = () => {
-    const fresh = dayMap((state.data.journey.wishes || []).find((x) => x.id === w.id) || w, state.data.journey);
-    let html = "";
-    if (kind === "start") {
-      html += `<div class="j-dk start">${tile("flag", "var(--accent)", 34)}<div><b>这一天，你定下了「${esc(w.title)}」</b>
-        ${w.now_text ? `<p>那时的你：${esc(w.now_text)}</p>` : `<p class="muted">可以在「编辑愿望」里写下出发时的自己。</p>`}</div></div>`;
-    }
-    if (kind === "goal") {
-      const left = diffDays(w.target_day, today);
-      const todoMs = (w.milestones || []).filter((m) => m.status !== "done");
-      html += `<div class="j-dk goal"><span class="j-dk-v" style="color:${catOf(w.category).color}">${visionSVG(w.category)}</span><div>
-        <b>${md(w.target_day)}，计划实现的日子</b><p>${esc(w.vision_text || catOf(w.category).label)}</p>
-        <p class="muted">${left > 0 ? `还有 ${left} 天` : left === 0 ? "就是今天" : `已经过了 ${-left} 天，可以在编辑里换个日子`}${todoMs.length ? ` · 路上还有 ${todoMs.length} 个里程碑` : ""}</p></div></div>`;
-    }
-    for (const d of list) {
-      const e = fresh.get(d) || { steps: [], habits: [], ms: [], moments: [] };
-      const dueMs = (w.milestones || []).filter((m) => m.status !== "done" && m.due_day === d);
-      const good = recs.filter((r) => r.day === d && ["good", "find"].includes(r.type));
-      const rest = (J.rest_days || []).includes(d);
-      const any = countOf(e) || dueMs.length || good.length || rest;
-      if (!any && kind) continue;
-      if (list.length > 1 || kind) html += `<div class="j-day-h">${md(d)} · ${wk(d)}</div>`;
-      if (!any) { html += `<p class="muted">这一天还没有记录。</p>`; continue; }
-      if (e.ms.length) html += e.ms.map((m) => `<div class="j-it ms">${icon("flag")}<span>到达里程碑「${esc(m.title)}」</span></div>`).join("");
-      if (dueMs.length) html += dueMs.map((m) => `<div class="j-it due">${icon("flag")}<span>计划在这天到达「${esc(m.title)}」</span></div>`).join("");
-      if (e.habits.length) html += `<div class="j-it">${icon("checkc")}<span>习惯打卡：${e.habits.map((x) => esc(x.title)).join("、")}</span></div>`;
-      if (e.steps.length) html += e.steps.map((s) => `<div class="j-it">${icon("check")}<span>完成小步「${esc(s.title)}」</span></div>`).join("");
-      if (rest) html += `<div class="j-it rest">${icon("moon")}<span>这天给自己放了假</span></div>`;
-      html += e.moments.map((m) => `<article class="j-m" data-id="${esc(m.id)}">
-        <p class="j-m-t">${esc(m.text)}</p>
-        ${m.feeling ? `<p class="j-m-f">当时的感受：${esc(m.feeling)}</p>` : ""}
-        <div class="j-m-meta">${m.mood ? `<span class="pill">${esc(m.mood)}</span>` : ""}${m.source === "chat" ? `<span class="pill">${icon("chat")}来自和小光的对话</span>` : m.source === "scene" ? `<span class="pill">${icon("sparkles")}显化你的愿望</span>` : ""}
-          <span class="sp"></span><button class="btn btn-quiet btn-sm" data-edit>${icon("edit")}编辑</button><button class="btn btn-quiet btn-sm" data-del>${icon("trash")}删除</button></div>
-      </article>`).join("");
-      if (good.length) html += `<div class="j-good"><div class="lbl">那天的好消息</div>${good.map((r) => `<p>${icon("star")}${esc(r.text)}</p>`).join("")}</div>`;
-    }
-    body.innerHTML = html || `<p class="muted">这里还没有记录。</p>`;
-    body.querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => {
-      const art = b.closest(".j-m");
-      const m = (state.data.journey.moments || []).find((x) => x.id === art.dataset.id);
-      art.innerHTML = `<textarea class="field" rows="3" maxlength="300">${esc(m.text)}</textarea>
-        <input class="field" placeholder="当时的感受（可选）" maxlength="80" value="${esc(m.feeling || "")}">
-        <div class="row end"><button class="btn btn-ghost btn-sm" data-cancel>取消</button><button class="btn btn-main btn-sm" data-save>保存</button></div>`;
-      art.querySelector("textarea").focus();
-      art.querySelector("[data-cancel]").addEventListener("click", draw);
-      art.querySelector("[data-save]").addEventListener("click", async () => {
-        try {
-          setData(await api.moment("edit", { id: m.id, text: art.querySelector("textarea").value, feeling: art.querySelector("input").value }));
-          draw(); renderPlan(root);
-        } catch (e) { toast(e.message, "err"); }
-      });
-    }));
-    body.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
-      const id = b.closest(".j-m").dataset.id;
-      if (!(await confirmSheet("删掉这条记录？", "删掉后，它会从轨迹和回望里一起消失。", "删掉", "trash"))) return;
-      try { setData(await api.moment("delete", { id })); draw(); renderPlan(root); }
-      catch (e) { toast(e.message, "err"); }
-    }));
+// ---------------------------------------------------------------- 小步 ----
+function stepsHTML(M, resting) {
+  const G = M.groups;
+  let i = 0;
+  const row = (s) => {
+    const p = planOf(s, M.today);
+    return `<div class="step pstep ${ui.flash === s.id ? "pop" : ""}" data-drag="${esc(s.id)}" style="--i:${i++};--tc:${M.color(s.wish_id)}">
+      <button class="check" data-done="${esc(s.id)}" aria-label="完成「${esc(s.title)}」">${icon("check")}</button>
+      <div class="step-main"><div class="st">${esc(s.title)}</div><div class="sw"><i class="wdot"></i><span>${esc(M.wishOf(s.wish_id)?.title || "")}</span>${p ? `<b>· ${planLabel(p, M.today)}</b>` : ""}</div></div>
+      <button class="icon-btn sm" data-kick="${esc(s.id)}" aria-label="两分钟启动「${esc(s.title)}」" title="两分钟启动">${icon("footsteps")}</button>
+      <button class="icon-btn sm ${p ? "on" : ""}" data-plan="${esc(s.id)}" aria-label="「${esc(s.title)}」安排到哪天" title="安排到哪天">${icon("calendar")}</button></div>`;
   };
-  draw();
-  const title = kind === "start" ? `${md(list[0] || w.started)} · 出发` : kind === "goal" ? "向往的我"
-    : list.length > 1 ? `${md(list[0])} – ${md(list[list.length - 1])}` : `${md(list[0])} · ${wk(list[0])}`;
-  const last = list.filter((d) => d <= today).pop();
-  const s = sheet({ title, body, sticker: kind === "goal" ? catOf(w.category).icon : "clock",
-    footer: [h("button", { class: "btn btn-ghost", onclick: () => s.close() }, "回到轨迹"),
-      last ? h("button", { class: "btn btn-main", onclick: () => { s.close(); composeSheet(root, w, last); } }, "这天再记一笔") : null] });
+  const any = G.today.length || G.later.length;
+  const group = (label, list) => (list.length ? `${label ? `<div class="ps-g">${label}</div>` : ""}<div class="steps">${list.map(row).join("")}</div>` : "");
+  const live = new Set(M.wishes.map((w) => w.id));
+  const cleared = M.wishes.filter((w) => !M.todo.some((s) => s.wish_id === w.id) && M.steps.some((s) => s.wish_id === w.id && s.status === "done"));
+  const dropped = M.steps.filter((s) => s.status === "dropped" && live.has(s.wish_id));
+  const fine = matchMedia("(pointer: fine)").matches;
+  return `<section class="card ps-card ${resting ? "resting" : ""}">
+    <header class="ps-h"><h3>小步</h3><span class="muted">${M.todo.length ? `${M.todo.length} 件待做` : ""}</span><span class="sp"></span>
+      <button class="btn btn-ghost btn-sm" data-add-step>${icon("plus")}小步</button></header>
+    ${resting ? restBannerHTML() : ""}
+    <div class="ps-list">
+      ${M.todo.length ? group("今天", G.today) + group("之后", G.later) + group(any ? "还没安排" : "", G.none)
+        : `<p class="muted ps-none">现在没有待做的小步。</p>`}
+      ${cleared.map((w) => `<button class="ps-clear" data-think="${esc(w.id)}">${icon("checkc")}<span>「${esc(w.title)}」的小步都做完了</span><b>和小光想想下一步</b></button>`).join("")}
+    </div>
+    ${M.todo.length && !any ? `<p class="ps-tip">${fine ? "把小步拖到下面的日历里，或者点日历按钮，给它选一天。" : "点日历按钮，给小步选一天。"}</p>` : ""}
+    ${dropped.length ? `<details class="j-dropped"><summary>先放一放的 ${dropped.length} 件</summary>
+      ${dropped.map((s) => `<div class="done-row dim"><span>${esc(s.title)}</span><button class="btn btn-sm btn-ghost" data-back="${esc(s.id)}">放回来</button></div>`).join("")}</details>` : ""}
+  </section>`;
+}
+
+// ---------------------------------------------------------------- 日历 ----
+function placeInd(tabs) {
+  const on = tabs.querySelector("button.on"), ind = tabs.querySelector(".ind");
+  if (on && ind) Object.assign(ind.style, { left: on.offsetLeft + "px", width: on.offsetWidth + "px" });
+}
+function drawCal(root, M) {
+  const cal = root.querySelector(".pc-cal");
+  cal.innerHTML = calendarHTML(M, ui);
+  root.querySelector(".pd-card").innerHTML = dayHTML(M, ui.day);
+  const tabs = cal.querySelector(".pc-mode");
+  placeInd(tabs);
+  requestAnimationFrame(() => placeInd(tabs));
+}
+
+function afterRender(root, M) {
+  const card = root.querySelector(".pc-card");
+  const cellOf = (d) => root.querySelector(`.pc-cell[data-cell="${d}"] .pc-date`);
+  if (ui.fx) {
+    const { day, wid } = ui.fx;
+    ui.fx = null;
+    const cell = cellOf(day), cat = catOf(M.wishOf(wid)?.category);
+    if (cell) {
+      card.style.setProperty("--jc", cat.color);
+      cell.classList.add("lit");
+      setTimeout(() => cell.isConnected && playFx(cat.fx, card, cell, { frac: 0.5, neighbors: [] }), 160);
+    }
+  }
+  if (ui.gain) {
+    const { day, xp } = ui.gain;
+    ui.gain = null;
+    const cell = cellOf(day);
+    if (cell && (xp?.amount || xp?.coins > 0)) setTimeout(() => cell.isConnected && flyGain(cell, xp), 360);
+  }
+  ui.flash = "";
+}
+
+// ---------------------------------------------------------------- 点击 ----
+const CLICK = "[data-done],[data-plan],[data-kick],[data-back],[data-think],[data-hcheck],[data-hskip],[data-hedit],[data-ms],[data-add-ms],"
+  + "[data-add-habit],[data-add-step],[data-review],[data-edit-wish],[data-new-wish],[data-rest-me],[data-compose],[data-compose-day],[data-pick-day],"
+  + "[data-day],[data-mode],[data-period],[data-today],[data-tag],[data-go-report],[data-answer],[data-pw],[data-pw-i],[data-talk],[data-edit],[data-del],[data-cancel],[data-save]";
+
+function onClick(e, root, M) {
+  const t = e.target.closest(CLICK);
+  if (!t || !root.contains(t) || t.disabled) return;
+  const d = t.dataset;
+  const wish = () => M.wishOf(ui.wish) || M.wishes[0];
+  const wishById = (id) => M.wishOf(id) || wish();
+  const stepById = (id) => M.steps.find((s) => s.id === id);
+  const habitById = (id) => M.wishes.flatMap((w) => w.habits || []).find((x) => x.id === id);
+  const cardWish = () => wishById(t.closest(".pw-card")?.dataset.wish);
+  if ("done" in d) return doneStep(t, d.done, M);
+  if ("plan" in d || "tag" in d) {
+    const s = stepById(d.plan || d.tag);
+    if (s) scheduleSheet(s, M.today, (out, kind) => afterSchedule(out, s, kind));
+    return;
+  }
+  if ("kick" in d) { const s = stepById(d.kick); if (s) openKick({ task: s.title, stepId: s.id }); return; }   // 从小步进来：小光知道它挂在哪个愿望下
+  if ("back" in d) return act(api.step("todo", { id: d.back }));
+  if ("think" in d) {
+    state.autoSend = `「${wishById(d.think).title}」的小步都做完了。帮我想想接下来可以做的两三个小步吧，先问问我现在的情况。`;
+    return go("chat");
+  }
+  if ("hcheck" in d) return checkHabit(t, d.hcheck, M);
+  if ("hskip" in d) {
+    const hb = habitById(d.hskip);
+    return act(api.habit(hb.skipped ? "unskip" : "skip", { id: hb.id }), hb.skipped ? "" : `「${hb.title}」今天先休息，明天见`, "moon");
+  }
+  if ("hedit" in d) return habitSheet(habitById(d.hedit));
+  if ("ms" in d) return msSheet(root, cardWish(), d.ms);
+  if ("addMs" in d) return addSheet(cardWish(), "milestone");
+  if ("addHabit" in d) return addSheet(cardWish(), "habit");
+  if ("addStep" in d) return addSheet(wish(), "step");
+  if ("review" in d) return reviewSheet(cardWish());
+  if ("editWish" in d) return wishSheet(cardWish(), M.J);
+  if ("newWish" in d) return wishSheet(null, M.J);
+  if ("restMe" in d) return openLazy({});
+  if ("compose" in d) return composeSheet(wish());
+  if ("composeDay" in d) return composeSheet(wish(), d.composeDay);
+  if ("pickDay" in d) {
+    const day = d.pickDay;
+    return pickSheet(M, day, {
+      onPick: (out, id) => { ui.day = day; ui.flash = id; setData(out); toast(`放进${planLabel(day, M.today)}了`, "", "calendar"); },
+      onAdd: () => addSheet(wish(), "step", day),
+    });
+  }
+  if ("day" in d) { ui.day = d.day; drawCal(root, M); return; }
+  if ("mode" in d) { ui.mode = d.mode; drawCal(root, M); return; }
+  if ("period" in d) { ui.day = shiftPeriod(ui, +d.period); drawCal(root, M); return; }
+  if ("today" in d) { ui.day = M.today; drawCal(root, M); return; }
+  if ("goReport" in d) return go("report");
+  if ("answer" in d) {
+    return act(api.insight({ insight_id: d.insight, answer: d.answer }),
+      { yes: "记下了", partly: "记下了，标着「只有一部分像」", no: "好，这条就不记了", skip: "先跳过" }[d.answer], "sparkles");
+  }
+  if ("pw" in d) return root._pwGo?.(+d.pw > 0 ? "+" : "-");
+  if ("pwI" in d) return root._pwGo?.(+d.pwI);
+  if ("talk" in d) { state.autoSend = talkChips(wish())[+d.talk][1]; return go("chat"); }
+  if ("edit" in d) return editMoment(t.closest(".j-m"), M);
+  if ("del" in d) return deleteMoment(t.closest(".j-m").dataset.id);
+  if ("cancel" in d) { root.querySelector(".pd-card").innerHTML = dayHTML(M, ui.day); return; }
+  if ("save" in d) return saveMoment(t.closest(".j-m"));
+}
+
+// 改数据：成功后 setData，页面跟着订阅重画（保留滚动位置）
+async function act(p, msg = "", ic = "") {
+  try { setData(await p); if (msg) toast(msg, "", ic); }
+  catch (e) { toast(e.message, "err"); }
+}
+
+async function doneStep(btn, id, M) {
+  const row = btn.closest(".step");
+  if (row?.classList.contains("checking")) return;
+  row?.classList.add("checking");
+  const s = M.steps.find((x) => x.id === id);
+  try {
+    const out = await api.step("done", { id });
+    burstAt(btn, 30);
+    celebrate();
+    if (out.xp?.amount || out.xp?.coins > 0) flyGain(btn, out.xp); else toast(xpNote(out.xp) || "完成了");
+    ui.day = M.today;
+    ui.fx = { day: M.today, wid: s?.wish_id };
+    setTimeout(() => setData(out), 480);
+  } catch (e) { row?.classList.remove("checking"); toast(e.message, "err"); }
+}
+
+async function checkHabit(btn, id, M) {
+  const w = M.wishes.find((x) => (x.habits || []).some((hb) => hb.id === id));
+  const hb = (w?.habits || []).find((x) => x.id === id);
+  if (!hb) return;
+  const undo = hb.today;
+  btn.closest(".hrow").classList.toggle("done", !undo);
+  try {
+    const out = await api.habit(undo ? "uncheck" : "check", { id });
+    if (!undo) {
+      burstAt(btn, 26);
+      flyGain(btn, out.xp);
+      celebrate();
+      ui.fx = { day: M.today, wid: w.id };
+    }
+    setTimeout(() => setData(out), undo ? 0 : 420);
+  } catch (e) { toast(e.message, "err"); btn.closest(".hrow")?.classList.toggle("done", undo); }
+}
+
+function schedule(id, day) {
+  const s = (state.data.steps || []).find((x) => x.id === id);
+  if (!s || planOf(s, state.data.journey.today) === day) return;
+  api.step("schedule", { id, day }).then((out) => afterSchedule(out, s, day)).catch((e) => toast(e.message, "err"));
+}
+function afterSchedule(out, s, kind) {
+  const today = state.data.journey.today;
+  if (kind === "drop") { setData(out); toast("先放一放，想做的时候在「小步」下面放回来", "", "moon"); return; }
+  ui.flash = s.id;
+  if (kind) ui.day = kind;
+  setData(out);
+  toast(kind ? `「${s.title}」安排在${planLabel(kind, today)}` : `「${s.title}」先不安排日子`, "", "calendar");
+}
+
+// 站点（里程碑）：点开看它的日子，确认到达
+function msWhen(m, today) {
+  if (m.status === "done") return `${md(m.done_at.slice(0, 10))} 到达`;
+  if (!m.due_day) return "还没定日子，想定的话可以跟小光说";
+  const n = diffDays(m.due_day, today);
+  return `计划 ${md(m.due_day)} 到 · ${n > 0 ? `还有 ${n} 天` : n === 0 ? "就是今天" : `过了 ${-n} 天，不着急`}`;
+}
+function msSheet(root, w, id) {
+  const m = (w?.milestones || []).find((x) => x.id === id);
+  if (!m) return;
+  const today = state.data.journey.today;
+  const done = m.status === "done";
+  const body = h("div", { class: "pm-sheet" }, h("p", { class: "pm-when" }, msWhen(m, today)),
+    h("p", { class: "muted pm-wish" }, `「${w.title}」路上的一站`));
+  const s = sheet({ title: m.title, body, sticker: "flag", footer: [
+    h("button", { class: "btn btn-ghost", onclick: () => s.close() }, done ? "先不动" : "还没到"),
+    h("button", { class: "btn btn-main", onclick: async () => {
+      s.close();
+      if (done) return act(api.milestone("todo", { id: m.id }));
+      const dot = root.querySelector(`[data-ms="${CSS.escape(m.id)}"]`);
+      try {
+        const out = await api.milestone("done", { id: m.id });
+        if (dot) {
+          const r = dot.getBoundingClientRect();
+          confetti(r.left + r.width / 2, r.top + r.height / 2, 70, 0.8);
+          dot.classList.add("done");
+          flyGain(dot, out.xp);
+        }
+        celebrate(true);
+        toast(`到达「${m.title}」`, "", "flag");
+        ui.day = today;
+        ui.fx = { day: today, wid: w.id };
+        setTimeout(() => setData(out), 380);
+      } catch (e) { toast(e.message, "err"); }
+    } }, done ? "改回还没到" : "我到这一站了")] });
   s.panel.classList.add("j-sheet");
 }
 
+// 当天详情里的瞬间：原地编辑、删除
+function editMoment(art, M) {
+  const m = (M.J.moments || []).find((x) => x.id === art.dataset.id);
+  if (!m) return;
+  art.innerHTML = `<textarea class="field" rows="3" maxlength="300">${esc(m.text)}</textarea>
+    <input class="field" placeholder="当时的感受（可选）" maxlength="80" value="${esc(m.feeling || "")}">
+    <div class="row end"><button class="btn btn-ghost btn-sm" data-cancel>取消</button><button class="btn btn-main btn-sm" data-save>保存</button></div>`;
+  art.querySelector("textarea").focus();
+}
+function saveMoment(art) {
+  return act(api.moment("edit", { id: art.dataset.id, text: art.querySelector("textarea").value, feeling: art.querySelector("input").value }), "改好了", "edit");
+}
+async function deleteMoment(id) {
+  if (!(await confirmSheet("删掉这条记录？", "删掉后，它会从日历和回望里一起消失。", "删掉", "trash"))) return;
+  return act(api.moment("delete", { id }));
+}
+
+// 有好几个愿望时：选放在哪个愿望下
+function wishPick(cur, onPick) {
+  const ws = state.data.journey.wishes || [];
+  if (ws.length < 2) return null;
+  const box = h("div", { class: "j-wishpick", role: "radiogroup", "aria-label": "放在哪个愿望下" });
+  const draw = (id) => {
+    box.innerHTML = ws.map((w) => `<button type="button" class="chip ${w.id === id ? "on" : ""}" data-w="${esc(w.id)}" role="radio" aria-checked="${w.id === id}">
+      ${tile(catOf(w.category).icon, catOf(w.category).color, 20)}<span>${esc(w.title)}</span></button>`).join("");
+    box.querySelectorAll("[data-w]").forEach((b) => b.addEventListener("click", () => { draw(b.dataset.w); onPick(ws.find((w) => w.id === b.dataset.w)); }));
+  };
+  draw(cur);
+  return box;
+}
+
 // ---------------------------------------------------------------- 留下一个瞬间 ----
-function composeSheet(root, w, day = "") {
-  const cat = catOf(w.category);
+function composeSheet(w0, day = "") {
+  let w = w0;
+  let cat = catOf(w.category);
   const today = state.data.journey.today;
   const opts = [[today, "今天"], [addDays(today, -1), "昨天"], [addDays(today, -2), "前天"]];
   let pickDay = day || today;
@@ -485,10 +510,11 @@ function composeSheet(root, w, day = "") {
   let moods = [...(state.data.profile?.custom_moods || [])];
   const PH = "想写什么都行，一两句就好。比如：今天开完会有些紧张，我给自己留了十分钟，安静地喝了一杯茶。";
   const body = h("div", { class: "j-compose", html: `
+    <div class="j-pickslot"></div>
     <div class="lbl">不知道写什么？从一个问题开始 <span class="muted">（也可以直接写）</span></div>
     <div class="j-prompts"></div>
     <label class="lbl">发生了什么</label>
-    <textarea class="field" id="mText" rows="4" maxlength="300" placeholder="一两句就好，比如：今天开完会有些紧张，我给自己留了十分钟，安静地喝了一杯茶。"></textarea>
+    <textarea class="field" id="mText" rows="4" maxlength="300"></textarea>
     <label class="lbl">当时的感受 <span class="muted">（可选）</span></label>
     <input class="field" id="mFeel" maxlength="80" placeholder="比如：慢慢放松了一些">
     <div class="j-moods"></div>
@@ -519,14 +545,20 @@ function composeSheet(root, w, day = "") {
     draw();
   };
   let promptOn = "";
-  const savePrompts = async () => { try { setData(await api.wish("edit", { id: w.id, prompts: mine })); w.prompts = [...mine]; } catch (e) { toast(e.message, "err"); } };
-  chipRow(body.querySelector(".j-prompts"), {
+  const savePrompts = async () => { try { setData(await api.wish("edit", { id: w.id, prompts: mine }), { silent: true }); w.prompts = [...mine]; } catch (e) { toast(e.message, "err"); } };
+  const drawPrompts = () => chipRow(body.querySelector(".j-prompts"), {
     items: () => cat.prompts, custom: () => mine, on: () => promptOn, max: 6, maxLen: 30, addLabel: "我自己的问题", ph: "写一个你常想问自己的问题",
     pick: (t) => { promptOn = promptOn === t ? "" : t; ta.placeholder = promptOn || PH; ta.focus(); },
     add: async (t) => { if (!mine.includes(t)) { mine.push(t); await savePrompts(); } },
     remove: async (t) => { mine = mine.filter((x) => x !== t); if (promptOn === t) { promptOn = ""; ta.placeholder = PH; } await savePrompts(); },
   });
-  const saveMoods = async () => { try { setData(await api.profile({ custom_moods: moods })); } catch (e) { toast(e.message, "err"); } };
+  drawPrompts();
+  const pick = wishPick(w.id, (nw) => {
+    w = nw; cat = catOf(w.category); mine = [...(w.prompts || [])]; promptOn = ""; ta.placeholder = PH;
+    drawPrompts();
+  });
+  if (pick) body.querySelector(".j-pickslot").append(h("div", { class: "lbl" }, "放在哪个愿望下"), pick);
+  const saveMoods = async () => { try { setData(await api.profile({ custom_moods: moods }), { silent: true }); } catch (e) { toast(e.message, "err"); } };
   chipRow(body.querySelector(".j-moods"), {
     items: () => MOODS, custom: () => moods, on: () => mood, max: 8, maxLen: 8, addLabel: "别的心情", ph: "比如：松了口气",
     pick: (t) => { mood = mood === t ? "" : t; },
@@ -549,15 +581,15 @@ function composeSheet(root, w, day = "") {
     try {
       const out = await api.moment("add", { wish_id: w.id, text: ta.value, feeling: body.querySelector("#mFeel").value, mood, day: pickDay });
       s.close();
-      setData(out);
-      renderPlan(root, { fresh: pickDay });
-      const dot = root.querySelector(".j-node.fresh");
-      if ((out.xp?.amount || out.xp?.coins > 0) && dot) setTimeout(() => flyGain(dot, out.xp), 500);
+      ui.day = pickDay;
+      ui.fx = { day: pickDay, wid: w.id };
+      if (out.xp?.amount || out.xp?.coins > 0) ui.gain = { day: pickDay, xp: out.xp };
       else toast(xpNote(out.xp) ? `留下了 · ${xpNote(out.xp)}` : "留下了", "", "sparkles");
+      setData(out);
     } catch (e) { btn.disabled = false; toast(e.message, "err"); }
   };
-  const btn = h("button", { class: "btn btn-main", onclick: save }, "留在轨迹上");
-  const s = sheet({ title: `留下一个瞬间 · ${w.title}`, body, sticker: cat.icon,
+  const btn = h("button", { class: "btn btn-main", onclick: save }, "留下来");
+  const s = sheet({ title: "留下一个瞬间", body, sticker: cat.icon,
     footer: [h("button", { class: "btn btn-ghost", onclick: () => s.close() }, "先不写"), btn] });
   s.panel.classList.add("j-sheet");
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save(); });
@@ -568,19 +600,22 @@ function composeSheet(root, w, day = "") {
 const TYPES = {
   step: ["flag", "var(--c-orange)", "小步", "做一次就完成的事", "比如：办好健身卡"],
   habit: ["clock", "var(--c-mint)", "习惯", "重复做的事，每天或每周几次", "比如：去健身房练 40 分钟"],
-  milestone: ["star", "var(--c-violet)", "里程碑", "路上看得见的一个站点", "比如：能连续跑 5 公里"],
+  milestone: ["star", "var(--c-violet)", "站点", "路上看得见的一站", "比如：能连续跑 5 公里"],
 };
 
-function addSheet(root, w, type = "step") {
+function addSheet(w0, type = "step", day = "") {
+  let w = w0;
   const today = state.data.journey.today;
-  let freq = "daily", per = 3, due = "";
+  let freq = "daily", per = 3, due = "", plan = day;
   const body = h("div", { class: "j-add" });
+  const pick = wishPick(w.id, (nw) => { w = nw; });
   const draw = () => {
     const T = TYPES[type];
     body.innerHTML = `
+      <div class="j-pickslot"></div>
       <div class="j-types">${Object.entries(TYPES).map(([k, t]) => `<button type="button" class="j-type ${k === type ? "on" : ""}" data-type="${k}">
         ${tile(t[0], t[1], 32)}<b>${t[2]}</b><small>${t[3]}</small></button>`).join("")}</div>
-      <label class="lbl">${type === "habit" ? "要重复做的事" : type === "milestone" ? "这个站点是什么" : "这一步是什么"}</label>
+      <label class="lbl">${type === "habit" ? "要重复做的事" : type === "milestone" ? "这一站是什么" : "这一步是什么"}</label>
       <input class="field" id="aTitle" maxlength="${type === "step" ? 40 : 30}" placeholder="${T[4]}">
       ${type === "habit" ? `<label class="lbl">多久一次</label>
         <div class="j-days">${[["daily", 0, "每天"], ["weekly", 1, "每周 1 次"], ["weekly", 2, "每周 2 次"], ["weekly", 3, "每周 3 次"], ["weekly", 5, "每周 5 次"]].map(([f, n, l]) =>
@@ -589,7 +624,9 @@ function addSheet(root, w, type = "step") {
         <div class="j-days">${[[7, "一周后"], [30, "一个月后"], [diffDays(w.target_day, today), "计划日"]].filter(([n]) => n > 0).map(([n, l]) =>
           `<button type="button" class="chip ${due === addDays(today, n) ? "on" : ""}" data-due="${addDays(today, n)}">${l}</button>`).join("")}
           <input class="field field-date" type="date" min="${today}" value="${due}" aria-label="选日期"></div>` : ""}
-      ${type === "step" ? `<label class="lbl">为什么做它 <span class="muted">（可选）</span></label><input class="field" id="aWhy" maxlength="60" placeholder="比如：先让自己走进健身房">` : ""}`;
+      ${type === "step" ? `<label class="lbl">为什么做它 <span class="muted">（可选）</span></label><input class="field" id="aWhy" maxlength="60" placeholder="比如：先让自己走进健身房">
+        ${plan ? `<div class="j-plan-on">${icon("calendar")}<span>安排在${planLabel(plan, today)}（${md(plan)}）</span><button type="button" class="btn btn-quiet btn-sm" data-unplan>不安排</button></div>` : ""}` : ""}`;
+    if (pick) body.querySelector(".j-pickslot").append(h("div", { class: "lbl" }, "放在哪个愿望下"), pick);
     body.querySelectorAll("[data-type]").forEach((b) => b.addEventListener("click", () => { type = b.dataset.type; draw(); }));
     body.querySelectorAll("[data-freq]").forEach((b) => b.addEventListener("click", () => {
       freq = b.dataset.freq; per = +b.dataset.per || 3;
@@ -602,19 +639,24 @@ function addSheet(root, w, type = "step") {
     body.querySelector(".field-date")?.addEventListener("change", (e) => {
       due = e.target.value; body.querySelectorAll("[data-due]").forEach((x) => x.classList.remove("on"));
     });
+    body.querySelector("[data-unplan]")?.addEventListener("click", () => { plan = ""; body.querySelector(".j-plan-on")?.remove(); });
     body.querySelector("#aTitle").addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
-    setTimeout(() => body.querySelector("#aTitle").focus(), 40);
+    setTimeout(() => body.querySelector("#aTitle")?.focus(), 40);
   };
   const save = async () => {
     const title = body.querySelector("#aTitle").value.trim();
     if (!title) return body.querySelector("#aTitle").focus();
     try {
-      if (type === "step") setData(await api.step("add", { title, why: body.querySelector("#aWhy")?.value || "", wish_id: w.id }));
-      else if (type === "habit") setData(await api.habit("add", { wish_id: w.id, title, freq, per_week: per }));
-      else setData(await api.milestone("add", { wish_id: w.id, title, due_day: due }));
+      let out;
+      if (type === "step") {
+        out = await api.step("add", { title, why: body.querySelector("#aWhy")?.value || "", wish_id: w.id, day: plan });
+        ui.flash = (out.steps || [])[0]?.id || "";
+        if (plan) ui.day = plan;
+      } else if (type === "habit") out = await api.habit("add", { wish_id: w.id, title, freq, per_week: per });
+      else out = await api.milestone("add", { wish_id: w.id, title, due_day: due });
       s.close();
+      setData(out);
       toast(`加进「${w.title}」了`, "", TYPES[type][0]);
-      renderPlan(root);
     } catch (e) { toast(e.message, "err"); }
   };
   draw();
@@ -623,7 +665,8 @@ function addSheet(root, w, type = "step") {
   s.panel.classList.add("j-sheet");
 }
 
-function habitSheet(root, hb) {
+function habitSheet(hb) {
+  if (!hb) return;
   let freq = hb.freq, per = hb.freq === "weekly" ? hb.per_week : 3;
   const body = h("div", { class: "j-add", html: `
     <label class="lbl">名字</label><input class="field" id="hTitle" maxlength="30" value="${esc(hb.title)}">
@@ -631,18 +674,18 @@ function habitSheet(root, hb) {
     <div class="j-days">${[["daily", 0, "每天"], ["weekly", 1, "每周 1 次"], ["weekly", 2, "每周 2 次"], ["weekly", 3, "每周 3 次"], ["weekly", 5, "每周 5 次"]].map(([f, n, l]) =>
       `<button type="button" class="chip ${f === freq && (f === "daily" || n === per) ? "on" : ""}" data-freq="${f}" data-per="${n}">${l}</button>`).join("")}</div>
     <p class="muted j-note">一共打卡 ${hb.total} 次。</p>
-    <div class="j-archive"><button class="btn btn-quiet btn-sm" id="hArchive">${icon("moon")}收起这个习惯</button><small class="muted">打卡记录会留在轨迹上。</small></div>` });
+    <div class="j-archive"><button class="btn btn-quiet btn-sm" id="hArchive">${icon("moon")}收起这个习惯</button><small class="muted">打卡记录会留在日历上。</small></div>` });
   body.querySelectorAll("[data-freq]").forEach((b) => b.addEventListener("click", () => {
     freq = b.dataset.freq; per = +b.dataset.per || 3;
     body.querySelectorAll("[data-freq]").forEach((x) => x.classList.toggle("on", x === b));
   }));
   body.querySelector("#hArchive").addEventListener("click", async () => {
-    try { setData(await api.habit("edit", { id: hb.id, archived: true })); s.close(); renderPlan(root); }
+    try { const out = await api.habit("edit", { id: hb.id, archived: true }); s.close(); setData(out); }
     catch (e) { toast(e.message, "err"); }
   });
   const s = sheet({ title: "编辑习惯", body, sticker: "clock",
     footer: [h("button", { class: "btn btn-ghost", onclick: () => s.close() }, "取消"), h("button", { class: "btn btn-main", onclick: async () => {
-      try { setData(await api.habit("edit", { id: hb.id, title: body.querySelector("#hTitle").value, freq, per_week: per })); s.close(); renderPlan(root); }
+      try { const out = await api.habit("edit", { id: hb.id, title: body.querySelector("#hTitle").value, freq, per_week: per }); s.close(); setData(out); }
       catch (e) { toast(e.message, "err"); }
     } }, "保存")] });
   s.panel.classList.add("j-sheet");
@@ -652,7 +695,7 @@ function habitSheet(root, hb) {
 function reviewSheet(w) {
   let days = 15;
   const body = h("div", { class: "j-review" });
-  const s = sheet({ title: "阶段回望", body, sticker: "eye" });
+  const s = sheet({ title: `阶段回望 · ${w.title}`, body, sticker: "eye" });
   s.panel.classList.add("j-sheet");
   const draw = (r) => {
     body.innerHTML = `
@@ -670,10 +713,7 @@ function reviewSheet(w) {
       ${r.reflections.length ? `<div class="j-r-past"><div class="lbl">之前写下的回望</div>${r.reflections.map((x) =>
         `<p><small>${md(x.created_at.slice(0, 10))} · ${x.days} 天</small>${esc(x.text)}</p>`).join("")}</div>` : ""}`;
     const tabs = body.querySelector(".j-rtabs");
-    requestAnimationFrame(() => {
-      const on = tabs.querySelector("button.on");
-      Object.assign(tabs.querySelector(".ind").style, { left: on.offsetLeft + "px", width: on.offsetWidth + "px" });
-    });
+    requestAnimationFrame(() => placeInd(tabs));
     tabs.querySelectorAll("[data-days]").forEach((b) => b.addEventListener("click", () => { days = +b.dataset.days; load(); }));
     body.querySelector("[data-save]")?.addEventListener("click", async () => {
       const ta = body.querySelector("textarea");
@@ -696,7 +736,7 @@ function catGrid(sel) {
     <span class="j-cat-v">${visionSVG(id)}</span><b>${c.label}</b></button>`).join("")}</div>`;
 }
 
-function wishSheet(root, w, J) {
+function wishSheet(w, J) {
   const isNew = !w;
   const today = J.today;
   const base = isNew ? today : w.started.slice(0, 10);
@@ -743,15 +783,15 @@ function wishSheet(root, w, J) {
     if (isNew && !cat) return toast("先选一个方向");
     const payload = { title: t.value.trim(), category: cat, now_text: body.querySelector("#wNow").value, vision_text: v.value, target_day: target };
     try {
-      setData(isNew ? await api.wish("add", payload) : await api.wish("edit", { id: w.id, ...payload }));
+      const out = isNew ? await api.wish("add", payload) : await api.wish("edit", { id: w.id, ...payload });
       s.close();
+      setData(out);
       toast(isNew ? "新的旅程开始了" : "改好了", "", catOf(cat).icon);
-      renderPlan(root);
     } catch (e) { toast(e.message, "err"); }
   };
   body.querySelector("#wArchive")?.addEventListener("click", async () => {
     if (!(await confirmSheet("先收起这个愿望？", "它会从这里移走，记录和回望都保留在你的数据里。", "收起"))) return;
-    try { setData(await api.wish("edit", { id: w.id, archived: true })); s.close(); renderPlan(root); }
+    try { const out = await api.wish("edit", { id: w.id, archived: true }); s.close(); setData(out); }
     catch (e) { toast(e.message, "err"); }
   });
   const s = sheet({ title: isNew ? "开启一个新愿望" : "编辑愿望", body, sticker: "flag",
@@ -762,15 +802,15 @@ function wishSheet(root, w, J) {
 // 还没有任何愿望：直接在页面上选方向
 function renderStart(root, J) {
   root.innerHTML = `<div class="view-inner wide plan journey">
-    <div class="page-head"><div><h1>蜕变计划</h1><p>给每个愿望定一个日子，把路拆成里程碑、习惯和小步，一天一天走过去</p></div></div>
+    <div class="page-head"><div><h1>蜕变计划</h1><p>给每个愿望定一个日子，把路拆成站点、习惯和小步，一天一天走过去</p></div></div>
     <section class="card j-startcard">
       <div class="j-start-art">${figureSVG()}</div>
       <h2>你最想靠近哪一种自己？</h2>
-      <p class="muted">选一个方向，定一个想实现的日子。之后小光会陪你把路拆开，你每做一件事，轨迹上就亮一个点。</p>
+      <p class="muted">选一个方向，定一个想实现的日子。之后小光会陪你把路拆开，你每做一件事，日历上就多一个小圆点。</p>
       ${catGrid("")}
     </section></div>`;
   root.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => {
-    wishSheet(root, null, J);
+    wishSheet(null, J);
     document.querySelector(`.j-wish [data-cat="${b.dataset.cat}"]`)?.click();
   }));
 }

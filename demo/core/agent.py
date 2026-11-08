@@ -259,7 +259,7 @@ TOOLS = [
             "target": {"type": "string", "description": "要改的那一项：照抄名字或方括号里的 id（add 时不填）"},
             "wish": {"type": "string", "description": "add 时放进哪个愿望，不填就是 TA 正在看的那个"},
             "title": {"type": "string", "description": "名字（add 时必填；change 时是新名字）"},
-            "due_day": {"type": "string", "description": "里程碑日期 / 愿望的计划日期，YYYY-MM-DD"},
+            "due_day": {"type": "string", "description": "里程碑日期 / 愿望的计划日期 / 小步安排到哪天（日历上那一格，只能今天或以后），YYYY-MM-DD"},
             "due_in_days": {"type": "integer", "description": "或者：从今天起多少天后（「改到两周后」）"},
             "shift_days": {"type": "integer", "description": "或者：在原来的日期上挪几天（「往后推两周」=14，「提前三天」=-3）"},
             "freq": {"type": "string", "enum": ["daily", "weekly"], "description": "习惯的频率"},
@@ -301,7 +301,7 @@ TOOLS = [
             "text": {"type": "string", "description": "改成什么"}},
             "required": ["target", "action"]}}},
     {"type": "function", "function": {
-        "name": "log_lazy_day", "description": "用户今天想偷懒 / 休息：记成偷懒日，当天的习惯和小步都暂停，所有进度都保留",
+        "name": "log_lazy_day", "description": "用户今天想偷懒 / 休息：记成偷懒日，当天的习惯和小步都暂停，今天安排的小步挪到明天，所有进度都保留",
         "parameters": {"type": "object", "properties": {"note": {"type": "string", "description": "用户说的原因，没说就留空"},
                                                        "undo": {"type": "boolean", "description": "TA 说今天不偷懒了"}}}}},
     {"type": "function", "function": {
@@ -394,10 +394,13 @@ def core_block(p: dict, store: Store) -> str:
     if ts:
         lines.append("你帮 TA 安排着的定时任务：" + "；".join(f"{t['title']}（{t['when']}）" for t in ts[:8]))
     if journey.is_resting(store):
-        lines.append("今天是 TA 的偷懒日：习惯和小步都暂停了。今天别推荐任务、别提醒要做的事，陪 TA 聊天、休息就好。")
-    steps = [s for s in store.steps() if s["status"] == "todo"][:8]
+        lines.append("今天是 TA 的偷懒日：习惯和小步都暂停了，今天安排的小步已挪到明天。今天别推荐任务、别提醒要做的事，陪 TA 聊天、休息就好。")
+    today = day_key()
+    steps = journey.todo_by_plan(store.steps(400), today)[:8]
     if steps:
-        lines.append("待做的小步：" + "；".join(f"[{s['id']}] {s['title']}" for s in steps))
+        lines.append("待做的小步（括号里是 TA 安排的日子）：" + "；".join(
+            f"[{s['id']}] {s['title']}" + (f"（{journey.plan_label(journey.planned_day(s, today), today)}）" if journey.planned_day(s, today) else "")
+            for s in steps))
     done = [s for s in store.steps() if s["status"] == "done"][:3]
     if done:
         lines.append("最近完成：" + "；".join(s["title"] for s in done))
@@ -613,7 +616,7 @@ def asked_to_remember(store: Store, user_text: str) -> bool:
 CONSENT_TOOLS = {"edit_plan", "edit_good_news", "edit_task", "update_settings", "adjust_habit"}
 EDIT_ASK = re.compile(r"删|去掉|移除|拿掉|不要了|不用了|取消|收起|撤|恢复|找回|改|换成|换个|换一|调|挪|推迟|推后|往后推|提前|延后|往后|往前"
                       r"|加|添|增|新建|新开|设成|设为|设置|定在|定个|定一个|定成|放进|放到|写进|写上|记下|记到|记成|记一|标成|标记"
-                      r"|放一放|先放|放回|不做了|先不做|标一下|标上|打卡|记上|记一下|完成了|做完|搞定|到达|达成|关掉|关了|关闭|打开|开启|停掉|暂停|重命名|名字|叫我|叫你|频率|日期|几号"
+                      r"|放一放|先放|放回|不做了|先不做|标一下|标上|打卡|记上|记一下|完成了|做完|搞定|到达|达成|关掉|关了|关闭|打开|开启|停掉|暂停|重命名|名字|叫我|叫你|频率|日期|几号|安排到|安排在|排到|排在"
                       r"|少一点|少点|少做|减|降|轻一点|帮我|帮忙|麻烦|弄一下|合并|重复了|不偷懒|不休息|别催|催我|督促|找我|提醒我"
                       r"|性格|温柔|活泼|有条理|主题|氛围"
                       r"|就叫|叫它|改叫|取名|起名|命名|开一个|再开|开个|立个|再来一个|新的愿望"
@@ -877,8 +880,10 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "", routed: s
                 return {"ok": False, "error": "今天本来就不是偷懒日"}
             with store.lock:
                 store.c.execute("DELETE FROM record WHERE type='rest' AND day=?", (day_key(),))
+            back = journey.rest_restore(store)
             store.log("rest", "今天不偷懒了")
-            return {"ok": True, "undone": True, "note": "习惯和小步都回来了"}
+            return {"ok": True, "undone": True, "restored": back,
+                    "note": "习惯和小步都回来了" + (f"，挪到明天的 {back} 个小步回到今天" if back else "")}
         if user_text and not (REST_ASK.search(user_text) or _agreeing(store, user_text)):
             # 只说了累、烦、难过：别替 TA 决定休息，先问一句
             return {"ok": False, "skipped": True,
@@ -887,10 +892,12 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "", routed: s
             return {"ok": True, "already": True, "note": "今天已经是偷懒日了"}
         note = clip(str(args.get("note") or "").strip(), 40)
         r = store.add_record("rest", "今天偷个懒" + (f"：{note}" if note else ""))
+        moved = journey.rest_postpone(store)
         store.log("rest", r["text"])
         growth.settle_daily(store)   # 偷懒日：每日任务里行动那项先暂停，不挡全勤
-        return {"ok": True, "record": r, "paused": [h["title"] for h in journey.habits(store)][:5],
-                "note": "当天的习惯和小步都暂停，什么进度都不扣。界面上会给出：明天继续 / 调整计划 / 聊聊天"}
+        return {"ok": True, "record": r, "paused": [h["title"] for h in journey.habits(store)][:5], "postponed": moved,
+                "note": "当天的习惯和小步都暂停，什么进度都不扣" + (f"；今天安排的 {moved} 个小步挪到明天" if moved else "")
+                        + "。界面上会给出：明天继续 / 调整计划 / 聊聊天"}
     if name == "edit_plan":
         keys = ("title", "due_day", "due_in_days", "shift_days", "freq", "per_week", "status", "vision_text", "now_text",
                 "text", "feeling", "day", "wish", "why", "delete")

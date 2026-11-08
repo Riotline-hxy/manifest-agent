@@ -100,10 +100,10 @@ export async function openKick({ task = "", stepId = "" } = {}) {
     ball.set("listening");
     let data = { active: null };
     try { data = await api.kickHome(); } catch {}
-    // 快速启动蜕变计划里待做的小步：当前愿望的排前面，点一下就填好，小光也知道它挂在哪个愿望下
-    const cur = state.data.journey?.current;
+    // 快速启动蜕变计划里待做的小步：今天安排的、当前愿望的排前面，点一下就填好，小光也知道它挂在哪个愿望下
+    const cur = state.data.journey?.current, today = state.data.journey?.today;
     const steps = (state.data.steps || []).filter((s) => s.status === "todo")
-      .sort((a, b) => (b.wish_id === cur) - (a.wish_id === cur)).slice(0, 4);
+      .sort((a, b) => (b.scheduled_day === today) - (a.scheduled_day === today) || (b.wish_id === cur) - (a.wish_id === cur)).slice(0, 4);
     let mode = "default";
     let fromStep = stepId;
     body.innerHTML = `

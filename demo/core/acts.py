@@ -16,7 +16,7 @@ from datetime import timedelta
 
 from .journey import _md, freq_text
 from .scenes import SCENES
-from .util import clip, dumps, loads, now, parse_iso
+from .util import clip, day_key, dumps, loads, now, parse_iso
 
 # 「推荐」能指向的功能。名字、介绍、时长都从这里出，所以每个入口一样。
 FEATURES = {
@@ -101,6 +101,8 @@ def _change_text(kind: str, ch: dict) -> tuple[str, str, str]:
         return (f"收起{name}" if b.get("archived") else f"找回{name}"), "", _title(b)
     if (a.get("title") or a.get("text")) != (b.get("title") or b.get("text")):
         return name, _title(a), _title(b)
+    if kind == "step" and a.get("scheduled_day") != b.get("scheduled_day"):
+        return f"安排「{_title(b)}」", _md(a["scheduled_day"]) if a.get("scheduled_day") else "",             _md(b["scheduled_day"]) if b.get("scheduled_day") else "先不安排"
     for k in ("due_day", "target_day"):
         if a.get(k) != b.get(k):
             return f"{name}「{_title(b)}」日期", _md(a[k]) if a.get(k) else "没定", _md(b[k]) if b.get(k) else "没定"
@@ -225,10 +227,13 @@ def view(st, name: str, args: dict, result: dict, snap: dict) -> list[dict]:
                       go="goodnews", undo=undo)]
     if name == "log_lazy_day":
         if result.get("undone") or args.get("undo"):
-            return [_slip("moon", "var(--c-violet)", "不偷懒了", "习惯和小步都回来了")]
+            n = result.get("restored") or 0
+            return [_slip("moon", "var(--c-violet)", "不偷懒了", f"{n} 个小步回到今天" if n else "习惯和小步都回来了")]
         if result.get("already"):
             return [_slip("moon", "var(--c-violet)", "今天本来就在偷懒", "")]
-        return [_slip("moon", "var(--c-violet)", "今天偷个懒", "习惯和小步先暂停，什么都不会少", undo=undo, adjust=True)]
+        n = result.get("postponed") or 0
+        return [_slip("moon", "var(--c-violet)", "今天偷个懒", f"今天安排的 {n} 个小步挪到明天" if n else "习惯和小步先暂停，什么都不会少",
+                      undo=undo, adjust=True)]
     if name == "schedule_task":
         t = result.get("task") or {}
         return [_slip("clock", "var(--c-sky)", "提醒", f"{t.get('title') or ''} · {t.get('when') or ''}", go="panel", notify=True)]
@@ -283,6 +288,10 @@ def undo(st, act: dict) -> dict:
             bal = st.c.execute("SELECT COALESCE(SUM(amount), 0) FROM coin").fetchone()[0]
             if bal - got >= 0:     # 金币已经花掉的话就不往回扣，免得变成负数
                 st.c.execute(f"DELETE FROM coin WHERE ref IN ({q})", refs)
+    if any(ch["table"] == "record" and ch["before"] is None and (ch["after"] or {}).get("type") == "rest"
+           and (ch["after"] or {}).get("day") == day_key() for ch in u["rows"]):
+        from . import journey   # 撤销今天的偷懒日：挪到明天的小步回到今天
+        journey.rest_restore(st)
     st.log("undo", "撤销了：" + (act.get("verb") or "") + " " + (act.get("new") or ""))
     return {"ok": True}
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 import threading
 import time
 
-from . import digest, finds, llm, nudges, proactive, tasks, webpush, weekly
+from . import digest, finds, journey, llm, nudges, proactive, tasks, webpush, weekly
 from .store import Store, UID_RE
 from .util import DATA, clip, day_key, hours_since, iso, now
 from .voice import STYLE
@@ -69,6 +69,7 @@ CUE_TEXT = {
     "habit_today": "今天的「{t}」做了吗？做了跟我说一声，我帮你打卡。",
     "wish_due": "「{t}」快到你定的日子了，想不想一起看看这段路？",
     "wish_overdue": "「{t}」定的日子已经过了，要不要一起回头看看，或者把日子往后挪？",
+    "planned_today": "你把「{t}」安排在了今天。只做开头五分钟，也算。",
     "old_step": "「{t}」放了好几天了，还想做吗？可以拆得再小一点。",
     "no_path": "「{t}」还没有具体的路，要不要一起拆一拆？",
 }
@@ -84,7 +85,7 @@ def pick_cue(store: Store) -> dict:
         if it["kind"] in CUE_TEXT and (it["prio"] >= 2 or it["kind"] in ("old_step", "no_path")):
             name = it["text"].split("「", 1)[1].split("」", 1)[0] if "「" in it["text"] else ""
             return {"cue": it["kind"], "text": CUE_TEXT[it["kind"]].format(t=clip(name, 18)), "fact": it["text"]}
-    todo = [s for s in store.steps() if s["status"] == "todo"]
+    todo = journey.todo_by_plan(store.steps(400))   # 今天安排的排第一
     if todo:
         return {"cue": "step", "text": f"「{clip(todo[0]['title'], 18)}」还在等你。今天只做开头五分钟，也算。"}
     if p.get("intent_primary"):

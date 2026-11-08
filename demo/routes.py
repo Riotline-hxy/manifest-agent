@@ -411,9 +411,25 @@ def step(h, u, b, q):
             title = clip(str(b.get("title") or ""), 40).strip()
             if not title:
                 raise ApiError(400, "写一下这一步是什么")
+            try:
+                day = journey.schedule_day(b.get("day"))
+            except ValueError as e:
+                raise ApiError(400, str(e))
+            wid = str(b.get("wish_id") or "")
+            if wid and not journey.get_wish(st, wid):
+                raise ApiError(404, "没有这个愿望")
             st.add_step(title, why=str(b.get("why") or ""), wish=st.profile().get("intent_primary") or "",
-                        wish_id=str(b.get("wish_id") or ""))
+                        wish_id=wid, scheduled_day=day)
             st.log("plan", "你加了一小步：" + title)
+        elif act == "schedule":
+            try:
+                day = journey.schedule_day(b.get("day"))
+            except ValueError as e:
+                raise ApiError(400, str(e))
+            s = st.schedule_step(str(b.get("id") or ""), day)
+            if not s:
+                raise ApiError(404, "这一步不在待办里")
+            st.log("plan", (f"把「{s['title']}」安排到 {int(day[5:7])}月{int(day[8:10])}日" if day else f"「{s['title']}」先不安排日子"))
         elif act == "done":
             s = st.complete_step(str(b.get("id") or ""))
             if not s:
@@ -439,25 +455,27 @@ def record(h, u, b, q):
     with Store(u["id"]) as st:
         if type_ == "rest" and b.get("undo"):
             with st.lock:
-                st.c.execute("DELETE FROM record WHERE type='rest' AND day=?", (day_key(),))
+                gone = st.c.execute("DELETE FROM record WHERE type='rest' AND day=?", (day_key(),)).rowcount
+            restored = journey.rest_restore(st) if gone else 0
             st.log("rest", "今天不偷懒了")
-            return 200, bootstrap(st)
+            return 200, {"rest_plan": {"restored": restored}, **bootstrap(st)}
         text = clip(str(b.get("text") or ""), 200).strip() or ("今天偷个懒" if type_ == "rest" else "")
         if not text:
             raise ApiError(400, "写点什么")
         if type_ == "rest" and st.c.execute("SELECT 1 FROM record WHERE type='rest' AND day=?", (day_key(),)).fetchone():
             return 200, {"xp": None, **bootstrap(st)}
         r = st.add_record(type_, text)
-        xp = None
+        xp, extra = None, {}
         if type_ == "good":
             xp = growth.award(st, "good", ref="rec:" + r["id"], note="小确幸")
-        else:   # 偷懒日：每日任务里行动那项先暂停，另外两件做到了就能拿全勤
+        else:   # 偷懒日：每日任务里行动那项先暂停，另外两件做到了就能拿全勤；今天安排的小步挪到明天
+            extra["rest_plan"] = {"postponed": journey.rest_postpone(st)}
             daily = growth.settle_daily(st)
             if daily:
                 xp = {"ok": True, "amount": 0, "coins": sum(d["coins"] for d in daily), "daily": daily}
         st.log("rest" if type_ == "rest" else "record",
                {"good": "记下一件小确幸", "rest": "今天偷个懒：" + text.replace("今天偷个懒：", "")}[type_])
-        return 200, {"xp": xp, "record": r, **bootstrap(st)}
+        return 200, {"xp": xp, "record": r, **extra, **bootstrap(st)}
 
 
 def habit_api(h, u, b, q):

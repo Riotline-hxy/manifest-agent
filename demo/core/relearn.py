@@ -273,12 +273,12 @@ def _apply(store: Store, c: dict) -> str:
         pause_week(store, cid)
         return f"{q(c['target'])}这周先停一停"
     if k == "step_small":
-        s = store.add_step(c["to"], why=f"先做「{c['target']}」的第一下", wish_id=c["wish_id"])
+        s = store.add_step(c["to"], why=f"先做「{c['target']}」的第一下", wish_id=c["wish_id"], scheduled_day=now().date().isoformat())
         return f"先做{q(s['title'])}（今天）"
     if k == "step_move":
         with store.lock:
-            if c.get("due"):
-                store.c.execute("UPDATE step SET due_day=? WHERE id=?", (c["due"], cid))
+            if c.get("due"):   # 挪到哪天 = 在蜕变计划的日历上安排到那一天
+                store.c.execute("UPDATE step SET scheduled_day=?, rest_from='' WHERE id=?", (c["due"], cid))
             else:
                 store.c.execute("UPDATE step SET why=? WHERE id=?", (clip(f"打算：{c['to']}", 160), cid))
         return f"{q(c['target'])}挪到{c['to']}"

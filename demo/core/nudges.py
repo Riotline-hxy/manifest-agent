@@ -102,6 +102,13 @@ def attention(st, ref=None, limit: int = 6) -> list[dict]:
     for s_ in st.steps(60):
         if s_["status"] != "todo" or (s_.get("wish_id") and s_["wish_id"] not in live):
             continue
+        plan = journey.planned_day(s_, today.isoformat())
+        if plan == today.isoformat():
+            add(2, "planned_today", f"小步「{clip(s_['title'], 20)}」是 TA 自己安排在今天的",
+                "聊到计划时可以轻轻提一句，做不做都行；TA 说今天不想做，就帮 TA 换一天")
+            continue
+        if plan:   # 安排在以后的：还没到日子，不催
+            continue
         made = parse_iso(s_["created_at"])
         age = (today - made.date()).days if made else 0
         if age >= 7:

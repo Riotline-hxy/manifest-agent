@@ -60,7 +60,8 @@ def _plan_material(st) -> list[str]:
 def _feature_pick(st) -> str | None:
     counts = {r[0]: r[1] for r in st.c.execute("SELECT scene, COUNT(*) FROM scene_run WHERE status='done' GROUP BY scene")}
     kicks = st.c.execute("SELECT COUNT(*) FROM kick_run").fetchone()[0]
-    old = [s for s in st.steps() if s["status"] == "todo" and (now() - (parse_iso(s["created_at"]) or now())).days >= 3]
+    old = [s for s in st.steps() if s["status"] == "todo" and not journey.planned_day(s)
+           and (now() - (parse_iso(s["created_at"]) or now())).days >= 3]
     options = []
     if old and not kicks:
         options.append("kickstart")

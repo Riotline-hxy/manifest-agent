@@ -882,6 +882,7 @@ class ApiTest(unittest.TestCase):
     def test_adjust_plan_applies_only_checked_and_revises(self):
         from datetime import date, timedelta
         from core import journey
+        from core.util import day_key
         c, uid = self.onboarded("adjust")
         with Store(uid) as st:
             w = journey.current(st)
@@ -931,8 +932,9 @@ class ApiTest(unittest.TestCase):
         with Store(uid) as st:
             hs = {h["id"]: h for h in journey.habits(st, w["id"])}
             self.assertEqual((hs[h1["id"]]["title"], hs[h2["id"]]["per_week"]), ("背单词", 1))
-            self.assertEqual(st.c.execute("SELECT due_day FROM step WHERE id=?", (stp["id"],)).fetchone()[0],
-                             (date.today() + timedelta(days=1)).isoformat())
+            # 挪到明天 = 在日历上安排到明天
+            self.assertEqual(st.c.execute("SELECT scheduled_day FROM step WHERE id=?", (stp["id"],)).fetchone()[0],
+                             (date.fromisoformat(day_key()) + timedelta(days=1)).isoformat())
             self.assertEqual(st.c.execute("SELECT due_day FROM milestone WHERE id=?", (ms["id"],)).fetchone()[0],
                              (date.today() + timedelta(days=17)).isoformat())
         mem = next(m for m in out["state"]["memories"] if "最近的状态：" in m["text"])
@@ -1012,6 +1014,51 @@ class ApiTest(unittest.TestCase):
         self.assertEqual((d2["xp"]["amount"], d2["xp"]["amount_total"]), (10, 15))
         self.assertEqual(d2["growth"]["coins"], 60)
         self.assertGreaterEqual(d2["growth"]["coins"], d2["town"]["catalog"][0]["price"])   # 够盖第一栋小木屋
+
+    def test_step_schedule_and_lazy_day_moves_planned_steps(self):
+        from datetime import date, timedelta
+        c, _ = self.member("plan_cal")
+        _, d = c.req("POST", "/api/wish", {"action": "add", "title": "规律健身", "category": "body"})
+        wid = d["journey"]["wishes"][0]["id"]
+        today = d["journey"]["today"]
+        day = lambda n: (date.fromisoformat(today) + timedelta(days=n)).isoformat()
+        # 新加的小步可以直接带上日子；没给就是没安排
+        _, d = c.req("POST", "/api/step", {"action": "add", "title": "办好健身卡", "wish_id": wid, "day": today})
+        a = next(s for s in d["steps"] if s["title"] == "办好健身卡")
+        self.assertEqual(a["scheduled_day"], today)
+        _, d = c.req("POST", "/api/step", {"action": "add", "title": "买一双跑鞋", "wish_id": wid})
+        b = next(s for s in d["steps"] if s["title"] == "买一双跑鞋")
+        self.assertEqual(b["scheduled_day"], "")
+        self.assertEqual(c.req("POST", "/api/step", {"action": "add", "title": "x", "wish_id": "w_nope"})[0], 404)
+        # 安排：只能今天或以后；空 = 不安排了
+        self.assertEqual(c.req("POST", "/api/step", {"action": "schedule", "id": b["id"], "day": day(-1)})[0], 400)
+        self.assertEqual(c.req("POST", "/api/step", {"action": "schedule", "id": b["id"], "day": "周六"})[0], 400)
+        _, d = c.req("POST", "/api/step", {"action": "schedule", "id": b["id"], "day": day(1)})
+        self.assertEqual(next(s for s in d["steps"] if s["id"] == b["id"])["scheduled_day"], day(1))
+        # 偷懒日：今天安排的挪到明天，明天的不动；再点一次不会再挪
+        s, d = c.req("POST", "/api/record", {"type": "rest"})
+        self.assertEqual((s, d["rest_plan"]), (200, {"postponed": 1}))
+        steps = {s["id"]: s for s in d["steps"]}
+        self.assertEqual((steps[a["id"]]["scheduled_day"], steps[b["id"]]["scheduled_day"]), (day(1), day(1)))
+        _, d = c.req("POST", "/api/record", {"type": "rest"})
+        self.assertNotIn("rest_plan", d)
+        # 不偷懒了：挪走的回到今天，本来就在明天的不动
+        _, d = c.req("POST", "/api/record", {"type": "rest", "undo": True})
+        self.assertEqual(d["rest_plan"], {"restored": 1})
+        steps = {s["id"]: s for s in d["steps"]}
+        self.assertEqual((steps[a["id"]]["scheduled_day"], steps[b["id"]]["scheduled_day"]), (today, day(1)))
+        # 偷懒后自己又改过日子的，取消偷懒时不再挪回来
+        c.req("POST", "/api/record", {"type": "rest"})
+        c.req("POST", "/api/step", {"action": "schedule", "id": a["id"], "day": day(3)})
+        _, d = c.req("POST", "/api/record", {"type": "rest", "undo": True})
+        self.assertEqual(d["rest_plan"], {"restored": 0})
+        self.assertEqual(next(s for s in d["steps"] if s["id"] == a["id"])["scheduled_day"], day(3))
+        # 不安排了；做完的不能再安排；安排过的照样能完成、照样给经验
+        _, d = c.req("POST", "/api/step", {"action": "schedule", "id": a["id"], "day": ""})
+        self.assertEqual(next(s for s in d["steps"] if s["id"] == a["id"])["scheduled_day"], "")
+        s, d = c.req("POST", "/api/step", {"action": "done", "id": b["id"]})
+        self.assertEqual((s, d["xp"]["amount"]), (200, 10))
+        self.assertEqual(c.req("POST", "/api/step", {"action": "schedule", "id": b["id"], "day": today})[0], 404)
 
     def test_memory_confirm_edit_forget(self):
         c, uid = self.onboarded("mem")
@@ -2375,6 +2422,41 @@ class ActsTest(unittest.TestCase):
         m = self.st.add_msg("assistant", "好", {"acts": v})
         self._do("edit_plan", {"action": "change", "kind": "step", "target": "A", "title": "B"}, "再改成 B")
         self.assertFalse(self.acts.set_state(self.st, m["id"], 0, "", do_undo=True)["ok"])
+
+    def test_agent_schedules_steps_and_lazy_day_undo_brings_them_back(self):
+        from datetime import date, timedelta
+        from core import journey
+        from core.util import day_key
+        today = day_key()
+        later = lambda n: (date.fromisoformat(today) + timedelta(days=n)).isoformat()
+        sid = self.st.c.execute("SELECT id FROM step").fetchone()[0]
+        # 「安排到后天」：小步的日期 = 日历上安排的那天，回执写「安排」，能撤销
+        v = self._do("edit_plan", {"action": "change", "kind": "step", "target": "小组", "due_in_days": 2}, "安排到后天")
+        self.assertEqual(self.st.step(sid)["scheduled_day"], later(2))
+        self.assertIn("安排", v[0]["verb"])
+        m = self.st.add_msg("assistant", "排好了", {"acts": v})
+        self.assertTrue(self.acts.set_state(self.st, m["id"], 0, "", do_undo=True)["ok"])
+        self.assertEqual(self.st.step(sid)["scheduled_day"], "")
+        # 往过去排不行；新加时也能带日子
+        self.assertFalse(self.agent.run_tool(self.st, "edit_plan", {"action": "change", "kind": "step", "target": "小组",
+                                                                    "due_day": later(-2)}, "x")["ok"])
+        out = self.agent.run_tool(self.st, "edit_plan", {"action": "add", "kind": "step", "title": "背十个单词", "due_day": today}, "帮我加一个，今天背")
+        self.assertEqual(self.st.step(out["id"])["scheduled_day"], today)
+        # 小光的上下文里看得到安排的日子
+        self.assertIn("背十个单词（今天）", self.agent.core_block(self.st.profile(), self.st))
+        # 小光帮着设偷懒日：今天安排的挪到明天；在聊天里点撤销，挪走的回到今天
+        v = self._do("log_lazy_day", {}, "今天想偷个懒")
+        self.assertTrue(journey.is_resting(self.st))
+        self.assertEqual(self.st.step(out["id"])["scheduled_day"], later(1))
+        self.assertIn("挪到明天", v[0]["new"])
+        m = self.st.add_msg("assistant", "好好休息", {"acts": v})
+        self.assertTrue(self.acts.set_state(self.st, m["id"], 0, "", do_undo=True)["ok"])
+        self.assertFalse(journey.is_resting(self.st))
+        self.assertEqual(self.st.step(out["id"])["scheduled_day"], today)
+        # 用 undo 参数说「不偷懒了」也一样
+        self.agent.run_tool(self.st, "log_lazy_day", {}, "今天想偷个懒")
+        back = self.agent.run_tool(self.st, "log_lazy_day", {"undo": True}, "不偷懒了")
+        self.assertEqual((back["restored"], self.st.step(out["id"])["scheduled_day"]), (1, today))
 
     def test_read_only_and_suggest(self):
         self.assertEqual(self._do("look_up", {"area": "plan"}, "看看计划"), [])

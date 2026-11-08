@@ -286,7 +286,7 @@ function pickCheer(d, prev = null) {
   return aff.length ? { kind: "affirm", text: aff[Math.floor(Math.random() * aff.length)] } : you;
 }
 
-// 「今天」：每个愿望一栏。收起时只露出下一个还没做的小步，点栏目展开看全部；小步没有期限，不按日期筛
+// 「今天」：每个愿望一栏。收起时只剩标题和进度，点栏目展开看全部小步（今天安排的排前面）；安排只是提醒，不过期、不按日期筛
 const openWish = new Set();
 let advanced = "";   // 刚勾掉一步的那个愿望：下一步滑进来
 
@@ -296,22 +296,23 @@ function wishStepsHTML(d) {
   const all = [...(d.steps || [])].reverse();   // 服务端是新的在前；这里按加进来的先后，最早的那步排第一
   const html = ws.map((w) => {
     const mine = all.filter((s) => s.wish_id === w.id || (!s.wish_id && w.id === ws[0].id));
-    const todo = mine.filter((s) => s.status === "todo");
+    const today = d.journey?.today;
+    const todo = mine.filter((s) => s.status === "todo").sort((a, b) => (b.scheduled_day === today) - (a.scheduled_day === today));
     const done = mine.filter((s) => s.status === "done").sort((a, b) => (b.done_at || "").localeCompare(a.done_at || ""));
     const open = openWish.has(w.id), total = todo.length + done.length, cat = catOf(w.category);
-    const rows = (open ? todo : todo.slice(0, 1)).map((s, i) => `<div class="ws" style="--i:${i}">
-      <button class="ck" data-step-done="${esc(s.id)}" aria-label="完成「${esc(s.title)}」">${icon("check")}</button><span class="t">${esc(s.title)}</span></div>`).join("");
+    const rows = (open ? todo : []).map((s, i) => `<div class="ws" style="--i:${i}">
+      <button class="ck" data-step-done="${esc(s.id)}" aria-label="完成「${esc(s.title)}」">${icon("check")}</button><span class="t">${esc(s.title)}</span>${s.scheduled_day === today ? `<span class="ws-day">今天</span>` : ""}</div>`).join("");
     const more = open
       ? `${done.slice(0, 6).map((s) => `<div class="ws done">${icon("check")}<span class="t">${esc(s.title)}</span></div>`).join("")}
          ${done.length > 6 ? `<div class="ws-note">还有 ${done.length - 6} 个完成的，在蜕变计划里</div>` : ""}
          <form class="ws-add" data-wg-add="${esc(w.id)}"><input class="field" maxlength="40" placeholder="加一个小步" aria-label="给「${esc(w.title)}」加一个小步"><button class="icon-btn sm" aria-label="加进去">${icon("plus")}</button></form>`
-      : todo.length > 1 ? `<button class="ws-more" data-wg-toggle="${esc(w.id)}">还有 ${todo.length - 1} 个小步</button>` : "";
+      : "";
     return `<section class="wg ${open ? "open" : ""} ${advanced === w.id ? "advanced" : ""}" data-wg="${esc(w.id)}">
       <button class="wg-h" data-wg-toggle="${esc(w.id)}" aria-expanded="${open}">${tile(cat.icon, cat.color, 28)}<span class="wg-t">${esc(w.title)}</span>
         ${total ? `<span class="wg-n">${done.length}/${total}</span>` : ""}<span class="wg-chev">${icon("chevron")}</span></button>
       ${total ? `<span class="wg-bar" aria-hidden="true"><i style="width:${Math.round((done.length / total) * 100)}%;background:${cat.color}"></i></span>` : ""}
-      <div class="wg-list">${rows}${!todo.length ? `<div class="ws-all">${total ? `${icon("checkc")}这个愿望的小步都做完了` : "还没有小步"}</div>
-` : ""}${more}</div>
+      ${open ? `<div class="wg-list">${rows}${!todo.length ? `<div class="ws-all">${total ? `${icon("checkc")}这个愿望的小步都做完了` : "还没有小步"}</div>
+` : ""}${more}</div>` : ""}
     </section>`;
   }).join("");
   advanced = "";
@@ -381,9 +382,9 @@ function drawPanelBody(panel) {
   }));
 }
 
-// 面板里勾小步、加小步：和蜕变计划是同一份数据，计划页开着就一起重画
+// 面板里勾小步、加小步：和蜕变计划是同一份数据；计划页自己订阅了数据，开着就会就地更新
 function bindWishSteps(panel, body) {
-  const synced = (out) => { setData(out); if (state.route === "plan") drawView(); };
+  const synced = (out) => { setData(out); };
   body.querySelectorAll("[data-wg-toggle]").forEach((b) => b.addEventListener("click", () => {
     const id = b.dataset.wgToggle;
     openWish.has(id) ? openWish.delete(id) : openWish.add(id);

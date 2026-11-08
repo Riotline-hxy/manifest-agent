@@ -743,10 +743,11 @@ def edit_item(st, kind: str, ref: str, patch: dict, action: str = "") -> dict:
             title = clip(title, 40)
             if not title:
                 raise ValueError("写一下这一步是什么")
-            s_ = st.add_step(title, why=str(patch.get("why") or ""), wish=w["title"], wish_id=w["id"])
+            day = schedule_day(_when(patch) or "")
+            s_ = st.add_step(title, why=str(patch.get("why") or ""), wish=w["title"], wish_id=w["id"], scheduled_day=day)
             st.log("plan", "加了一小步：" + title)
             return {"ok": True, "kind": kind, "id": s_["id"], "title": s_["title"], "wish_title": w["title"],
-                    "changed": [f"加进了「{w['title']}」的小步"]}
+                    "changed": [f"加进了「{w['title']}」的小步" + (f"，安排在 {_md(day)}" if day else "")]}
         m = add_moment(st, w["id"], str(patch.get("text") or title), str(patch.get("feeling") or ""),
                        day=patch.get("day") or None, source="chat")
         return {"ok": True, "kind": kind, "id": m["id"], "title": clip(m["text"], 30), "wish_title": w["title"],
@@ -863,6 +864,12 @@ def edit_item(st, kind: str, ref: str, patch: dict, action: str = "") -> dict:
             fields["title"] = clip(str(patch["title"]).strip(), 40); changed.append(f"改成「{fields['title']}」")
         if patch.get("status") in ("todo", "dropped") and patch["status"] != s_["status"] and "status" not in fields:
             fields["status"] = patch["status"]; changed.append("先放一放" if patch["status"] == "dropped" else "放回待做")
+        if any(patch.get(k) not in (None, "", 0) for k in ("due_day", "due_in_days", "shift_days")):
+            # 小步的日期 = 安排到哪天（日历上那一格）；在原来安排的那天上挪，没安排过就从今天算
+            day = schedule_day(_when(patch, planned_day(s_) or day_key()))
+            if day != (s_.get("scheduled_day") or ""):
+                fields["scheduled_day"] = day; fields["rest_from"] = ""
+                changed.append(f"安排到 {_md(day)}")
         if fields:
             with st.lock:
                 st.c.execute("UPDATE step SET " + ",".join(f"{k}=?" for k in fields) + " WHERE id=?", (*fields.values(), s_["id"]))
@@ -892,6 +899,65 @@ def edit_item(st, kind: str, ref: str, patch: dict, action: str = "") -> dict:
     if p:
         edit_moment(st, m["id"], p)
     return _done(kind, m, changed, patch)
+
+
+# ---------------------------------------------------------------- 小步排期 ----
+# 小步可以安排到某天（step.scheduled_day），只是给自己的提醒：过了那天也不过期、不算逾期，
+# 前端把「安排在过去」的当成还没安排。偷懒日把今天安排的挪到明天，取消偷懒再挪回来。
+
+def schedule_day(day) -> str:
+    """校验安排日：空 = 不安排；只能是今天或以后。"""
+    if day in (None, ""):
+        return ""
+    try:
+        d = date.fromisoformat(str(day)[:10])
+    except ValueError:
+        raise ValueError("日期不对")
+    if d < now().date():
+        raise ValueError("只能安排到今天或以后")
+    if d > now().date() + timedelta(days=730):
+        raise ValueError("安排得太远了，近两年内选一天吧")
+    return d.isoformat()
+
+
+def planned_day(step: dict, today: str | None = None) -> str:
+    """这件小步还算数的安排日：没做、并且安排在今天或以后才算。"""
+    d = step.get("scheduled_day") or ""
+    return d if d and step.get("status") == "todo" and d >= (today or day_key()) else ""
+
+
+def plan_label(day: str, today: str | None = None) -> str:
+    """安排日的说法：今天 / 明天 / 11月9日周六。"""
+    t = date.fromisoformat(today or day_key())
+    d = date.fromisoformat(day[:10])
+    return "今天" if d == t else "明天" if d == t + timedelta(days=1) else f"{_md(day)}周{'一二三四五六日'[d.weekday()]}"
+
+
+def todo_by_plan(rows: list[dict], today: str | None = None) -> list[dict]:
+    """待做小步排序：安排在今天的 → 之后安排的（按日子）→ 没安排的（保持原来的先后）。"""
+    today = today or day_key()
+    todo = [r for r in rows if r["status"] == "todo"]
+    return sorted(todo, key=lambda r: (0, planned_day(r, today)) if planned_day(r, today) else (1, ""))
+
+
+def rest_postpone(st) -> int:
+    """设偷懒日：今天安排的、还没做的小步挪到明天，记下是从今天挪过去的。返回挪了几件。"""
+    today = day_key()
+    tomorrow = (date.fromisoformat(today) + timedelta(days=1)).isoformat()
+    with st.lock:
+        return st.c.execute("UPDATE step SET scheduled_day=?, rest_from=? WHERE status='todo' AND scheduled_day=?",
+                            (tomorrow, today, today)).rowcount
+
+
+def rest_restore(st) -> int:
+    """取消今天的偷懒日：今天挪走、之后没再改过日期的小步挪回今天。返回挪回几件。"""
+    today = day_key()
+    tomorrow = (date.fromisoformat(today) + timedelta(days=1)).isoformat()
+    with st.lock:
+        n = st.c.execute("UPDATE step SET scheduled_day=?, rest_from='' WHERE status='todo' AND rest_from=? AND scheduled_day=?",
+                         (today, today, tomorrow)).rowcount
+        st.c.execute("UPDATE step SET rest_from='' WHERE rest_from=?", (today,))
+    return n
 
 
 # ---------------------------------------------------------------- 一段小步走完了 ----

@@ -192,6 +192,10 @@ class Store:
         cols = {r["name"] for r in self.c.execute("PRAGMA table_info(step)")}
         if "wish_id" not in cols:
             self.c.execute("ALTER TABLE step ADD COLUMN wish_id TEXT DEFAULT ''")
+        if "scheduled_day" not in cols:   # 用户把小步安排到哪天（蜕变计划的日历）；空 = 还没安排。due_day 是旧字段，存的是加进来那天
+            self.c.execute("ALTER TABLE step ADD COLUMN scheduled_day TEXT DEFAULT ''")
+        if "rest_from" not in cols:   # 偷懒日从哪天挪过来的：取消偷懒时只把这些挪回去
+            self.c.execute("ALTER TABLE step ADD COLUMN rest_from TEXT DEFAULT ''")
         wcols = {r["name"] for r in self.c.execute("PRAGMA table_info(wish)")}
         if "target_day" not in wcols:
             self.c.execute("ALTER TABLE wish ADD COLUMN target_day TEXT DEFAULT ''")
@@ -409,14 +413,28 @@ class Store:
         return out
 
     # ---- plan steps ---------------------------------------------------------
-    def add_step(self, title: str, why: str = "", wish: str = "", due_day: str | None = None, wish_id: str = "") -> dict:
+    def add_step(self, title: str, why: str = "", wish: str = "", due_day: str | None = None, wish_id: str = "",
+                 scheduled_day: str = "") -> dict:
         sid = new_id("s")
         if not wish_id:
             wish_id = self.profile().get("current_wish") or ""
         with self.lock:
-            self.c.execute("INSERT INTO step(id, title, why, status, wish, due_day, created_at, wish_id) VALUES(?,?,?,?,?,?,?,?)",
-                           (sid, clip(title, 80), clip(why, 160), "todo", clip(wish, 80), due_day or day_key(), iso(), wish_id))
+            self.c.execute("INSERT INTO step(id, title, why, status, wish, due_day, created_at, wish_id, scheduled_day) "
+                           "VALUES(?,?,?,?,?,?,?,?,?)",
+                           (sid, clip(title, 80), clip(why, 160), "todo", clip(wish, 80), due_day or day_key(), iso(), wish_id,
+                            scheduled_day or ""))
         return dict(self.c.execute("SELECT * FROM step WHERE id=?", (sid,)).fetchone())
+
+    def step(self, sid: str) -> dict | None:
+        r = self.c.execute("SELECT * FROM step WHERE id=?", (sid,)).fetchone()
+        return dict(r) if r else None
+
+    def schedule_step(self, sid: str, day: str) -> dict | None:
+        """把一件还没做的小步安排到某天（day 为空 = 不安排了）。手动改过日期，就不再算偷懒日挪过来的。"""
+        with self.lock:
+            n = self.c.execute("UPDATE step SET scheduled_day=?, rest_from='' WHERE id=? AND status='todo'",
+                               (day or "", sid)).rowcount
+        return self.step(sid) if n else None
 
     def steps(self, limit: int = 100) -> list[dict]:
         # rowid 兜底：同一秒加进来的几步（比如一起加进计划的）也保持加入的先后
@@ -436,8 +454,12 @@ class Store:
         return self.set_step(hit["id"], "done") if hit else None
 
     def find_todo_step(self, sid: str | None = None, title: str | None = None) -> dict | None:
-        todo = [x for x in self.steps() if x["status"] == "todo"]
-        hit = next((x for x in todo if sid and x["id"] == sid), None)
+        if sid:
+            got = self.step(sid)
+            if got and got["status"] == "todo":
+                return got
+        todo = [x for x in self.steps(400) if x["status"] == "todo"]
+        hit = None
         if not hit and title:
             t = title.strip()
             hit = next((x for x in todo if t and (t in x["title"] or x["title"] in t)), None)

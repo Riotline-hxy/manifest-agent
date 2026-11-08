@@ -49,7 +49,9 @@ def _wish_block(st, w: dict, steps: list[dict]) -> list[str]:
         out.append(f"  定下时 TA 说自己：{w['now_text']}")
     for s_ in steps:
         if s_.get("wish_id") == w["id"] and s_["status"] == "todo":
-            out.append(f"  - 小步 [{s_['id']}] {s_['title']}（{_md(s_['created_at'])} 加的）")
+            plan = journey.planned_day(s_)
+            out.append(f"  - 小步 [{s_['id']}] {s_['title']}（{_md(s_['created_at'])} 加的"
+                       + (f"，安排在{journey.plan_label(plan)}" if plan else "") + "）")
     out.append(f"  轨迹上 {w['count']} 个瞬间，{w['days']} 天有记录")
     return out
 
@@ -118,7 +120,9 @@ def look_up(st, area: str, query: str = "") -> dict:
             xs = [s_ for s_ in steps if s_["status"] == status][:n]
             if xs:
                 L.append(label + "：" + "；".join(
-                    f"[{s_['id']}] {s_['title']}（{_md(s_.get('done_at') or s_['created_at'])}）" for s_ in xs))
+                    f"[{s_['id']}] {s_['title']}（{_md(s_.get('done_at') or s_['created_at'])}"
+                    + (f"，安排在{journey.plan_label(journey.planned_day(s_))}" if journey.planned_day(s_) else "") + "）"
+                    for s_ in xs))
         if not L:
             L.append("还没有小步。")
 
