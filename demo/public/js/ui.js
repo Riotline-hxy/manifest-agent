@@ -14,8 +14,33 @@ export function richText(s) {
   const safe = esc(s);
   return safe
     .split(/\n{2,}/)
-    .map((p) => `<p>${p.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\n/g, "<br>")}</p>`)
+    .map((p) => listBlocks(p.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")))
     .join("");
+}
+
+// 一段话里连着几行「1. 」「2. 」或「· 」「- 」开头的，画成列表（小光讲步骤、几个要点时会分行写）；其余照旧换行
+const OL = /^\s*\d{1,2}[.、．]\s*/;
+const UL = /^\s*[·•\-]\s+/;
+function listBlocks(p) {
+  const out = [];
+  let text = [], list = null;
+  const flushText = () => { if (text.length) out.push(`<p>${text.join("<br>")}</p>`); text = []; };
+  const flushList = () => { if (list) out.push(`<${list.tag} class="txt-list">${list.items.map((x) => `<li>${x}</li>`).join("")}</${list.tag}>`); list = null; };
+  for (const line of p.split("\n")) {
+    const tag = OL.test(line) ? "ol" : UL.test(line) ? "ul" : "";
+    if (tag) {
+      flushText();
+      if (list && list.tag !== tag) flushList();
+      list = list || { tag, items: [] };
+      list.items.push(line.replace(tag === "ol" ? OL : UL, ""));
+    } else {
+      flushList();
+      text.push(line);
+    }
+  }
+  flushText();
+  flushList();
+  return out.join("");
 }
 
 export function h(tag, attrs = {}, ...children) {

@@ -26,6 +26,11 @@
 .msg .bub .pill { margin-bottom: 6px; }
 .msg .txt p { margin: 0 0 .6em; }
 .msg .txt p:last-child { margin: 0; }
+/* 小光讲步骤、几个要点时分行写的「1. 」「· 」 */
+.msg .txt .txt-list { margin: 0 0 .6em; padding-left: 1.4em; }
+.msg .txt .txt-list:last-child { margin-bottom: 0; }
+.msg .txt .txt-list li { margin: .2em 0; padding-left: .15em; }
+.msg .txt .txt-list li::marker { color: var(--text-3); font-weight: 800; }
 .msg .when { font-size: 11px; color: var(--text-4); font-weight: 700; padding-left: 4px; }
 .msg.user { justify-content: flex-end; }
 .msg.user .bub { max-width: 78%; border-radius: 20px 6px 20px 20px; background: var(--surface-3); border-color: transparent; font-weight: 600; }

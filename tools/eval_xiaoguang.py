@@ -50,8 +50,8 @@ OUT_DIR = REPO / "docs" / "prompt-rework" / "结果"
 PERSONAS = {"温柔": "gentle", "有条理": "clear", "活泼": "lively"}
 SEEN = {"E01", "E03", "E05", "E07", "E11", "E13", "E16", "E19"}   # 这几条的参考回复放进了提示词（core/voice.py）
 AI_PHRASES = ["我理解你的感受", "作为一个AI", "作为一个 AI", "你可以尝试以下方法", "希望对你有帮助", "加油", "你一定可以"]
-REMEMBER_CLAIM = re.compile(r"记住了|记住啦|记下了|记下啦|加进笔记本")
-MARKDOWN = re.compile(r"\*\*|^#+ |^\s*[-*] |^\s*\d+\. ", re.M)
+REMEMBER_CLAIM = re.compile(r"(?<![体肉指脑])记住了|记住啦|记下了|记下啦|加进笔记本")   # 「身体 / 肌肉记住了」不算小光说自己记下了
+MARKDOWN = re.compile(r"\*\*|^#+ ", re.M)     # 标题和加粗不行；讲步骤时分行写「1. 」「· 」可以（2026-11-08 起）
 
 # 被调用的工具：包一层 run_tool，连被拦下（skipped）的调用也记上
 _calls: dict[str, list] = {}
@@ -192,12 +192,14 @@ JUDGE = """你在给一个陪伴 App 里的 AI 朋友「小光」的回复打分
 产品负责人亲手写的三份参考回复（同一句话，三种性格各自会怎么回）：
 {refs}
 
-请对照参考回复，尤其是「{p}」那一份的语气、长度、用词、表情习惯，打三个 1–5 分：
+请对照参考回复，尤其是「{p}」那一份的语气、用词、表情习惯，打四个 1–5 分：
 - 人味：像不像真人朋友在微信上回的，而不是 AI 客服（5 = 和参考回复一样自然）
 - 性格：像不像「{p}」这一种，和另外两种分得开吗
 - 要点：这一条要做到的事和通用要求做到了多少
-参考回复里提到的内容不必照抄；回复意思不同但同样自然，也可以给高分。
-只输出 JSON：{{"人味": n, "性格": n, "要点": n, "问题": ["一句话说一个具体问题", ...]}}"""
+- 帮到了：此时此刻这样回，是不是最能帮到 TA。该陪就陪，该给办法就给，该讲清的知识讲清；
+  发现能帮上的机会有没有提一句；有没有只是为了把话聊下去而提问；有没有在 TA 只是分享时过早展开成长篇规划。
+参考回复里提到的内容不必照抄；回复意思不同但同样自然，也可以给高分。长度看 TA 要什么：闲聊短，讲知识、给办法、做规划可以长。
+只输出 JSON：{{"人味": n, "性格": n, "要点": n, "帮到了": n, "问题": ["一句话说一个具体问题", ...]}}"""
 
 
 def judge(case: dict, r: dict, general: list[str]) -> dict:
@@ -210,7 +212,7 @@ def judge(case: dict, r: dict, general: list[str]) -> dict:
                                           + ["不能有：" + y for y in (case.get("回复不能有") or [])]) or "- （无）",
                           general="\n".join("- " + x for x in general))
     out = llm.complete_json([{"role": "user", "content": prompt}], timeout=60) or {}
-    return {k: out.get(k) for k in ("人味", "性格", "要点", "问题")}
+    return {k: out.get(k) for k in ("人味", "性格", "要点", "帮到了", "问题")}
 
 
 # ---- 报告 ----------------------------------------------------------------------
@@ -228,7 +230,7 @@ def write_report(rows: list[dict], label: str, cfg: dict) -> Path:
     L = [f"# 小光评测：{label}（{time.strftime("%Y-%m-%d")}）", "",
          f"模型 `{cfg['model']}`，思考 `{cfg['reasoning']}`。共 {len(rows)} 格。",
          f"「没见过」= 不在提示词示范对话里的 {len(set(r['id'] for r in rows) - SEEN)} 条，是真正的检验；「全部」含示范里那 8 条。", ""]
-    L += ["| 性格 | 范围 | 硬检查全过 | 人味 | 性格 | 要点 | 首字秒（中位） |", "|---|---|---|---|---|---|---|"]
+    L += ["| 性格 | 范围 | 硬检查全过 | 人味 | 性格 | 要点 | 帮到了 | 首字秒（中位） |", "|---|---|---|---|---|---|---|---|"]
     for p in PERSONAS:
         for scope, rs in (("全部", [r for r in rows if r["性格"] == p]),
                           ("没见过", [r for r in rows if r["性格"] == p and r["id"] not in SEEN])):
@@ -237,11 +239,12 @@ def write_report(rows: list[dict], label: str, cfg: dict) -> Path:
             firsts = sorted(r["首字秒"] for r in rs if r["首字秒"])
             L.append(f"| {p} | {scope} | {sum(1 for r in rs if not r['硬检查'])}/{len(rs)} | {avg(r['打分'].get('人味') for r in rs)} | "
                      f"{avg(r['打分'].get('性格') for r in rs)} | {avg(r['打分'].get('要点') for r in rs)} | "
+                     f"{avg(r['打分'].get('帮到了') for r in rs)} | "
                      f"{firsts[len(firsts) // 2] if firsts else '-'} |")
     L += ["", "## 每一格", ""]
     for r in rows:
         s = r["打分"]
-        L.append(f"### {r['id']} · {r['性格']}　人味 {s.get('人味')} / 性格 {s.get('性格')} / 要点 {s.get('要点')}")
+        L.append(f"### {r['id']} · {r['性格']}　人味 {s.get('人味')} / 性格 {s.get('性格')} / 要点 {s.get('要点')} / 帮到了 {s.get('帮到了')}")
         L.append(f"- 用户说：{r['用户说']}")
         L.append(f"- 小光：{r['回复'] or '（空）'}")
         L.append(f"- 参考：{r['参考'] or '（没写）'}")
@@ -283,7 +286,7 @@ def main():
         r["硬检查"] = hard_checks(c, r)
         r["打分"] = {} if a.no_judge else judge(c, r, data.get("通用要求") or [])
         print(f"  {r['id']} {p:3s} {'✓' if not r['硬检查'] else '✗ ' + '；'.join(r['硬检查'])}  "
-              f"{r['打分'].get('人味')}/{r['打分'].get('性格')}/{r['打分'].get('要点')}", flush=True)
+              f"{r['打分'].get('人味')}/{r['打分'].get('性格')}/{r['打分'].get('要点')}/{r['打分'].get('帮到了')}", flush=True)
         return r
 
     with ThreadPoolExecutor(a.workers) as ex:
