@@ -7,7 +7,7 @@ import { esc, icon, tile, toast, sheet, h, fmtDay } from "../ui.js";
 import { confetti } from "../fx.js";
 import { openRules } from "../rules.js";
 import { agentMini } from "../ball.js";
-import { townSVG, itemArt, townBox as boxOf, headroom, cellAt, cellPoint, COIN_SVG, guideLines, itemName, kindOf, cellsOf } from "../town.js";
+import { townSVG, itemArt, townBox as boxOf, headroom, cellAt, cellPoint, COIN_SVG, guideLines, itemName, kindOf, cellsOf, turnable } from "../town.js";
 
 // 小镇的取景框：上方的天空按最高的那栋留，不多留
 const townBox = () => { const t = state.data.town; return boxOf(t.size, { top: headroom(t) }); };
@@ -98,7 +98,6 @@ const inLand = (t, c) => c && c.x >= 0 && c.y >= 0 && c.x < t.size && c.y < t.si
 // 哪一样东西盖着这一格（大建筑占好几格）
 const occupant = (t, c, skip = "") => (t.items || []).find((i) => i.id !== skip && cellsOf(i).some(([x, y]) => x === c.x && y === c.y));
 const modeKind = (t) => ui.mode?.type === "buy" ? ui.mode.kind : (t.items.concat(t.warehouse).find((i) => i.id === ui.mode?.id) || {}).kind;
-const square = (kind) => { const [w, d] = kindOf(kind).size; return w === d; };
 
 function ghostFor(t) {
   if (!ui.mode || !ui.ghost || !inLand(t, ui.ghost)) return null;
@@ -263,7 +262,7 @@ function drawMode(root) {
   const hint = g ? (g.ok ? (coarse() ? "再点一下就放下" : "点一下放下") : "这里有东西了") : "点一块空地";
   box.innerHTML = `<span class="tm-art">${itemArt(kind, { name: t.name, rot })}</span>
     <span class="tm-t"><b>${m.type === "buy" ? `${esc(it?.name || "")}<span class="tm-price">${COIN_SVG}${it?.price ?? ""}</span>` : `把「${esc(itemName(t, kind))}」放到哪儿？`}</b><small>${hint}</small></span>
-    ${square(kind) ? "" : `<button class="icon-btn sm" data-turn title="转个方向（R）" aria-label="转个方向">${icon("turn")}</button>`}
+    ${turnable(kind) ? `<button class="icon-btn sm" data-turn title="转个方向（R）" aria-label="转个方向">${icon("turn")}</button>` : ""}
     ${g?.ok && coarse() ? `<button class="btn btn-main btn-sm" data-place>放在这里</button>` : ""}
     <button class="btn btn-ghost btn-sm" data-cancel>${m.keep ? "完成" : "取消"}</button>`;
   box.querySelector("[data-cancel]").addEventListener("click", () => endMode(root));
@@ -273,9 +272,9 @@ function drawMode(root) {
 
 const nonce = () => "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
-// 长条的建筑可以转 90°
+// 转个方向：长条的建筑转 90°，正方形的左右翻过来（门换一边朝）；路没有方向
 function turn(root) {
-  if (!ui.mode || square(modeKind(state.data.town))) return;
+  if (!ui.mode || !turnable(modeKind(state.data.town))) return;
   ui.mode = { ...ui.mode, rot: ui.mode.rot ? 0 : 1 };
   drawStage(root);
   drawMode(root);
@@ -413,14 +412,20 @@ function openItem(root, id) {
   else if (st.text) story = st.day === built ? `那天你${esc(st.text)}。` : `盖它之前，你最近做成的一件事是 ${md(st.day)} ${esc(st.text)}。`;
   const body = h("div", { class: "ti-sheet", html: `
     <div class="ti-art">${itemArt(it.kind, { name: t.name, rot: it.rot })}</div>
-    <p class="ti-when">${it.source === "gift" && it.kind !== "monument" ? "小镇送的" : `${md(built)} 建的`}${c ? ` · ${esc(c.desc)}` : ""}</p>
+    <p class="ti-when">${it.source === "gift" && it.kind !== "monument" ? "小镇送的" : `${md(built)} 建的`}${c?.desc ? ` · ${esc(c.desc)}` : ""}</p>
     ${story ? `<p class="ti-story">${story}</p>` : ""}` });
   const s = sheet({ title: it.name, body, sticker: "home", footer: [
     h("button", { class: "btn btn-ghost", onclick: async () => {
       try { s.close(); setData(await api.town("store", { id })); toast(`「${it.name}」收进仓库了`, "", "box"); } catch (e) { toast(e.message, "err"); }
     } }, "收进仓库"),
+    turnable(it.kind) ? h("button", { class: "btn btn-ghost", onclick: async () => {
+      try {                                                   // 原地转：长条的转了放不下会说
+        const out = await api.town("move", { id, x: it.x, y: it.y, rot: it.rot ? 0 : 1 });
+        s.close(); setData(out);
+      } catch (e) { toast(e.message, "err"); }
+    } }, "转一下") : null,
     h("button", { class: "btn btn-main", onclick: () => { s.close(); startMode(root, { type: "move", id }); } }, "挪个位置"),
-  ] });
+  ].filter(Boolean) });
 }
 
 function renameSheet() {

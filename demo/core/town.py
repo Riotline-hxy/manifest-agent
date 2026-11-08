@@ -13,7 +13,7 @@
 占地、默认价格、默认解锁等级、高度、介绍），下面是画法。服务器启动时读元数据，前端用 /js/buildings/all.js
 （服务器把这个目录拼成一个文件）拿画法。新放进来的文件默认不上架（元数据里写 "enabled": true 的除外），
 在后台「小镇」里定好价格、等级再上架；后台改的只存在 data/town_config.json，盖在默认值上面。
-占地 size = [w, d]：w 沿 x、d 沿 y；放的时候可以转 90°（rot=1 时 w、d 对调）。(x, y) 是占地里 x、y 都最小的那一格。
+占地 size = [w, d]：w 沿 x、d 沿 y；放的时候可以转方向（rot=1 时 w、d 对调；正方形的占地不变，画的时候左右翻过来）。(x, y) 是占地里 x、y 都最小的那一格。
 """
 from __future__ import annotations
 
@@ -378,8 +378,8 @@ NONCE = re.compile(r"^[A-Za-z0-9_-]{6,40}$")
 
 
 def _rot(kind: str, rot) -> int:
-    w, d = meta(kind)["size"]
-    return 1 if rot and w != d else 0      # 正方形的转了也一样，不记
+    """转个方向：长条的宽和深对调；正方形的占地不变，画的时候左右翻过来（门换一边朝）。路没有方向。"""
+    return 1 if rot and meta(kind).get("layer") != "road" else 0
 
 
 def buy(st, kind: str, x, y, nonce: str = "", rot=0) -> dict:

@@ -1286,6 +1286,11 @@ class ApiTest(unittest.TestCase):
         _, d = c.req("POST", "/api/town", {"action": "place", "id": hid, "x": 4, "y": 4})
         self.assertIn(hid, [i["id"] for i in d["town"]["items"]])
         self.assertEqual(d["growth"]["coins"], 20)                    # 挪、收、放都不花钱
+        _, d = c.req("POST", "/api/town", {"action": "move", "id": hid, "x": 4, "y": 4, "rot": 1})   # 正方形的也能转（画的时候左右翻）
+        self.assertEqual(d["moved"]["rot"], 1)
+        road = next(i for i in d["town"]["items"] if i["kind"] == "road")
+        _, d = c.req("POST", "/api/town", {"action": "move", "id": road["id"], "x": road["x"], "y": road["y"], "rot": 1})
+        self.assertEqual(d["moved"]["rot"], 0)                                                    # 路没有方向
         _, d = c.req("POST", "/api/town", {"action": "rename", "name": "晴 天 镇"})
         self.assertEqual(d["town"]["name"], "晴天镇")
         ledger = c.req("GET", "/api/bootstrap")[1]["growth"]["ledger"]

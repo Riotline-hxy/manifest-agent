@@ -2,9 +2,10 @@
 // 每样东西的画法在建筑素材库 buildings/<id>.js（服务器拼成 buildings/all.js 一次给过来），画具在 townkit.js。
 // 这里只管把它们摆到地上：地面、道路、谁挡谁、放置时的预览、点在哪一格。
 // 大建筑占好几格：(x, y) 是占地里 x、y 都最小的那一格，画在整块占地的中心；rot=1 时宽和深对调。
+// 正方形的东西 rot=1 时用 KIT_TURNED 画：左右翻过来（门朝右下），光还是从左上来。
 // 渐变 id 带每次渲染自己的前缀：页面上同时有好几张小镇（面板缩略图、商店图标）也不会互相串。
 import { esc } from "./ui.js";
-import { KIT, TW, TH, HW, HH, P, poly, line } from "./townkit.js";
+import { KIT, KIT_TURNED, TW, TH, HW, HH, P, poly, line } from "./townkit.js";
 import B from "./buildings/all.js";
 
 export { P } from "./townkit.js";
@@ -14,6 +15,7 @@ let KINDS = {};   // id → {name, cat, size, height, layer}，来自 bootstrap 
 export function setKinds(k) { if (k) KINDS = { ...KINDS, ...k }; }
 export const kindOf = (kind) => KINDS[kind] || { name: kind, cat: "decor", size: [1, 1], height: 30, layer: "" };
 export const footprint = (it) => { const [w, d] = kindOf(it.kind).size; return it.rot ? [d, w] : [w, d]; };
+export const turnable = (kind) => kindOf(kind).layer !== "road";      // 路自己会连起来，没有方向
 export function cellsOf(it) {
   const [w, d] = footprint(it), out = [];
   for (let i = 0; i < w; i++) for (let j = 0; j < d; j++) out.push([it.x + i, it.y + j]);
@@ -22,7 +24,9 @@ export function cellsOf(it) {
 const centerOf = (it) => { const [w, d] = footprint(it); return [it.x + (w - 1) / 2, it.y + (d - 1) / 2]; };
 function drawKind(it, ctx) {
   const [w, d] = footprint(it);
-  try { return (B[it.kind] || B.bush)({ ...KIT, w, d }, it, ctx); } catch { return ""; }
+  const [w0, d0] = kindOf(it.kind).size;
+  const kit = it.rot && w0 === d0 ? KIT_TURNED : KIT;
+  try { return (B[it.kind] || B.bush)({ ...kit, w, d }, it, ctx); } catch { return ""; }
 }
 
 // ---------------------------------------------------------------- 整座小镇 ----
