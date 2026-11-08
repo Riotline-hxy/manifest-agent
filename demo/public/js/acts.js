@@ -12,7 +12,7 @@ import { openKick } from "./kick.js";
 import { adjustSheet } from "./rest.js";
 import { askNotify } from "./tasks.js";
 
-const GO_LABEL = { plan: "去看看", goodnews: "去看看", panel: "去看看", space: "去看看", notebook: "看看要点", town: "去看看" };
+const GO_LABEL = { plan: "去看看", moments: "去看看", goodnews: "去看看", panel: "去看看", space: "去看看", notebook: "看看要点", town: "去看看" };
 
 function open(o = {}) {
   if (o.kick) return openKick({ task: o.task || "" });
@@ -84,15 +84,16 @@ function askMoment(el, v, i, ctx) {
   const p = v.proposal || {};
   const ws = v.wishes || [];
   const foot = el.querySelector(".act-foot");
-  if (v.state === "kept") { foot.innerHTML = `<span class="act-done">${icon("check")}留在轨迹上了</span><button class="act-link" data-go="plan">去看看</button>`; }
+  if (v.state === "kept") { foot.innerHTML = `<span class="act-done">${icon("check")}留成一个瞬间了</span><button class="act-link" data-go="moments">去看看</button>`; }
   else if (v.state === "skipped") { foot.innerHTML = `<span class="act-note">这次没留</span>`; el.classList.add("dim"); }
   else {
-    foot.innerHTML = `${ws.length > 1 ? `<select class="field field-sm" aria-label="留在哪个愿望下">${ws.map((w) =>
+    foot.innerHTML = `${ws.length ? `<select class="field field-sm" aria-label="放进哪个愿望"><option value="">不放进愿望</option>${ws.map((w) =>
         `<option value="${esc(w.id)}" ${w.id === p.wish_id ? "selected" : ""}>${esc(w.title)}</option>`).join("")}</select>` : ""}
       <button class="btn btn-sm btn-main" data-keep>留下</button><button class="btn btn-sm btn-quiet" data-skip>不用</button>`;
     foot.querySelector("[data-skip]").addEventListener("click", () => { v.state = "skipped"; saveState(ctx, i, "skipped"); askMoment(el, v, i, ctx); });
     foot.querySelector("[data-keep]").addEventListener("click", async (e) => {
-      const wid = foot.querySelector("select")?.value || p.wish_id;
+      const sel = foot.querySelector("select");
+      const wid = sel ? sel.value : p.wish_id || "";
       e.currentTarget.disabled = true;
       try {
         const out = await api.moment("add", { wish_id: wid, text: p.text, feeling: p.feeling, source: "chat" });
@@ -101,11 +102,11 @@ function askMoment(el, v, i, ctx) {
         burstAt(el.querySelector(".act-ic"), 22);
         flyGain(el.querySelector(".act-ic"), out.xp);
         setData(withState(out, ctx, i, "kept"));
-        if (el.isConnected) askMoment(el, v, i, ctx);   // 原地变成「留在轨迹上了」
+        if (el.isConnected) askMoment(el, v, i, ctx);   // 原地变成「留成一个瞬间了」
       } catch (err) { e.currentTarget.disabled = false; toast(err.message, "err"); }
     });
   }
-  foot.querySelector("[data-go]")?.addEventListener("click", () => go("plan"));
+  foot.querySelector("[data-go]")?.addEventListener("click", () => go("moments"));
 }
 
 function askPlan(el, v, i, ctx) {

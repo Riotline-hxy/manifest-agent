@@ -5,7 +5,7 @@ the only source of the user id.
 """
 from __future__ import annotations
 
-from core import academy, acts, admin, portrait, auth, digest, flows, metrics, webpush, growth, journey, kickstart, llm, onboarding, report, scenes, scheduler, tasks, town, trial
+from core import academy, acts, admin, portrait, auth, digest, flows, metrics, photos, webpush, growth, journey, kickstart, llm, onboarding, report, scenes, scheduler, tasks, town, trial
 from core.store import Store
 from core.util import clip, day_key, iso
 from core.api import VERSION, ApiError, bootstrap, public_user
@@ -448,35 +448,30 @@ def step(h, u, b, q):
 
 
 def record(h, u, b, q):
-    """好消息页：只记开心的事(good)。蜕变计划：休息日(rest，可撤销)。find 只保留旧数据的展示，内心戏(meme) 已下线。"""
+    """偷懒日（rest，可以撤销）。好消息 2026-11 下线，换成了「瞬间」（/api/moment）。"""
     type_ = b.get("type")
-    if type_ not in ("good", "rest"):
+    if type_ == "good":
+        raise ApiError(400, "好消息已经换成「瞬间」了，去瞬间页留一个吧")
+    if type_ != "rest":
         raise ApiError(400, "类型不对")
     with Store(u["id"]) as st:
-        if type_ == "rest" and b.get("undo"):
+        if b.get("undo"):
             with st.lock:
                 gone = st.c.execute("DELETE FROM record WHERE type='rest' AND day=?", (day_key(),)).rowcount
             restored = journey.rest_restore(st) if gone else 0
             st.log("rest", "今天不偷懒了")
             return 200, {"rest_plan": {"restored": restored}, **bootstrap(st)}
-        text = clip(str(b.get("text") or ""), 200).strip() or ("今天偷个懒" if type_ == "rest" else "")
-        if not text:
-            raise ApiError(400, "写点什么")
-        if type_ == "rest" and st.c.execute("SELECT 1 FROM record WHERE type='rest' AND day=?", (day_key(),)).fetchone():
+        text = clip(str(b.get("text") or ""), 200).strip() or "今天偷个懒"
+        if st.c.execute("SELECT 1 FROM record WHERE type='rest' AND day=?", (day_key(),)).fetchone():
             return 200, {"xp": None, **bootstrap(st)}
-        r = st.add_record(type_, text)
-        xp, extra = None, {}
-        if type_ == "good":
-            xp = growth.award(st, "good", ref="rec:" + r["id"], note="小确幸")
-        else:   # 偷懒日：每日任务里行动那项先暂停，另外两件做到了就能拿全勤；今天安排的小步挪到明天
-            extra["rest_plan"] = {"postponed": journey.rest_postpone(st)}
-            daily = growth.settle_daily(st)
-            if daily:
-                xp = {"ok": True, "amount": 0, "coins": sum(d["coins"] for d in daily), "daily": daily}
-        st.log("rest" if type_ == "rest" else "record",
-               {"good": "记下一件小确幸", "rest": "今天偷个懒：" + text.replace("今天偷个懒：", "")}[type_])
-        return 200, {"xp": xp, "record": r, **extra, **bootstrap(st)}
-
+        r = st.add_record("rest", text)
+        xp = None
+        postponed = journey.rest_postpone(st)   # 今天安排的小步挪到明天
+        daily = growth.settle_daily(st)         # 每日任务里行动那项先暂停，另外两件做到了就能拿全勤
+        if daily:
+            xp = {"ok": True, "amount": 0, "coins": sum(d["coins"] for d in daily), "daily": daily}
+        st.log("rest", "今天偷个懒：" + text.replace("今天偷个懒：", ""))
+        return 200, {"xp": xp, "record": r, "rest_plan": {"postponed": postponed}, **bootstrap(st)}
 
 def habit_api(h, u, b, q):
     act = b.get("action")
@@ -868,7 +863,7 @@ def moment_api(h, u, b, q):
             if act == "add":
                 m = journey.add_moment(st, str(b.get("wish_id") or ""), str(b.get("text") or ""),
                                        str(b.get("feeling") or ""), str(b.get("mood") or ""), b.get("day"),
-                                       source="chat" if b.get("source") == "chat" else "user")
+                                       source="chat" if b.get("source") == "chat" else "user", photo=str(b.get("photo") or ""))
                 out["moment"] = m
                 out["xp"] = growth.award(st, "good", ref="moment:" + m["id"], note="留下一个瞬间")
             elif act == "edit":
@@ -882,6 +877,31 @@ def moment_api(h, u, b, q):
         except ValueError as e:
             raise ApiError(400, str(e))
         return 200, {**out, **bootstrap(st)}
+
+
+def photo_upload(h, u, b, q):
+    """瞬间的照片：手机上压好的大图和小图（base64），存下来，返回 id；挂到瞬间上要再调 /api/moment。"""
+    with Store(u["id"]) as st:
+        try:
+            return 200, {"photo": photos.save(st, b.get("data"), b.get("thumb"))}
+        except ValueError as e:
+            raise ApiError(400, str(e))
+
+
+def photo_get(h, u, b, q):
+    """只给本人看自己的照片；id 是随机的，所以可以长缓存。"""
+    pid = str((q.get("id") or [""])[0])
+    small = (q.get("s") or ["0"])[0] == "1"
+    with Store(u["id"]) as st:
+        f = photos.path(st, pid, small)
+        if not f:
+            raise ApiError(404, "没有这张照片")
+        data = f.read_bytes()
+    h._headers(200, photos.MIME.get(f.suffix.lstrip("."), "application/octet-stream"), len(data),
+               {"Cache-Control": "private, max-age=31536000, immutable"})
+    h.end_headers()
+    h.wfile.write(data)
+    return None
 
 
 def wish_review(h, u, b, q):
@@ -936,7 +956,8 @@ def export(h, u, b, q):
     """Data portability: everything we store about you, as JSON."""
     with Store(u["id"]) as st:
         return 200, {"user": public_user(u), "exported_at": iso(), **bootstrap(st),
-                     "records": st.records(100000, legacy=True),     # 连同已经下线的内心戏
+                     "records": st.records(100000),
+                     "all_moments": journey.moments(st, limit=100000),   # 全部瞬间（照片只带 id，图片文件不在导出里）
                      "memories": st.memories(limit=10000), "messages": st.messages(10000),
                      "kick_memory": kickstart.entries(st, limit=10000)}
 
@@ -976,6 +997,8 @@ ROUTES = {
     ("POST", "/api/profile"): (profile, True),
     ("POST", "/api/memory"): (memory, True),
     ("POST", "/api/step"): (step, True),
+    ("POST", "/api/photo"): (photo_upload, True),
+    ("GET", "/api/photo"): (photo_get, True),
     ("POST", "/api/record"): (record, True),
     ("POST", "/api/scene/start"): (scene_start, True),
     ("POST", "/api/scene/answer"): (scene_answer, True),

@@ -5,10 +5,10 @@ import { api } from "../api.js";
 import { state } from "../store.js";
 import { esc, toast, sheet, h, icon, tile } from "../ui.js";
 import { confetti, countUp } from "../fx.js";
-import { jarSVG } from "../art.js";
+import { photoURL } from "../moments.js";
 import { townSVG } from "../town.js";
 
-const NODE = { start: ["flag", "var(--c-orange)"], good: ["star", "var(--c-lemon)"], action: ["checkc", "var(--c-mint)"],
+const NODE = { start: ["flag", "var(--c-orange)"], moment: ["camera", "var(--c-pink)"], action: ["checkc", "var(--c-mint)"],
   rest: ["moon", "var(--c-violet)"], theme: ["quote", "var(--c-pink)"] };
 const townArt = () => (state.data.town ? townSVG(state.data.town, { still: true }) : "");
 
@@ -48,7 +48,7 @@ function draw(root, r) {
           <span class="pill acc">${r.period} 天 · ${r.ready ? "已解锁" : `还差 ${r.period - r.days_in} 天`}</span>
           <h2>${esc(n.title)}</h2>
           <div class="rh-nums">
-            <div>${tile("star", "var(--c-lemon)", 34)}<span class="num" data-c="${r.facts.good}">0</span><small>好消息</small></div>
+            <div>${tile("camera", "var(--c-pink)", 34)}<span class="num" data-c="${r.facts.moments}">0</span><small>瞬间</small></div>
             <div>${tile("flag", "var(--c-orange)", 34)}<span class="num" data-c="${r.facts.done}">0</span><small>小步</small></div>
             <div>${tile("bolt", "var(--accent)", 34)}<span class="num" data-c="${r.xp}">0</span><small>经验</small></div>
           </div>
@@ -57,7 +57,7 @@ function draw(root, r) {
         <div class="rh-pet rh-town">${townArt()}</div>
       </section>
 
-      ${r.empty ? `<div class="empty"><h3>这 ${r.period} 天的记录还不够</h3><p>报告不会凭空编故事。多聊几句、记几件好事再来。</p></div>` : `
+      ${r.empty ? `<div class="empty"><h3>这 ${r.period} 天的记录还不够</h3><p>报告不会凭空编故事。多聊几句、留几个瞬间再来。</p></div>` : `
       <section class="letter card">
         <div class="lt-k">小光写给你</div>
         <p class="letter-text">${esc(n.text)}</p>
@@ -107,18 +107,18 @@ function draw(root, r) {
 function slides(r) {
   const n = r.narrative || {};
   const art = townArt();
-  const firstGood = r.nodes.find((x) => x.kind === "good");
+  const firstGood = r.nodes.find((x) => x.kind === "moment");
   const theme = r.nodes.find((x) => x.kind === "theme");
   const out = [
     { tone: "a", html: `<div class="s-art town">${art}</div><div class="s-k">${r.period} 天</div><h2>这是你的<br>蜕变回顾</h2><p>${esc(r.facts.name || "你")}，准备好了吗？</p>` },
     { tone: "b", html: `<div class="s-k">这段时间你</div>
-        <div class="s-nums"><div><b class="num" data-c="${r.facts.good}">0</b><span>条好消息</span></div>
+        <div class="s-nums"><div><b class="num" data-c="${r.facts.moments}">0</b><span>个瞬间</span></div>
         <div><b class="num" data-c="${r.facts.done}">0</b><span>个小步</span></div>
         ${r.facts.rest ? `<div><b class="num" data-c="${r.facts.rest}">0</b><span>天休息</span></div>` : ""}</div>
         <p>休息的那几天，什么都没有被清零。</p>` },
   ];
-  if (firstGood) out.push({ tone: "c", html: `<div class="s-art jar">${jarSVG(r.facts.good)}</div><div class="s-k">第一件好事</div><h2 class="quote">「${esc(firstGood.title)}」</h2><p>${esc(firstGood.text)}</p>` });
-  if (theme) out.push({ tone: "d", html: `<div class="s-k">你写下的好事里，反复出现的是</div><h2 class="huge">${esc(theme.title)}</h2><p>它也许比你以为的更重要。</p>` });
+  if (firstGood) out.push({ tone: "c", html: `${firstGood.photo ? `<div class="s-art s-photo"><img src="${esc(photoURL(firstGood.photo, true))}" alt=""></div>` : ""}<div class="s-k">第一个瞬间</div><h2 class="quote">「${esc(firstGood.title)}」</h2><p>${esc(firstGood.text)}</p>` });
+  if (theme) out.push({ tone: "d", html: `<div class="s-k">你留下的瞬间里，反复出现的是</div><h2 class="huge">${esc(theme.title)}</h2><p>它也许比你以为的更重要。</p>` });
   if (r.surprise) out.push({ tone: "e", html: `<div class="s-k">你可能没注意到</div><h2 class="mid">${esc(r.surprise)}</h2>` });
   if (n.text) out.push({ tone: "f", html: `<div class="s-k">小光写给你</div><p class="s-letter">${esc(n.text)}</p>` });
   out.push({ tone: "a", end: true, html: `<div class="s-art town">${art}</div><h2>下一段，<br>不用更快。</h2><p>想留个纪念，可以做一张只公开你选的内容的分享卡。</p>
@@ -164,9 +164,9 @@ function share(r) {
   const n = r.narrative || {};
   const rows = [
     { id: "letter", label: "小光写的那段话", sub: n.title || "", on: true },
-    ...r.nodes.map((x) => ({ id: "n-" + x.label, label: `${x.label}：${x.title}`, sub: x.kind === "good" ? "含具体内容，默认不公开" : "", on: x.kind !== "good" })),
+    ...r.nodes.map((x) => ({ id: "n-" + x.label, label: `${x.label}：${x.title}`, sub: x.kind === "moment" ? "含具体内容，默认不公开" : "", on: x.kind !== "moment" })),
     ...(r.surprise ? [{ id: "surprise", label: "「你可能没注意到的」", sub: r.surprise, on: true }] : []),
-    { id: "numbers", label: `数字：${r.facts.good} 条好消息 · ${r.facts.done} 个小步 · ${r.xp} 经验`, sub: "不含任何具体内容", on: true },
+    { id: "numbers", label: `数字：${r.facts.moments} 个瞬间 · ${r.facts.done} 个小步 · ${r.xp} 经验`, sub: "不含任何具体内容", on: true },
   ];
   const body = h("div", {});
   body.innerHTML = `<p style="color:var(--text-2);font-size:14px;margin:0 0 10px">勾选要公开的部分。私密记录不会因为生成报告而公开。</p>
@@ -182,7 +182,7 @@ function share(r) {
           if (on.includes("letter") && n.text) lines.push(n.text, "");
           r.nodes.forEach((x) => on.includes("n-" + x.label) && lines.push(`· ${x.label}：${x.title}`));
           if (on.includes("surprise") && r.surprise) lines.push("", r.surprise);
-          if (on.includes("numbers")) lines.push("", `${r.period} 天：${r.facts.good} 条好消息 · ${r.facts.done} 个小步 · ${r.xp} 经验`);
+          if (on.includes("numbers")) lines.push("", `${r.period} 天：${r.facts.moments} 个瞬间 · ${r.facts.done} 个小步 · ${r.xp} 经验`);
           lines.push("", "—— 来自显伴 · 小光");
           try { await navigator.clipboard.writeText(lines.join("\n")); toast("文字版已复制", "", "letter"); }
           catch { toast("复制失败", "err"); }

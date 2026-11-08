@@ -4,10 +4,10 @@
 import { esc, icon, tile, fmtDay } from "./ui.js";
 
 const KIND = {
-  plan: ["flag", "var(--c-orange)"], step: ["flag", "var(--c-orange)"], record: ["star", "var(--c-lemon)"],
+  plan: ["flag", "var(--c-orange)"], step: ["flag", "var(--c-orange)"], record: ["moon", "var(--c-violet)"],
   memory: ["memory", "var(--c-violet)"], scene: ["wind", "var(--c-mint)"], onboarding: ["compass", "var(--c-sky)"],
   profile: ["settings", "var(--c-sky)"], proactive: ["letter", "var(--c-sky)"], rest: ["moon", "var(--c-violet)"],
-  task: ["clock", "var(--c-sky)"], journey: ["sparkles", "var(--c-pink)"], town: ["home", "var(--c-mint)"], daily: ["gift", "var(--c-lemon)"],
+  task: ["clock", "var(--c-sky)"], journey: ["camera", "var(--c-pink)"], town: ["home", "var(--c-mint)"], daily: ["gift", "var(--c-lemon)"],
 };
 const WEEK = "日一二三四五六";
 const big = (a) => ["town", "scene", "daily"].includes(a.kind) || /^(到达|开启了一段旅程|和小光一起规划)/.test(a.text || "");

@@ -13,7 +13,7 @@ import { takeCarry, dropCarry } from "./views/trial.js";
 import { renderChat } from "./views/chat.js";
 import { renderPlan } from "./views/plan.js";
 import { renderTown } from "./views/town.js";
-import { renderNews } from "./views/goodnews.js";
+import { renderMoments } from "./views/moments.js";
 import { renderIdeas } from "./views/ideas.js";
 import { renderAcademy, renderArticle } from "./views/academy.js";
 import { renderReport } from "./views/report.js";
@@ -26,18 +26,18 @@ import { openRules } from "./rules.js";
 import { syncPush } from "./push.js";
 
 const NAV = [
-  [["chat", "对话", "chat"], ["plan", "蜕变计划", "flag"], ["goodnews", "好消息", "star"], ["town", "我的小镇", "home"]],
+  [["chat", "对话", "chat"], ["plan", "蜕变计划", "flag"], ["moments", "瞬间", "camera"], ["town", "我的小镇", "home"]],
   [["ideas", "点子", "bulb"], ["academy", "心灵学堂", "book"]],
 ];
-const TITLES = { chat: "对话", plan: "蜕变计划", goodnews: "好消息", town: "我的小镇", ideas: "点子",
+const TITLES = { chat: "对话", plan: "蜕变计划", moments: "瞬间", town: "我的小镇", ideas: "点子",
   academy: "心灵学堂", article: "心灵学堂", report: "蜕变报告", space: "我的空间" };
-const VIEWS = { chat: renderChat, plan: renderPlan, goodnews: renderNews, town: renderTown, ideas: renderIdeas,
+const VIEWS = { chat: renderChat, plan: renderPlan, moments: renderMoments, town: renderTown, ideas: renderIdeas,
   academy: renderAcademy, article: renderArticle, report: renderReport, space: renderSpace };
-const ALIAS = { growth: "town" };   // 旧链接：成长进化 → 我的小镇
+const ALIAS = { growth: "town", goodnews: "moments" };   // 旧链接：成长进化 → 我的小镇；好消息 → 瞬间
 const routeOf = (h) => ALIAS[h] || h;
 // 每日任务的图标（点一下去哪儿做由后端的 go 决定）
 const DAILY_TILE = { act: ["flag", "var(--c-orange)"], act3: ["flag", "var(--c-orange)"], wish2: ["compass", "var(--c-orange)"], habit2: ["clock", "var(--c-mint)"],
-  good: ["star", "var(--c-lemon)"], moment: ["sparkles", "var(--c-pink)"], record2: ["star", "var(--c-lemon)"],
+  moment: ["camera", "var(--c-pink)"], record2: ["camera", "var(--c-pink)"],
   pick: ["wind", "var(--c-mint)"], practice: ["wind", "var(--c-mint)"], read: ["book", "var(--c-coral)"], plan: ["plus", "var(--c-sky)"], reflect: ["eye", "var(--c-violet)"] };
 
 let root;
@@ -200,7 +200,7 @@ function drawRail() {
     ${NAV.map((grp, i) => `${i ? '<div class="nav-sep"></div>' : ""}${grp.map(([id, label, ic], j) => {
       const on = state.route === id || (id === "academy" && state.route === "article");
       const badge = dot[id] ? `<span class="dot">${dot[id]}</span>` : id === "town" && canBuild ? '<span class="dot soft"></span>' : "";
-      // 手机底栏只放五个：对话、计划、好消息、点子、我的空间（小镇从顶栏的金币和菜单进）
+      // 手机底栏只放五个：对话、计划、瞬间、点子、我的空间（小镇从顶栏的金币和菜单进）
       const mHide = (i && j) || id === "town" ? "m-more" : "";
       return `<button class="nav-item ${on ? "active" : ""} ${mHide}" data-nav="${id}" aria-label="${label}">${icon(ic)}${badge}<span class="lbl">${label}</span></button>`;
     }).join("")}`).join("")}
@@ -226,7 +226,7 @@ function drawTop() {
     <span class="title">${esc(TITLES[state.route] || "显伴")}</span>
     <span class="spacer"></span>
     <button class="stat coin" data-coin-target data-nav="town" aria-label="金币 ${g.coins ?? 0}，去我的小镇">${COIN_SVG}<span class="num" data-coin-num data-v="${shown}">${shown}</span>
-      <span class="tip"><b>金币 ${g.coins ?? 0}</b>用来在小镇里盖房子、种树、铺路。完成小步、习惯打卡、练习、记好消息和每日任务都会给；和小光聊天只给经验。</span></button>
+      <span class="tip"><b>金币 ${g.coins ?? 0}</b>用来在小镇里盖房子、种树、铺路。完成小步、习惯打卡、练习、留下瞬间和每日任务都会给；和小光聊天只给经验。</span></button>
     <button class="stat lvst" data-xp-target data-nav="town" aria-label="等级 ${lv.lv}"><span class="lvl" style="--p:${Math.round(lv.pct * 100)}"><b>${lv.lv}</b></span><span class="sub">Lv</span>
       <span class="tip"><b>等级 ${lv.lv}</b>再 ${lv.to_next ?? 0} 经验升到 Lv ${lv.lv + 1}。今天 +${g.today?.total ?? 0} 经验。前几级很快，往后每级多一点；升级会解锁新建筑和更大的地。</span></button>
     <button class="icon-btn ${open ? "on" : ""}" data-act="panel" title="${open ? "收起小光" : "打开小光"}">${icon("panel")}</button>`;

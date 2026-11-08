@@ -1,7 +1,7 @@
 // 对话：主工作台。一个延续的线程。小光的表情跟着对话状态变（右侧面板和顶部小条同步），
 // 小光做的事统一画成三种样子（推荐 / 回执 / 待确认，见 acts.js），经验飞进顶栏。
 import { api, streamChat } from "../api.js";
-import { state, setData, refresh, go } from "../store.js";
+import { state, setData, refresh, go, xpNote } from "../store.js";
 import { esc, richText, fmtDay, fmtTime, toast, icon, tile, sheet, h } from "../ui.js";
 import { mountBall, setAgentMood, agentMini, MOOD_TEXT, celebrate, clearAgentHold, settleAgent, feelOf } from "../ball.js";
 import { flyGain, burstAt } from "../fx.js";
@@ -9,12 +9,12 @@ import { actsBlock, liveAct } from "../acts.js";
 import { startScene } from "../scene.js";
 import { openKick } from "../kick.js";
 import { openLazy, isResting } from "../rest.js";
-import { openGoodNote } from "./goodnews.js";
+import { openMoment } from "../moments.js";
 
 
 const HINTS = [
   ["帮我记住我喜欢吃寿司", "memory"], ["我三天没健身了", "moon"], ["你对我了解多少？", "eye"],
-  ["今天被老师夸了", "star"], ["水桶效应是什么意思", "book"], ["我的小镇还能建什么？", "home"],
+  ["今天第一次在课上主动发言了", "star"], ["水桶效应是什么意思", "book"], ["我的小镇还能建什么？", "home"],
 ];
 
 // 正在进行的一轮对话。回复是流式的、可能要十几秒；这期间用户切去别的页面，
@@ -89,7 +89,7 @@ export function renderChat(root) {
       <div class="composer"><div class="composer-in">
         <div class="hints">${HINTS.map(([t, ic]) => `<button class="chip" data-fill="${esc(t)}">${icon(ic)}${esc(t)}</button>`).join("")}</div>
         <div class="inbox">
-          <button class="ib" data-act="good" title="记一件好事">${icon("star")}</button>
+          <button class="ib" data-act="moment" title="留下一个瞬间" aria-label="留下一个瞬间">${icon("camera")}</button>
           <textarea rows="1" placeholder="给${esc(p.agent_name || "小光")}发消息" aria-label="消息"></textarea>
           <button class="ib ${isResting() ? "on" : ""}" data-act="lazy" title="${isResting() ? "今天在偷懒" : "今天偷个懒"}">${icon("moon")}</button>
           <button class="send" aria-label="发送">${icon("send")}</button>
@@ -192,7 +192,7 @@ export function renderChat(root) {
             if (e && el) e.col.insertBefore(el, e.when);
           });
           if (name === "start_scene" && result?.ok) { turn.sceneToStart = result.scene; turn.kickTask = result.task || ""; }
-          if ((name === "complete_step" || name === "log_good_news") && result?.ok !== false) celebrate();
+          if (name === "complete_step" && result?.ok !== false) celebrate();
           sc();
         },
         done: ({ message_id }) => { turn.msgId = message_id; },
@@ -239,14 +239,8 @@ export function renderChat(root) {
     setTimeout(sendMsg, 400);
   }
 
-  root.querySelector("[data-act=good]").addEventListener("click", (e) => quickGood(e.currentTarget));
+  root.querySelector("[data-act=moment]").addEventListener("click", () => openMoment({
+    onSaved: (out) => { setData(out); celebrate(); toast(xpNote(out.xp) ? `留下了 · ${xpNote(out.xp)}` : "留下了，在「瞬间」里", "", "camera"); },
+  }));
   root.querySelector("[data-act=lazy]").addEventListener("click", () => openLazy({ onDone: () => { setAgentMood("tired", { hold: 60000 }); renderChat(root); } }));
-  // 记一件好事：和好消息页同一个弹层。「心情不太好？」就把写了的字放进输入框，直接和小光聊
-  function quickGood(btn) {
-    openGoodNote({
-      from: btn,
-      onSaved: () => celebrate(),
-      onTalk: (t) => { ta.value = t || ta.value; state.composerDraft = ta.value; grow(); ta.focus(); },
-    });
-  }
 }

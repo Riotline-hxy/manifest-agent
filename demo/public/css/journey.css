@@ -144,10 +144,6 @@
 .j-m-meta .sp { flex: 1; }
 .j-m-meta .btn { height: 30px; padding: 0 8px; font-size: 12.5px; }
 .j-m-meta .btn .ic-svg { width: 14px; height: 14px; }
-.j-good { margin-top: 10px; }
-.j-good .lbl { margin: 6px 0 4px; }
-.j-good p { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 6px; font-size: 14px; line-height: 1.6; color: var(--text-2); }
-.j-good .ic-svg { width: 15px; height: 15px; margin-top: 3px; color: var(--c-lemon); flex: none; }
 
 .j-types { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .j-type { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px; border-radius: 16px; border: 1.5px solid var(--line); background: var(--surface); text-align: left; transition: all .2s var(--spring); }

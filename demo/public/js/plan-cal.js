@@ -4,6 +4,7 @@
 import { api } from "./api.js";
 import { esc, icon, sheet, h } from "./ui.js";
 import { catOf } from "./journey.js";
+import { photoURL } from "./moments.js";
 
 const WEEK = "日一二三四五六";
 const D = (s) => new Date(s.slice(0, 10) + "T00:00:00Z");
@@ -34,18 +35,17 @@ export function planModel(data) {
   const steps = (data.steps || []).map((s) => (s.wish_id ? s : { ...s, wish_id: first }));   // 没挂愿望的算第一个
   const todo = steps.filter((s) => s.status === "todo" && live.has(s.wish_id));
   const wishOf = (id) => wishes.find((w) => w.id === id);
-  const color = (id) => catOf(wishOf(id)?.category).color;
+  const color = (id) => (wishOf(id) ? catOf(wishOf(id).category).color : "var(--accent)");   // 不挂愿望的瞬间用强调色
   const push = (map, k, v) => (map.get(k) || map.set(k, []).get(k)).push(v);
 
   const days = new Map();
-  const at = (d) => days.get(d) || days.set(d, { steps: [], habits: [], ms: [], moments: [], good: [] }).get(d);
+  const at = (d) => days.get(d) || days.set(d, { steps: [], habits: [], ms: [], moments: [] }).get(d);
   for (const s of steps) if (s.status === "done" && s.done_at) at(s.done_at.slice(0, 10)).steps.push(s);
   for (const w of wishes) {
     for (const hb of w.habits || []) for (const d of hb.days || []) at(d).habits.push({ ...hb, wish_id: w.id });
     for (const m of w.milestones || []) if (m.status === "done" && m.done_at) at(m.done_at.slice(0, 10)).ms.push({ ...m, wish_id: w.id });
   }
   for (const m of J.moments || []) at(m.day).moments.push(m);
-  for (const r of data.records || []) if (r.type === "good" || r.type === "find") at(r.day).good.push(r);
 
   const planned = new Map(), due = new Map(), goals = new Map();
   for (const s of todo) { const p = planOf(s, today); if (p) push(planned, p, s); }
@@ -64,11 +64,9 @@ export function planModel(data) {
   const dots = (d) => {
     const e = days.get(d);
     if (!e) return [];
-    const cs = [...e.steps, ...e.habits, ...e.ms, ...e.moments].map((x) => color(x.wish_id));
-    if (e.good.length) cs.push("var(--c-lemon)");
-    return [...new Set(cs)].slice(0, 3);
+    return [...new Set([...e.steps, ...e.habits, ...e.ms, ...e.moments].map((x) => color(x.wish_id)))].slice(0, 3);
   };
-  const count = (d) => { const e = days.get(d); return e ? e.steps.length + e.habits.length + e.ms.length + e.moments.length + e.good.length : 0; };
+  const count = (d) => { const e = days.get(d); return e ? e.steps.length + e.habits.length + e.ms.length + e.moments.length : 0; };
   return { J, wishes, today, steps, todo, days, planned, due, goals, rest: new Set(J.rest_days || []), groups, wishOf, color, dots, count };
 }
 
@@ -122,11 +120,11 @@ export function shiftPeriod(ui, n) {
 // ---------------------------------------------------------------- 当天详情 ----
 export function dayHTML(M, day) {
   const { today } = M;
-  const e = M.days.get(day) || { steps: [], habits: [], ms: [], moments: [], good: [] };
+  const e = M.days.get(day) || { steps: [], habits: [], ms: [], moments: [] };
   const plans = M.planned.get(day) || [];
   const due = M.due.get(day) || [], goals = M.goals.get(day) || [];
   const rest = M.rest.has(day);
-  const records = e.steps.length + e.habits.length + e.ms.length + e.moments.length + e.good.length;
+  const records = e.steps.length + e.habits.length + e.ms.length + e.moments.length;
   const wishT = (id) => esc(M.wishOf(id)?.title || "");
   let html = `<header class="pd-h"><h3>${md(day)}</h3><span>${wk(day)}${day === today ? " · 今天" : ""}</span></header>`;
   if (rest) html += `<div class="j-it rest">${icon("moon")}<span>${day === today ? "今天是偷懒日，安心歇一歇" : "这天给自己放了假"}</span></div>`;
@@ -145,13 +143,13 @@ export function dayHTML(M, day) {
     html += e.ms.map((m) => `<div class="j-it ms">${icon("flag")}<span>到达站点「${esc(m.title)}」</span></div>`).join("");
     if (e.habits.length) html += `<div class="j-it">${icon("checkc")}<span>习惯打卡：${e.habits.map((x) => esc(x.title)).join("、")}</span></div>`;
     html += e.steps.map((s) => `<div class="j-it">${icon("check")}<span>完成小步「${esc(s.title)}」</span></div>`).join("");
-    html += e.moments.map((m) => `<article class="j-m" data-id="${esc(m.id)}" style="--tc:${M.color(m.wish_id)}">
+    html += e.moments.map((m) => `<article class="j-m ${m.photo ? "has-photo" : ""}" data-id="${esc(m.id)}" style="--tc:${M.color(m.wish_id)}">
+      ${m.photo ? `<img class="j-m-img" src="${esc(photoURL(m.photo, true))}" alt="" loading="lazy">` : ""}
       <p class="j-m-t">${esc(m.text)}</p>
       ${m.feeling ? `<p class="j-m-f">当时的感受：${esc(m.feeling)}</p>` : ""}
       <div class="j-m-meta"><span class="pill"><i class="wdot"></i>${wishT(m.wish_id) || "瞬间"}</span>${m.mood ? `<span class="pill">${esc(m.mood)}</span>` : ""}${m.source === "chat" ? `<span class="pill">${icon("chat")}来自和小光的对话</span>` : m.source === "scene" ? `<span class="pill">${icon("sparkles")}显化你的愿望</span>` : ""}
         <span class="sp"></span><button class="btn btn-quiet btn-sm" data-edit>${icon("edit")}编辑</button><button class="btn btn-quiet btn-sm" data-del>${icon("trash")}删除</button></div>
     </article>`).join("");
-    if (e.good.length) html += `<div class="j-good"><div class="lbl">那天的好消息</div>${e.good.map((r) => `<p>${icon("star")}${esc(r.text)}</p>`).join("")}</div>`;
   }
   if (!records && !plans.length && !rest && !due.length && !goals.length) {
     const [t, p] = day > today ? ["这一天还空着", "可以先安排一件小步，到时候再看心情。"]

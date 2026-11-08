@@ -373,15 +373,6 @@
 .space-tl .tl-it::before { left: 10px; }
 .space-tl .tl-it.now:not(:last-child)::after { left: 10px; }
 
-/* ---------- 好消息：最上面一排星星的说明往下开，靠边的往里收 ---------- */
-.star.tip-down .tip { bottom: auto; top: calc(100% + 10px); transform: translateX(-50%) translateY(-6px) scale(.94); }
-.star.tip-down:hover .tip, .star.tip-down.open .tip { transform: translateX(-50%); }
-.star.tip-l .tip { left: -6px; transform: translateY(6px) scale(.94); }
-.star.tip-l:hover .tip, .star.tip-l.open .tip { transform: none; }
-.star.tip-r .tip { left: auto; right: -6px; transform: translateY(6px) scale(.94); }
-.star.tip-r:hover .tip, .star.tip-r.open .tip { transform: none; }
-.star.tip-down.tip-l .tip, .star.tip-down.tip-r .tip { transform: translateY(-6px) scale(.94); }
-.star.tip-down.tip-l:hover .tip, .star.tip-down.tip-l.open .tip, .star.tip-down.tip-r:hover .tip, .star.tip-down.tip-r.open .tip { transform: none; }
 
 /* 热气球慢慢上下 */
 .town-svg .tw-float { animation: tw-float 5s ease-in-out infinite; }

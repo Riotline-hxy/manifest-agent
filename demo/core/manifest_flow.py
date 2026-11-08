@@ -10,8 +10,8 @@
   7 信任：想到它什么时候会来，你心里…… → 分开「今天能做的」和「交给时间的」，两句心急时对自己说的话（trust）→ 挑一句
 走完：小光写一张小纸条，把 TA 说的那个声音、挑的那句话、今天要做的事串起来，最后一句落在自爱（close），配一张显化卡。
 每一步都调一次模型（不思考，约 2 秒），TA 自己写的也一样接着说。问题和分支在前端 public/js/flows.js，流程在 core/flows.py。
-存（勾了的才存）：新愿望 + 那一刻的样子 → 蜕变计划；肯定语 → 愿望轨迹上的瞬间；今天去做的事 → 今天的小步；
-感恩 → 幸福墙；那个怀疑和考验 → 记忆（默认不勾）；每天早上提醒念一遍肯定语（默认不勾）。
+存（勾了的才存）：新愿望 + 那一刻的样子 → 蜕变计划；肯定语 → 小光的记忆；今天去做的事 → 今天的小步；
+感恩 → 小光的记忆（练习不会自动加「瞬间」，瞬间只由 TA 自己留）；那个怀疑和考验 → 记忆（默认不勾）；每天早上提醒念一遍肯定语（默认不勾）。
 """
 from __future__ import annotations
 
@@ -243,11 +243,11 @@ def ending(store: Store, a: dict) -> dict:
             k.update(off=True, note=f"愿望已经有 {journey.MAX_ACTIVE} 个了，先在蜕变计划里收起一个")
         keeps.append(k)
     if a["aff"]:
-        keeps.append({"key": "aff", "html": f"「{a['aff']}」留在愿望的轨迹上", "to": "蜕变计划"})
+        keeps.append({"key": "aff", "html": f"「{a['aff']}」让小光记着", "to": "记忆"})
     if a["act"]:
         keeps.append({"key": "act", "html": f"「{a['act']}」放进今天的小步", "to": "今天"})
     if a["thanks_line"]:
-        keeps.append({"key": "thanks", "html": f"「{a['thanks_line']}」贴到幸福墙", "to": "好消息"})
+        keeps.append({"key": "thanks", "html": f"「{a['thanks_line']}」让小光记着", "to": "记忆"})
     if a["doubt"] or a["test"]:
         keeps.append({"key": "mind", "html": "那个怀疑和最近的考验，让小光记着", "to": "记忆", "on": False})
     if a["aff"]:
@@ -269,19 +269,15 @@ def save(store: Store, a: dict, end: dict, keys: set) -> dict:
         wish = hit or journey.add_wish(store, title, journey.guess_category(title + a["want"]), vision_text=a["vision"], scene=TITLE)
         wrote.append({"type": "wish", "label": "我的愿望", "text": wish["title"], "where": "蜕变计划"})
     if "aff" in keys and a["aff"]:
-        if wish:
-            journey.add_moment(store, wish["id"], f"对自己说：「{a['aff']}」", feeling="显化", source="scene")
-            wrote.append({"type": "moment", "label": "对自己说", "text": a["aff"], "where": f"「{wish['title']}」的轨迹"})
-        else:
-            store.add_memory(f"想对自己说的一句话：「{a['aff']}」", "insight", "scene:seven_steps_lite")
-            wrote.append({"type": "memory", "label": "对自己说", "text": a["aff"], "where": "记忆"})
+        store.add_memory(f"想对自己说的一句话：「{a['aff']}」" + (f"（关于「{wish['title']}」）" if wish else ""), "insight", "scene:seven_steps_lite")
+        wrote.append({"type": "memory", "label": "对自己说", "text": a["aff"], "where": "记忆"})
     if "act" in keys and a["act"]:
         step_ = store.add_step(clip(a["act"], 40), why="显化你的愿望 · 调整行为", wish=wish["title"] if wish else "",
                                wish_id=wish["id"] if wish else "")
         wrote.append({"type": "step", "label": "今天去做", "text": step_["title"], "where": "今天"})
     if "thanks" in keys and a["thanks_line"]:
-        store.add_record("good", a["thanks_line"])
-        wrote.append({"type": "record", "label": "感恩", "text": a["thanks_line"], "where": "好消息"})
+        store.add_memory(f"感恩：{a['thanks_line']}", "event", "scene:seven_steps_lite")
+        wrote.append({"type": "memory", "label": "感恩", "text": a["thanks_line"], "where": "记忆"})
     if "mind" in keys and (a["doubt"] or a["test"]):
         about = f"想到「{a['title']}」时" if a["title"] else "想到愿望时"
         bits = [f"{about}，心里会冒出「{a['doubt']}」" if a["doubt"] else "", f"最近的考验：{a['test']}" if a["test"] else ""]

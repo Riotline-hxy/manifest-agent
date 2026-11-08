@@ -30,6 +30,7 @@ load_dotenv(ROOT / ".env")
 
 COOKIE = "xg_session"
 MAX_BODY = 64 * 1024
+BIG_BODY = {"/api/photo": 6 * 1024 * 1024}   # 瞬间的照片：压过的大图 ≤3MB + 小图，base64 之后大约 4.6MB
 mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("image/svg+xml", ".svg")
 mimetypes.add_type("image/webp", ".webp")
@@ -94,7 +95,7 @@ class Handler(BaseHTTPRequestHandler):
     def _body(self) -> dict:
         self._body_read = True
         n = int(self.headers.get("Content-Length") or 0)
-        if n > MAX_BODY:
+        if n > BIG_BODY.get(urlparse(self.path).path, MAX_BODY):
             raise ApiError(413, "内容太长")
         raw = self.rfile.read(n) if n else b""
         if not raw:

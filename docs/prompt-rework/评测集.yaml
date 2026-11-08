@@ -77,7 +77,7 @@
     场景: 和家人吵架，长段倾诉
     用户说: 刚跟我妈打电话又吵起来了，她总觉得我去交换是浪费钱，说我英语那么差去了也是白去。我挂了电话就哭了，现在也不知道该怎么跟她说
     应该调用: []
-    不能调用: [log_good_news, propose_moment, remember]
+    不能调用: [propose_moment, remember]
     回复要做到:
       - 先回应委屈和难过，再说事
       - 没被问建议就先不给建议
@@ -127,10 +127,10 @@
 # ---------- 二、记录和计划（该做的做，不该做的别做） ----------
 
   - id: E07
-    场景: 和愿望无关的小确幸
+    场景: 一句带过的小开心（2026-11 好消息下线后：只是分享，不记、不提议瞬间）
     用户说: 今天食堂的糖醋排骨居然没卖完，我抢到了最后一份！
-    应该调用: [log_good_news]
-    不能调用: [propose_moment]
+    应该调用: []
+    不能调用: [propose_moment, edit_plan]
     回复要做到:
       - 真心替 TA 高兴，语气活泼
     参考回复:
@@ -142,10 +142,10 @@
     场景: 和愿望有关的具体行动和感受
     用户说: 刚才小组讨论我第一个用英语发言了，手心全是汗，但说完感觉好爽
     应该调用: [propose_moment]
-    不能调用: [log_good_news]
+    不能调用: [edit_plan]
     回复要做到:
       - 接住「紧张但做到了」的感受
-      - 问要不要把它留在轨迹上，不能说「已经记下了」
+      - 问要不要把它留成一个瞬间，不能说「已经记下了」
       - 可以顺带问是不是完成了 [s_1]，但不能直接打勾
     参考回复:
       温柔: "听着都替你开心！那种心跳得厉害、但说完又特别畅快的感觉，一定很难忘吧。小林，你真的在一点点变成自己想成为的样子了。要不要把今天这一刻留在轨迹上？💛"
@@ -303,4 +303,4 @@
 # 工具清单（填「应该调用 / 不能调用」时用）：
 # search_memory remember update_notebook correct_memory propose_moment schedule_task search_chats
 # edit_task look_up app_guide propose_plan edit_plan add_habit checkin_habit add_step complete_step
-# log_good_news edit_good_news log_lazy_day adjust_habit start_scene get_growth knowledge_search update_settings
+# log_lazy_day adjust_habit start_scene get_growth knowledge_search update_settings

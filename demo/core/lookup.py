@@ -16,8 +16,7 @@ AREAS = {
     "wish": "某一个愿望的细节：路径、最近的瞬间、阶段回望、小发现（query 写愿望名字）",
     "habits": "所有习惯：频率、本周进度、最近两周哪天打过卡、连续天数、收起的习惯",
     "steps": "小步：待做 / 最近做完 / 放一放的",
-    "moments": "轨迹上留下的瞬间（可以用 query 指定愿望）",
-    "good_news": "好消息页：TA 贴上去的开心小事",
+    "moments": "TA 留下的瞬间：一句话，可能配了照片（你看不到图），可能挂在某个愿望下（可以用 query 指定愿望）",
     "rest": "最近的偷懒日",
     "memories": "你长期记住的关于 TA 的事，和待确认的猜测",
     "notebook": "你的笔记本",
@@ -57,6 +56,7 @@ def _wish_block(st, w: dict, steps: list[dict]) -> list[str]:
 
 
 def look_up(st, area: str, query: str = "") -> dict:
+    area = "moments" if area == "good_news" else area   # 好消息 2026-11 换成了瞬间
     area = area if area in AREAS else "plan"
     q = (query or "").strip()
     L: list[str] = []
@@ -134,15 +134,8 @@ def look_up(st, area: str, query: str = "") -> dict:
         if not ms:
             L.append("还没有留下瞬间。")
         for m in ms:
-            L.append(f"[{m['id']}] {m['day']}「{title.get(m['wish_id'], '')}」{clip(m['text'], 60)}"
-                     + (f"（感受：{m['feeling']}）" if m["feeling"] else ""))
-
-    elif area == "good_news":
-        good = [r for r in st.records(300) if r["type"] == "good"]
-        week = (today - timedelta(days=today.weekday())).isoformat()
-        L.append(f"好消息一共 {len(good)} 条，这周 {sum(1 for r in good if r['day'] >= week)} 条。")
-        for r in good[:15]:
-            L.append(f"[{r['id']}] {r['day']}：{clip(r['text'], 60)}")
+            L.append(f"[{m['id']}] {m['day']}" + (f"「{title[m['wish_id']]}」" if title.get(m["wish_id"]) else " ") + clip(m["text"], 60)
+                     + (f"（感受：{m['feeling']}）" if m["feeling"] else "") + ("（配了一张照片）" if m.get("photo") else ""))
 
     elif area == "rest":
         days = [r["day"] for r in st.records(300) if r["type"] == "rest"]
@@ -212,7 +205,7 @@ def look_up(st, area: str, query: str = "") -> dict:
     elif area == "report":
         for days in (14, 30):
             f = report.build(st, days, with_letter=False)["facts"]
-            L.append(f"最近 {days} 天：好消息 {f['good']} 条，完成小步 {f['done']} 个，习惯打卡 {f['checkins']} 次，"
+            L.append(f"最近 {days} 天：瞬间 {f['moments']} 个，完成小步 {f['done']} 个，习惯打卡 {f['checkins']} 次，"
                      f"偷懒 {f['rest']} 天，经验 +{f['xp']}")
         L.append("完整的蜕变报告在蜕变计划页最下面的「蜕变报告」里。")
 

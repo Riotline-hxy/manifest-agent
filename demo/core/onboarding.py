@@ -185,21 +185,17 @@ def seed_guest(store: Store) -> None:
             store.c.execute("UPDATE step SET status='done', done_at=? WHERE id=?", (at(d, 22), s["id"]))
             done_rows.append((d, s["id"], title))
 
-    recs = [
-        ("good", "室友帮我带了奶茶，还记得我要少糖", 0), ("good", "课上老师夸我的问题问得好", 3),
-        ("rest", "今天偷个懒：连着上了三天早八，有点累", 4), ("good", "和 Mia 用英语聊了十分钟，比想象中顺", 5),
-        ("good", "终于把录音听完了，没那么难听", 6),
-        ("good", "Mia 说我口音比上次自然", 8), ("rest", "今天偷个懒：就是想歇歇", 9),
-        ("good", "楼下的猫今天让我摸了", 9), ("good", "小组里第一次主动提问，大家都在认真听", 10),
-        ("good", "面试官笑了一下，我没那么紧张了", 12), ("good", "早上居然自然醒了", 13),
-        ("good", "把自我介绍发给 Mia，她说听起来像我", 14),
-    ]
-    good_rows = []
-    for type_, text, d in recs:
-        r = store.add_record(type_, text)
+    for text, d in [("今天偷个懒：连着上了三天早八，有点累", 4), ("今天偷个懒：就是想歇歇", 9)]:
+        r = store.add_record("rest", text)
         store.c.execute("UPDATE record SET created_at=?, day=? WHERE id=?", (at(d, 21), at(d, 21)[:10], r["id"]))
-        if type_ == "good":
-            good_rows.append((d, r["id"]))
+    # 不挂愿望的瞬间（生活里想记住的一刻）；挂在愿望下的在下面 seed_wish 里
+    good_rows = []
+    for text, d, feeling in [("室友帮我带了奶茶，还记得我要少糖", 0, "被记得的感觉真好"), ("课上老师夸我的问题问得好", 3, ""),
+                             ("楼下的猫今天让我摸了", 9, "软软的"), ("面试官笑了一下，我没那么紧张了", 12, ""),
+                             ("早上居然自然醒了", 13, "神清气爽")]:
+        m = journey.add_moment(store, "", text, feeling, day=at(d, 20)[:10])
+        store.c.execute("UPDATE moment SET created_at=?, updated_at=? WHERE id=?", (at(d, 20), at(d, 20), m["id"]))
+        good_rows.append((d, m["id"]))
 
     # 三次已完成的练习 + 两个已走的场景
     for sid, d in [("meditation", 4), ("gratitude", 8), ("seven_steps_lite", 11)]:
@@ -219,8 +215,8 @@ def seed_guest(store: Store) -> None:
 
     for d, sid, title in done_rows:
         backdated_award("action", "step:" + sid, d, 22)
-    for d, rid in good_rows:
-        backdated_award("good", "rec:" + rid, d, 20)
+    for d, mid in good_rows:
+        backdated_award("good", "moment:" + mid, d, 20)
     for sid, d in [("meditation", 4), ("gratitude", 8), ("seven_steps_lite", 11)]:
         backdated_award("practice", "scene:sc_seed_" + sid, d, 20)
     for d in range(15):
@@ -235,7 +231,7 @@ def seed_guest(store: Store) -> None:
         (10, 22, "user", "今天小组讨论我主动提了一个问题！"),
         (10, 22, "assistant", "你做到了。上周你还说想好了却说不出口，今天是先开口的那个人。当时心里是什么感觉？"),
         (10, 22, "user", "有点紧张，但说完发现大家都在认真听"),
-        (10, 22, "assistant", "紧张还在，但它没有拦住你——这就是变化。要不要把这件事记成一条好消息？"),
+        (10, 22, "assistant", "紧张还在，但它没有拦住你——这就是变化。要不要把这一刻留成一个瞬间？"),
         (14, 22, "assistant", "明天就是把自我介绍发给 Mia 了。要不要今晚先听一遍自己的录音？"),
     ]
     for d, h, role, text in convo:
@@ -244,7 +240,7 @@ def seed_guest(store: Store) -> None:
     for kind, text, d in [("onboarding", "完成建档：想靠近「自信与表达」", 0),
                           ("step", "完成一小步：约 Mia 周末一起练口语 20 分钟", 8),
                           ("memory", "猜了一条：可能其实会说，更怕的是说错", 10),
-                          ("record", "记下好消息：小组里第一次主动提问", 10),
+                          ("journey", "留下一个瞬间：小组里第一次主动提问", 10),
                           ("scene", "做完「调整现有计划」", 11)]:
         store.log(kind, text)
         store.c.execute("UPDATE activity SET at=? WHERE id=(SELECT id FROM activity ORDER BY rowid DESC LIMIT 1)", (at(d, 22),))

@@ -463,7 +463,7 @@ export function runLesson({ kicker = "", start, answer, review: rvApi, music, on
       go.classList.add("off");
       try {
         const res = await rvApi.save([], ta.value.trim());
-        toast("记下了，在「好消息」里能看到", "", "star");
+        toast("记下了，小光会记住", "", "memory");
         close({ ...res, review: true, stay: true });
       } catch (e) {
         saving = false;

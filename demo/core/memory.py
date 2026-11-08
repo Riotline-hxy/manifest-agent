@@ -18,7 +18,7 @@ from . import llm
 from .store import Store
 from .util import clip
 
-KINDS = ["identity", "intent", "preference", "boundary", "insight", "event", "good_news"]
+KINDS = ["identity", "intent", "preference", "boundary", "insight", "event"]
 
 EXTRACT_PROMPT = """你在为一个「显化陪伴」应用维护用户的长期记忆。
 读最新一轮对话，找出值得长期记住、能帮助以后陪伴这个人的信息。
@@ -35,7 +35,7 @@ EXTRACT_PROMPT = """你在为一个「显化陪伴」应用维护用户的长期
   - 已经记过 → 不输出
 - 没有可记的，返回空列表。
 
-只输出 JSON：{"ops":[{"op":"ADD|UPDATE|DELETE","id":"(UPDATE/DELETE 必填)","text":"...","kind":"identity|intent|preference|boundary|insight|event|good_news","source":"said|guess"}]}"""
+只输出 JSON：{"ops":[{"op":"ADD|UPDATE|DELETE","id":"(UPDATE/DELETE 必填)","text":"...","kind":"identity|intent|preference|boundary|insight|event","source":"said|guess"}]}"""
 
 
 def extract_and_apply(store: Store, user_text: str, reply_text: str) -> list[dict]:

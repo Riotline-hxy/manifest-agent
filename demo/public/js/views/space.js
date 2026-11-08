@@ -32,7 +32,7 @@ export function renderSpace(root) {
           <p>陪伴第 ${d.counts?.days || 1} 天 · 正在靠近「${esc(p.intent_primary || "还没想好")}」</p>
           <div class="me-stats">
             <span><b class="num">${mems.filter((m) => m.status === "active").length}</b>件事</span>
-            <span><b class="num">${d.counts?.good || 0}</b>件好事</span>
+            <span><b class="num">${d.counts?.moments || 0}</b>个瞬间</span>
             <span><b class="num">${d.counts?.done || 0}</b>个小步</span>
             <span><b class="num">${t ? builtCount(t) : 0}</b>栋房子</span>
           </div>
@@ -286,7 +286,7 @@ function allSheet(root) {
 // 最上面是「这一周」：没写时是这周到现在的碎片（可以让小光先写一版草稿），写了就是草稿页；
 // 下面最新的一页摊开，再往前的按目录翻。记忆的增删改不是主角：每页底下一行小字，点开才看。
 
-const SCRAP_ICON = { good: "star", find: "sparkles", step: "check", moment: "heart" };
+const SCRAP_ICON = { step: "check", moment: "camera" };
 
 function d0(s) { return new Date(s.slice(0, 10) + "T12:00:00"); }
 

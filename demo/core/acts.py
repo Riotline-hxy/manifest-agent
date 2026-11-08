@@ -28,7 +28,7 @@ FEATURES = {
                   "desc": "把开不了头的事拆成一两分钟的小动作，我陪你一步步做", "open": {"kick": True}},
     "plan": {"title": "蜕变计划", "icon": "flag", "color": "var(--c-orange)", "desc": "看看愿望、里程碑和这周的习惯", "open": {"go": "plan"}},
     "report": {"title": "蜕变报告", "icon": "sparkles", "color": "var(--c-violet)", "desc": "这两周、这一个月的变化，都在这里", "open": {"go": "plan"}},
-    "goodnews": {"title": "好消息", "icon": "star", "color": "var(--c-lemon)", "desc": "你记下的每件小开心，都是幸福墙上的一张便利贴", "open": {"go": "goodnews"}},
+    "moments": {"title": "瞬间", "icon": "camera", "color": "var(--c-pink)", "desc": "一句话，或者一张照片，把正在变好的自己留下来", "open": {"go": "moments"}},
     "town": {"title": "我的小镇", "icon": "home", "color": "var(--c-mint)", "desc": "用攒下的金币盖点什么", "open": {"go": "town"}},
     "academy": {"title": "心灵学堂", "icon": "book", "color": "var(--c-coral)", "desc": "团队写的小文章，几分钟读完", "open": {"go": "academy"}},
 }
@@ -55,7 +55,7 @@ def infer_entry(reply: str, done: list[dict]) -> dict | None:
 
 # 会改这些表的工具：改之前拍一张，改完对比，就知道改了什么、怎么撤
 TABLES = {"complete_step": ["step"], "add_step": ["step"], "add_habit": ["habit"], "adjust_habit": ["habit"],
-          "checkin_habit": ["habit_log"], "log_good_news": ["record"], "edit_good_news": ["record"], "log_lazy_day": ["record"]}
+          "checkin_habit": ["habit_log"], "log_lazy_day": ["record"]}
 PLAN_TABLE = {"wish": "wish", "milestone": "milestone", "habit": "habit", "step": "step", "moment": "moment"}
 KIND_NAME = {"wish": "愿望", "milestone": "里程碑", "habit": "习惯", "step": "小步", "moment": "瞬间"}
 UNDO_HOURS = 24
@@ -176,7 +176,7 @@ def view(st, name: str, args: dict, result: dict, snap: dict) -> list[dict]:
     if name == "propose_moment":
         p = result.get("proposal") or {}
         return [{"type": "ask", "ask": "moment", "icon": "sparkles", "color": "var(--c-violet)",
-                 "question": f"留在「{p.get('wish_title') or ''}」的轨迹上？", "text": p.get("text") or "",
+                 "question": "留成一个瞬间？", "text": p.get("text") or "",
                  "proposal": p, "wishes": result.get("wishes") or [], "state": ""}]
     if name == "propose_plan":
         return [{"type": "ask", "ask": "plan", "icon": "flag", "color": "var(--c-orange)",
@@ -196,11 +196,11 @@ def view(st, name: str, args: dict, result: dict, snap: dict) -> list[dict]:
     if name == "edit_plan":
         kind = str(result.get("kind") or args.get("kind") or "")
         if not changes:
-            return [_slip("flag", "var(--c-orange)", "改了计划", clip("，".join(result.get("changed") or []), 40), go="plan")]
+            return [_slip("flag", "var(--c-orange)", "改了计划", clip("，".join(result.get("changed") or []), 40), go="moments" if kind == "moment" else "plan")]
         verb, old, new = _change_text(kind, changes[0])
         if len(changes) > 1:
             new += f" 等 {len(changes)} 处"
-        return [_slip("edit" if old else "flag", "var(--c-orange)", verb, new, old, go="plan", undo=undo, **extra)]
+        return [_slip("edit" if old else "flag", "var(--c-orange)", verb, new, old, go="moments" if kind == "moment" else "plan", undo=undo, **extra)]
     if name in ("complete_step", "add_step", "add_habit", "adjust_habit"):
         kind = "habit" if "habit" in name else "step"
         if not changes:
@@ -214,17 +214,6 @@ def view(st, name: str, args: dict, result: dict, snap: dict) -> list[dict]:
         note = "今天已经打过了" if result.get("already") else f"本周 {h.get('week')}/{h.get('need')}"
         return [_slip("check", "var(--c-mint)", "打卡", f"{h.get('title') or ''} · {note}", go="plan",
                       undo=undo if changes else None, **extra)]
-    if name == "log_good_news":
-        r = result.get("record") or {}
-        return [_slip("star", "var(--c-lemon)", "贴进好消息",
-                      clip(r.get("text") or "", 30), go="goodnews", undo=undo, **extra)]
-    if name == "edit_good_news":
-        if result.get("removed"):
-            return [_slip("star", "var(--c-lemon)", "删掉好消息", clip(result.get("text") or "", 30), go="goodnews", undo=undo)]
-        ch = changes[0] if changes else None
-        old = _title(ch["before"]) if ch else ""
-        return [_slip("edit", "var(--c-lemon)", "好消息", clip(result.get("text") or "", 30), old if old != clip(result.get("text") or "", 24) else "",
-                      go="goodnews", undo=undo)]
     if name == "log_lazy_day":
         if result.get("undone") or args.get("undo"):
             n = result.get("restored") or 0

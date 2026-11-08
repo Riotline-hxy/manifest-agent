@@ -1,7 +1,7 @@
 """点子里的引导场景：一题一题问（界面在 public/js/lesson.js），这里管进度和写回。
 
 两种结束方式：
-- 答完就写（gratitude）：最后一题答完，直接写进好消息和记忆；
+- 答完就写（gratitude）：最后一题答完，三件好事写进小光的记忆（不会自动变成「瞬间」，瞬间只由 TA 自己留）；
 - 先确认再存（review=True：「遇见更好的自己」）：答题时什么都不写，也不进聊天记录。
   冥想的结束页问一句「有没有什么让你想记住」：记下感受 / 和小光聊聊 / 直接结束。
   不保存就把这次的回答清掉（discard）。练习经验在答完时就给，存不存都算。
@@ -210,7 +210,7 @@ def _by_key(sid: str, a: list) -> dict:
 def review(store: Store, sid: str, a: list, run_id: str = "") -> dict:
     if sid == "meditation":
         return {"kind": "feel", "say": "刚刚的几分钟里，有没有什么让你想记住？", "choices": FEEL,
-                "ph": "写下刚才的感受，一句也好", "to": "会记在「好消息」里"}
+                "ph": "写下刚才的感受，一句也好", "to": "小光会记住"}
     raise KeyError(sid)
 
 
@@ -218,7 +218,7 @@ def review(store: Store, sid: str, a: list, run_id: str = "") -> dict:
 
 def save(store: Store, run_id: str, chosen: list, extra: str = "", talk: bool = False) -> dict:
     """只写用户勾选的；文字用用户改过的版本。写完把这次的回答清掉，同一次不能存两遍。
-    冥想：extra 是用户写下的感受（记成一颗小确幸）；talk=True 是「我想和你聊聊」，小光带着刚才的画面先开口。"""
+    冥想：extra 是用户写下的感受（记进小光的记忆）；talk=True 是「我想和你聊聊」，小光带着刚才的画面先开口。"""
     run = store.get_scene(run_id)
     if not run or run["status"] != "done" or not is_review(run["scene"]):
         raise KeyError(run_id)
@@ -246,8 +246,9 @@ def _meditation_note(store: Store, extra: str) -> dict:
     text = clip((extra or "").strip(), 180)
     if not text:
         raise ValueError("写一句再保存吧")
-    store.add_record("good", "冥想后：" + text)
-    return {"reply": "", "wrote": [{"type": "record", "label": "刚才的感受", "text": text, "where": "好消息"}]}
+    store.add_memory("冥想后的感受：" + text, "event", "scene:meditation")
+    store.log("scene", "冥想后写下：" + clip(text, 30))
+    return {"reply": "", "wrote": [{"type": "memory", "label": "刚才的感受", "text": text, "where": "小光的记忆"}]}
 
 
 def _meditation_talk(answers: list) -> dict:
@@ -276,14 +277,10 @@ def finish(store: Store, sid: str, a: list[str]) -> list[dict]:
         m = store.add_memory(text, kind, "scene:" + sid)
         out.append({"type": "memory", "label": "记住了一条", "item": m})
 
-    def rec(type_, text):
-        r = store.add_record(type_, text)
-        out.append({"type": "record", "label": "记下一条好消息" if type_ == "good" else "记下一条发现", "item": r})
-
     if sid == "gratitude":
-        text = "；".join(clip(x, 40) for x in a)
-        rec("good", text)
-        mem("感恩三件事：" + text, "good_news")
+        text = "；".join(clip(x, 40) for x in a if x)
+        if text:
+            mem("感恩三件事：" + text, "event")
     return out
 
 

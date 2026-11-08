@@ -19,7 +19,8 @@ tar --exclude='demo/data' --exclude='demo/.env' --exclude='demo/tests' \
     -czf /tmp/xianban-$TS.tgz demo config
 
 echo "==> backup on server -> $APP/backup-$TS"
-ssh "$HOST" "set -e; mkdir -p $APP/backup-$TS; cp -a $APP/app $APP/backup-$TS/app; cp -a $APP/data $APP/backup-$TS/data"
+# 数据备份跳过瞬间的照片（u/<uid>/photos）：照片只增删、不会被改，每次部署都整份复制只会白占硬盘
+ssh "$HOST" "set -e; mkdir -p $APP/backup-$TS/data; cp -a $APP/app $APP/backup-$TS/app; tar -C $APP/data --exclude='./u/*/photos' -cf - . | tar -C $APP/backup-$TS/data -xf -"
 
 echo "==> upload + swap"
 scp -q /tmp/xianban-$TS.tgz "$HOST:/tmp/"

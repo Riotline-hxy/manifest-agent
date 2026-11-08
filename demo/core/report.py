@@ -42,10 +42,9 @@ def build(store: Store, days: int = 14, with_letter: bool = True) -> dict:
     def recent(xs, key):
         return [x for x in xs if (parse_iso(x.get(key)) or since) >= since]
 
-    recs = recent(store.records(500), "created_at")
-    good = [r for r in recs if r["type"] == "good"]
-    rest = [r for r in recs if r["type"] == "rest"]
-    finds = [r for r in recs if r["type"] == "find"]
+    from . import journey
+    rest = [r for r in recent(store.records(500), "created_at") if r["type"] == "rest"]
+    good = recent(journey.moments(store, limit=500), "created_at")   # 这段时间留下的瞬间（新的在前）
     done = [s for s in store.steps() if s["status"] == "done"
             and (parse_iso(s.get("done_at")) or since) >= since]
     growth_rows = [dict(r) for r in store.c.execute(
@@ -59,13 +58,13 @@ def build(store: Store, days: int = 14, with_letter: bool = True) -> dict:
     surprise = None
     w = theme_word([r["text"] for r in good])
     if len(good) >= 3 and w:
-        surprise = f"你记下的好消息里，「{w}」出现得最多。也许它比你以为的更重要。"
+        surprise = f"你留下的瞬间里，「{w}」出现得最多。也许它比你以为的更重要。"
     elif rest and done:
         surprise = f"这段时间你给自己放了 {len(rest_days)} 天假，可小步还是完成了 {len(done)} 个。慢下来并没有让你停下。"
     elif p.get("intent_why") and done:
         surprise = f"第一天你说，想要它是因为「{clip(p['intent_why'], 24)}」。现在，你已经做了「{clip(done[0]['title'], 18)}」。"
     elif good:
-        surprise = f"最早的一条好消息是「{clip(good[-1]['text'], 24)}」。那时候你可能没想到，会一直记下去。"
+        surprise = f"这段时间最早的一个瞬间是「{clip(good[-1]['text'], 24)}」。那时候你可能没想到，会一直留下去。"
 
     if p.get("intent_primary"):
         nodes.append({"kind": "start", "label": "起点", "title": p["intent_primary"],
@@ -73,8 +72,8 @@ def build(store: Store, days: int = 14, with_letter: bool = True) -> dict:
                       "sources": [{"type": "profile", "text": "建档时的回答"}]})
     if good:
         first = good[-1]
-        nodes.append({"kind": "good", "label": "第一条好消息", "title": clip(first["text"], 40),
-                      "text": first["day"], "sources": [{"type": "record", "id": first["id"], "text": first["text"]}]})
+        nodes.append({"kind": "moment", "label": "第一个瞬间", "title": clip(first["text"], 40), "photo": first.get("photo") or "",
+                      "text": first["day"], "sources": [{"type": "moment", "id": first["id"], "text": first["text"]}]})
     if checkins:
         top = max({c["title"] for c in checkins}, key=lambda t: sum(1 for c in checkins if c["title"] == t))
         nodes.append({"kind": "action", "label": "一直在做的事", "title": f"习惯打卡 {len(checkins)} 次",
@@ -90,15 +89,15 @@ def build(store: Store, days: int = 14, with_letter: bool = True) -> dict:
                       "sources": [{"type": "record", "text": "休息日记录"}]})
     if len(good) >= 2 and w:
         nodes.append({"kind": "theme", "label": "反复出现的词", "title": w,
-                      "text": "它在你写下的好事里出现了不止一次。",
-                      "sources": [{"type": "record", "id": r["id"], "text": r["text"]} for r in good[:5]]})
+                      "text": "它在你留下的瞬间里出现了不止一次。",
+                      "sources": [{"type": "moment", "id": r["id"], "text": r["text"]} for r in good[:5]]})
 
     facts = {
         "days": days, "name": p.get("nickname") or "", "agent": p.get("agent_name") or "小光",
         "intent": p.get("intent_primary") or "", "why": p.get("intent_why") or "",
-        "good": len(good), "rest": len(rest_days), "done": len(done), "finds": len(finds), "checkins": len(checkins),
+        "moments": len(good), "rest": len(rest_days), "done": len(done), "checkins": len(checkins),
         "xp": xp_sum,
-        "good_samples": [clip(r["text"], 30) for r in good[:4]],
+        "moment_samples": [clip(r["text"], 30) for r in good[:4]],
         "done_samples": [clip(s["title"], 24) for s in done[:4]],
         "first_traits": p.get("traits") or [],
         "surprise": surprise,
@@ -109,7 +108,7 @@ def build(store: Store, days: int = 14, with_letter: bool = True) -> dict:
         out = llm.complete_json([
             {"role": "system", "content": (
                 "你是显化陪伴 agent，要给用户写一段蜕变回顾。只使用给出的事实，不要编造任何事件或数字。"
-                "要求：90–150 字，第二人称，温暖但克制，不用感叹号堆砌；先说一个具体的变化，再引用一条好消息或完成的小步；"
+                "要求：90–150 字，第二人称，温暖但克制，不用感叹号堆砌；先说一个具体的变化，再引用一个瞬间或完成的小步；"
                 "最后一句指向下一阶段，但不布置任务；不要用「不是……而是……」这类转折句式。另给一个 ≤12 字的标题。只输出 JSON：{\"title\":\"...\",\"letter\":\"...\"}")},
             {"role": "user", "content": str(facts)},
         ], timeout=30)
@@ -119,7 +118,7 @@ def build(store: Store, days: int = 14, with_letter: bool = True) -> dict:
     if not letter:
         if good or done:
             rest_in_surprise = bool(surprise and "放了" in surprise)
-            body = (f"这 {days} 天里，你收集了 {len(good)} 条好消息，完成了 {len(done)} 个小步"
+            body = (f"这 {days} 天里，你留下了 {len(good)} 个瞬间，完成了 {len(done)} 个小步"
                     + (f"，也给自己放了 {len(rest_days)} 天假" if rest_days and not rest_in_surprise else "") + "。")
             if surprise:
                 body += surprise
@@ -130,7 +129,7 @@ def build(store: Store, days: int = 14, with_letter: bool = True) -> dict:
 
     days_in = store.counts()["days"]
     return {"period": days, "narrative": letter, "nodes": nodes, "facts": facts,
-            "surprise": surprise, "empty": not (good or done or finds),
+            "surprise": surprise, "empty": not (good or done),
             "ready": days_in >= days, "days_in": days_in,
             "xp": xp_sum,
             "periods": [{"days": d, "ready": days_in >= d, "label": f"{d} 天"} for d in PERIODS]}

@@ -1,7 +1,7 @@
 """日终记忆整理（讨论稿 2.3「隐性记忆按日整理」）。
 
 普通聊天不再每轮都触发一次记忆抽取；每天一次，把这一天真正发生的事
-（对话、好消息、完成的小步、练习）交给模型做**增量**整理：
+（对话、瞬间、完成的小步、练习）交给模型做**增量**整理：
   - 只输出变化：ADD / UPDATE / DELETE，不重写整份画像；
   - 用户明确说过「记住」的、亲手确认过的、建档时写下的是**受保护记忆**：
     只有当天用户原话里能逐字找到依据时才允许修改或删除（依据存进 memory_rev）；
@@ -54,7 +54,7 @@ PROMPT = """你在为「显化陪伴」应用做每天一次的记忆整理。�
    只用笔记本和已有记忆里的事实，温暖、具体，不夸张、不说教。材料太少写不出来就返回空字符串。
 
 只输出 JSON：
-{"summary":"...","highlights":["..."],"notebook":"（完整的新笔记本）","portrait":"...","ops":[{"op":"ADD|UPDATE|DELETE","id":"(UPDATE/DELETE 必填)","text":"...","kind":"identity|intent|preference|boundary|insight|event|good_news","cat":"effort|people|likes|self|recent|rules","source":"said|guess","evidence":"(改动保护记忆时必填：用户原话)"}]}"""
+{"summary":"...","highlights":["..."],"notebook":"（完整的新笔记本）","portrait":"...","ops":[{"op":"ADD|UPDATE|DELETE","id":"(UPDATE/DELETE 必填)","text":"...","kind":"identity|intent|preference|boundary|insight|event","cat":"effort|people|likes|self|recent|rules","source":"said|guess","evidence":"(改动保护记忆时必填：用户原话)"}]}"""
 
 
 def material(st: Store, day: str) -> dict:
@@ -77,7 +77,7 @@ def material(st: Store, day: str) -> dict:
     scenes = [dict(r) for r in st.c.execute(
         "SELECT scene FROM scene_run WHERE status='done' AND substr(created_at,1,10)=?", (day,))]
     moments = [dict(r) for r in st.c.execute(
-        "SELECT m.text, m.feeling, w.title FROM moment m JOIN wish w ON w.id=m.wish_id WHERE m.day=?", (day,))]
+        "SELECT m.text, m.feeling, COALESCE(w.title, '') AS title FROM moment m LEFT JOIN wish w ON w.id=m.wish_id WHERE m.day=?", (day,))]
     for m in moments:   # 用户亲手写下的瞬间，也是 TA 的原话
         user_lines.append(m["text"] + (" " + m["feeling"] if m["feeling"] else ""))
     kicks = kickstart.on_day(st, day)
@@ -96,9 +96,6 @@ def fallback_summary(mat: dict) -> tuple[str, list[str]]:
     n_user = sum(1 for c in mat["convo"] if c.startswith("用户："))
     if n_user:
         parts.append(f"聊了 {n_user} 句")
-    good = [r for r in mat["records"] if r["type"] == "good"]
-    if good:
-        parts.append(f"记下 {len(good)} 条好消息")
     if mat["done"]:
         parts.append(f"完成 {len(mat['done'])} 个小步")
     if any(r["type"] == "rest" for r in mat["records"]):
@@ -106,11 +103,11 @@ def fallback_summary(mat: dict) -> tuple[str, list[str]]:
     if mat["scenes"]:
         parts.append(f"做了 {len(mat['scenes'])} 次练习")
     if mat.get("moments"):
-        parts.append(f"在轨迹上留下 {len(mat['moments'])} 个瞬间")
+        parts.append(f"留下 {len(mat['moments'])} 个瞬间")
     if mat.get("kicks"):
         parts.append(f"用两分钟启动开始了 {len(mat['kicks'])} 件事")
     summary = ("今天" + "，".join(parts) + "。") if parts else "今天很安静。"
-    hl = [clip(r["text"], 20) for r in good[:2]] + [clip(s["title"], 20) for s in mat["done"][:1]]
+    hl = [clip(m["text"], 20) for m in (mat.get("moments") or [])[:2]] + [clip(s["title"], 20) for s in mat["done"][:1]]
     return summary, hl[:3]
 
 
@@ -127,8 +124,7 @@ def run(st: Store, day: str | None = None, use_model: bool = True) -> dict:
         for m in existing) or "（无）"
     lines = [f"日期：{day}", "", "## 对话"] + (mat["convo"] or ["（没有聊天）"])
     if mat["records"]:
-        lines += ["", "## 记录"] + [f"- [{ {'good': '小确幸', 'rest': '休息日', 'find': '新发现'}.get(r['type'], r['type'])}] {r['text']}"
-                                   for r in mat["records"]]
+        lines += ["", "## 记录"] + [f"- [{ {'rest': '休息日'}.get(r['type'], r['type'])}] {r['text']}" for r in mat["records"]]
     if mat["done"]:
         lines += ["", "## 完成的小步"] + [f"- {s['title']}" for s in mat["done"]]
     if mat["added"]:
@@ -136,7 +132,7 @@ def run(st: Store, day: str | None = None, use_model: bool = True) -> dict:
     if mat["scenes"]:
         lines += ["", "## 练习"] + [f"- {s['scene']}" for s in mat["scenes"]]
     if mat.get("moments"):
-        lines += ["", "## 成长轨迹上的瞬间（用户亲手写的）"] + [f"- [{m['title']}] {m['text']}" + (f"（感受：{m['feeling']}）" if m["feeling"] else "")
+        lines += ["", "## 瞬间（用户亲手留下的）"] + [f"- {'[' + m['title'] + '] ' if m['title'] else ''}{m['text']}" + (f"（感受：{m['feeling']}）" if m["feeling"] else "")
                                                      for m in mat["moments"]]
     if mat.get("kicks"):
         lines += ["", "## 两分钟启动记忆（TA 勾选让你记住的启动经历）"] + [k["text"] for k in mat["kicks"]]

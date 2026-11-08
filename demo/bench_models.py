@@ -27,7 +27,7 @@ SYS = agent.PERSONA.format(name="小光", boundaries="", now="2026-10-26 21:00",
     "计划里待做的小步：[s_1] 在小组里主动提一个问题"
 
 CASES = [
-    ("good_news", "今天和朋友用英语聊了半小时，完全没卡壳！", {"log_good_news"}),
+    ("moment", "刚才小组讨论我第一个用英语发言了，手心全是汗，但说完感觉好爽", {"propose_moment"}),
     ("complete", "小组里那一步我做完了，主动提了问题", {"complete_step"}),
     ("lazy", "今天好累，什么都不想做", {"log_lazy_day"}),
     ("scene", "我想试试冥想", {"start_scene"}),

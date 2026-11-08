@@ -46,7 +46,7 @@ def cat_of(m: dict) -> str:
         return "rules"
     if PEOPLE.search(text) and (kind != "event" or CLOSE.search(text)):   # 事件里随口提到「朋友」不算，和亲近的人有关才算
         return "people"
-    return {"intent": "effort", "preference": "likes", "event": "recent", "good_news": "recent"}.get(kind, "self")
+    return {"intent": "effort", "preference": "likes", "event": "recent"}.get(kind, "self")
 
 
 SRC = {"confirmed": "你确认过", "onboarding": "建档时", "chat:explicit": "你让我记的", "digest": "夜里整理",
@@ -154,15 +154,15 @@ def _old_steps(st) -> dict:
 
 
 def _good_time(st) -> dict:
-    rows = [r[0] for r in st.c.execute("SELECT created_at FROM record WHERE type='good'")]
+    rows = [r[0] for r in st.c.execute("SELECT created_at FROM moment WHERE source IN ('user','chat')")]
     ts = [t for t in (parse_iso(s) for s in rows) if t]
-    base = {"id": "goodtime", "icon": "star", "color": "var(--c-lemon)", "q": "我通常在什么时候记下开心的事？",
-            "have": len(ts), "need": 10, "unit": "件开心的小事"}
+    base = {"id": "goodtime", "icon": "camera", "color": "var(--c-pink)", "q": "我通常在什么时候留下瞬间？",
+            "have": len(ts), "need": 10, "unit": "个瞬间"}
     if len(ts) < 10:
         return base
     part, n = Counter(_part(t.hour) for t in ts).most_common(1)[0]
-    return {**base, "a": f"你多半在{part}记下开心的事", "src": f"来自 {len(ts)} 件小确幸",
-            "evidence": [f"{len(ts)} 件里有 {n} 件是{part}记的", "那个时候来找小光聊聊，也许最合适"]}
+    return {**base, "a": f"你多半在{part}留下瞬间", "src": f"来自 {len(ts)} 个瞬间",
+            "evidence": [f"{len(ts)} 个里有 {n} 个是{part}留下的", "那个时候来找小光聊聊，也许最合适"]}
 
 
 def _keep(st, ref) -> dict:

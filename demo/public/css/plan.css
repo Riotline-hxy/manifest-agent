@@ -257,13 +257,25 @@ body.pc-dragging, body.pc-dragging * { cursor: grabbing !important; user-select:
   .pl .page-head { margin-bottom: 12px; }
   .pl-acts { width: 100%; margin-left: 0; }
   .pl-acts .btn { flex: 1; }
-  .pw-track { gap: 10px; align-items: flex-start; }   /* 手机上每张卡按自己的内容高，不留大片空白 */
-  .pw-track::after { content: ""; flex: 0 0 calc(12% - 10px); }
-  .pw-card { flex-basis: 88%; padding: 16px 14px 8px; }
-  .pw-card:not(.on) { opacity: .72; }
-  .pw-ball { right: calc(12% + 2px); }
-  .pw-say { right: calc(12% + 2px); width: min(270px, calc(88% - 12px)); }
+  /* 手机上一次只看一张愿望卡（不露出下一张的边），左右滑或者点下面的箭头换；每张按自己的内容高 */
+  .pw-track { gap: 10px; align-items: flex-start; }
+  .pw-card { padding: 16px 14px 8px; }
+  .pw-ball { top: 4px; right: 8px; }
+  .pw-say { right: 8px; width: min(280px, calc(100% - 16px)); }
   .pw-head { padding-right: 54px; }
+  .pw-nav { margin-top: 6px; }
+  .pw-nav .icon-btn { width: 40px; height: 40px; }
+  /* 日历：不靠容器查询（旧手机浏览器不认），屏幕窄就用一条日期条，安排的小步看下面的当天详情 */
+  .is-week .pc-cell { min-height: 0; }
+  .is-week .pc-tags { display: none; }
+  .is-week .pc-n { display: grid; }
+  .pc-wk, .pc-grid { gap: 3px; }
+  .pc-date { padding: 7px 0 6px; }
+  .pc-date b { width: 28px; height: 28px; font-size: 14px; }
+  .pc-title { font-size: 15.5px; }
+  .pc-top { gap: 8px; }
+  .pc-nav .icon-btn { width: 38px; height: 38px; }
+  .pc-legend { gap: 4px 10px; }
   .pc-card { padding: 12px 10px; }
   .pd-card { padding: 14px 14px 12px; }
   .pl-sec { margin-top: 22px; }

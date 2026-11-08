@@ -10,7 +10,7 @@ const PERSONA = { gentle: "温柔", clear: "有条理", lively: "活泼" };
 const CARE = { nudge: "轻轻提醒", analyze: "一起找原因", quiet: "先不提" };
 const ACT = { onboarding: "建档", plan: "计划", record: "记录", memory: "记忆", profile: "资料", rest: "休息",
   proactive: "主动消息", task: "例行任务", wish: "愿望", habit: "习惯", scene: "引导", growth: "成长" };
-const LEDGER = { action: "行动", good: "记录", practice: "练习", checkin: "陪伴", daily: "每日任务", admin: "后台调整", first: "礼物",
+const LEDGER = { action: "行动", good: "瞬间", practice: "练习", checkin: "陪伴", daily: "每日任务", admin: "后台调整", first: "礼物",
   migrate: "开镇", buy: "建造", milestone: "里程碑", record: "记录", test: "测试" };
 const NAV = [["overview", "概览", "report"], ["users", "用户", "user"], ["town", "小镇", "home"], ["model", "模型", "bolt"], ["log", "记录", "list"]];
 
@@ -201,7 +201,7 @@ const COLS = [
   { key: "days_active", label: "活跃天数", r: 1 },
   { key: "msgs", label: "消息", r: 1 },
   { key: "steps_done", label: "一小步", r: 1 },
-  { key: "good", label: "好消息", r: 1 },
+  { key: "moments", label: "瞬间", r: 1 },
   { key: "memories", label: "记忆", r: 1 },
   { key: "level", label: "等级", r: 1 },
   { key: "coins", label: "金币", r: 1 },
@@ -244,7 +244,7 @@ async function usersPage(main, _, live) {
         <td class="r num">${u.days_active}</td>
         <td class="r num">${num(u.msgs)}</td>
         <td class="r num">${u.steps_done}<span class="muted">/${u.steps}</span></td>
-        <td class="r num">${u.good}</td>
+        <td class="r num">${u.moments}</td>
         <td class="r num">${u.memories}</td>
         <td class="r num">${u.level}</td>
         <td class="r num">${num(u.coins)}</td>
@@ -295,7 +295,7 @@ async function userPage(main, id, live) {
       ${kpi("活跃天数", u.days_active, u.first_active ? `第一次 ${u.first_active}` : "")}
       ${kpi("消息", u.msgs)}
       ${kpi("一小步", `${u.steps_done} / ${u.steps}`, "完成 / 全部")}
-      ${kpi("好消息", u.good)}
+      ${kpi("瞬间", u.moments)}
       ${kpi("记忆", u.memories)}
       ${kpi("习惯", u.habits)}
     </section>

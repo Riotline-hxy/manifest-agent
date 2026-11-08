@@ -295,7 +295,7 @@ def ping(timeout=15) -> dict:
         return {"ok": False, "error": str(e)[:160]}
 
 
-TRY_TOOL = [{"type": "function", "function": {"name": "log_good_news", "description": "记一件开心的小事",
+TRY_TOOL = [{"type": "function", "function": {"name": "propose_moment", "description": "提议把刚说的一件事留成一个瞬间",
              "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}}]
 
 

@@ -126,7 +126,7 @@ export function setAgentMood(id, { prio = "feel", hold = 0 } = {}) {
 }
 // 用户自己开口了（发消息）：之前停留的表情让位
 export function clearAgentHold() { cur = { ...cur, prio: 0, until: 0 }; }
-// 完成小步、里程碑、记下好消息：开心 + 轻跳，停留 1 分钟
+// 完成小步、里程碑、留下瞬间：开心 + 轻跳，停留 1 分钟
 export function celebrate(big = false) {
   setAgentMood("happy", { prio: "event", hold: 60000 });
   pulseAgent(big ? "spin" : "bounce");
@@ -152,7 +152,7 @@ const FEEL_RULES = [
   ["11", /为什么|怎么办|不懂|不明白|搞不懂|啥意思|什么意思|？{2,}|\?{2,}/],
 ];
 export function feelOf(text = "", tools = []) {
-  if (tools.some((t) => ["complete_step", "log_good_news", "checkin_habit"].includes(t.name) && t.result?.ok !== false)) return "10";
+  if (tools.some((t) => ["complete_step", "checkin_habit"].includes(t.name) && t.result?.ok !== false)) return "10";
   for (const [code, re] of FEEL_RULES) if (re.test(text)) return code;
   return "";
 }

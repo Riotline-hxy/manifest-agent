@@ -34,7 +34,7 @@ from .util import DATA, clip, day_key, dumps, fts_doc, fts_query, iso, loads, ne
 UID_RE = re.compile(r"^u_[0-9a-f]{16}$")
 
 KIND_WEIGHT = {"identity": 1.25, "intent": 1.3, "preference": 1.15, "boundary": 1.4,
-               "insight": 1.0, "event": 0.9, "good_news": 0.85}
+               "insight": 1.0, "event": 0.9}
 
 DEFAULT_PROFILE = {
     "agent_name": "小光", "agent_hue": "", "agent_avatar_id": "cloud.moon.jelly", "theme": "forest",
@@ -214,6 +214,10 @@ class Store:
         hcols = {r["name"] for r in self.c.execute("PRAGMA table_info(habit)")}
         if "cue" not in hcols:   # 习惯挂在每天哪个时候做（「调整现有计划」里定的：起床后 / 睡前……）
             self.c.execute("ALTER TABLE habit ADD COLUMN cue TEXT DEFAULT ''")
+        mocols = {r["name"] for r in self.c.execute("PRAGMA table_info(moment)")}
+        if "photo" not in mocols:   # 瞬间的照片（core/photos.py 的 id）；空 = 没有照片
+            self.c.execute("ALTER TABLE moment ADD COLUMN photo TEXT DEFAULT ''")
+        self._goodnews_gone()
         tcols = {r["name"] for r in self.c.execute("PRAGMA table_info(town_item)")}
         if "rot" not in tcols:   # 大建筑可以转 90°
             self.c.execute("ALTER TABLE town_item ADD COLUMN rot INTEGER DEFAULT 0")
@@ -231,6 +235,17 @@ class Store:
                 if k in DEFAULT_PROFILE:
                     self.c.execute("INSERT OR REPLACE INTO profile(k, v) VALUES(?,?)", (k, dumps(v)))
         return self.profile()
+
+    def _goodnews_gone(self) -> None:
+        """2026-11 好消息（小确幸）下线，换成「瞬间」：旧的好消息、新发现、内心戏连同它们的动态一起删掉；
+        小光记忆里「好消息」这一类并进「发生过的事」，内容留着。经验和金币的账不动（不倒扣）。每个账号只做一次。"""
+        if self.c.execute("SELECT 1 FROM profile WHERE k='goodnews_gone'").fetchone():
+            return
+        with self.lock:
+            self.c.execute("DELETE FROM record WHERE type IN ('good','find','meme')")
+            self.c.execute("DELETE FROM activity WHERE kind='record' OR text LIKE '%小确幸%' OR text LIKE '%好消息%'")
+            self.c.execute("UPDATE memory SET kind='event' WHERE kind='good_news'")
+            self.c.execute("INSERT OR REPLACE INTO profile(k, v) VALUES('goodnews_gone', 'true')")
 
     # ---- memory -------------------------------------------------------------
     def add_memory(self, text: str, kind: str = "insight", source: str = "chat", status: str = "active", cat: str = "") -> dict:
@@ -470,7 +485,7 @@ class Store:
                 hit = scored[0][1] if scored and scored[0][0] >= 2 else None
         return hit
 
-    # ---- records (好消息 / 偷懒日 / 新发现) ---------------------------------
+    # ---- records（现在只剩偷懒日 rest；好消息 2026-11 下线，换成了瞬间）---------
     def add_record(self, type_: str, text: str, day: str | None = None) -> dict:
         rid = new_id("r")
         with self.lock:
@@ -478,11 +493,9 @@ class Store:
                            (rid, type_, clip(text, 200), day or day_key(), iso()))
         return dict(self.c.execute("SELECT * FROM record WHERE id=?", (rid,)).fetchone())
 
-    def records(self, limit: int = 500, legacy: bool = False) -> list[dict]:
-        """好消息(good) / 休息日(rest) / 旧的新发现(find)。内心戏(meme) 2026-11 下线：旧的还在库里，
-        只在导出数据时带上（legacy=True），页面、小光和夜里整理都不再看到。"""
-        where = "" if legacy else " WHERE type!='meme'"
-        return [dict(r) for r in self.c.execute(f"SELECT * FROM record{where} ORDER BY day DESC, created_at DESC LIMIT ?", (limit,))]
+    def records(self, limit: int = 500) -> list[dict]:
+        """偷懒日（rest）。"""
+        return [dict(r) for r in self.c.execute("SELECT * FROM record ORDER BY day DESC, created_at DESC LIMIT ?", (limit,))]
 
     # ---- transcript ---------------------------------------------------------
     def add_msg(self, role: str, content: str, meta: dict | None = None, at: str | None = None) -> dict:
@@ -556,9 +569,8 @@ class Store:
         created = parse_iso(self.profile().get("created_at")) or now()
         return {
             "days": max(1, (now().date() - created.date()).days + 1),
-            "good": q("SELECT COUNT(*) FROM record WHERE type='good'"),
+            "moments": q("SELECT COUNT(*) FROM moment"),
             "rest": q("SELECT COUNT(DISTINCT day) FROM record WHERE type='rest'"),
-            "finds": q("SELECT COUNT(*) FROM record WHERE type='find'"),
             "done": q("SELECT COUNT(*) FROM step WHERE status='done'"),
             "todo": q("SELECT COUNT(*) FROM step WHERE status='todo'"),
             "memories": q("SELECT COUNT(*) FROM memory WHERE status='active'"),

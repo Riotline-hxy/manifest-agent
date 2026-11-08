@@ -4,7 +4,7 @@
   chat    随便聊聊：TA 最近提过的人和事、TA 前两天说过的话，接着问一句
   plan    计划：快到日子的里程碑、这周跟不上的习惯、放了好几天的小步（都来自真实数据）
   feature 体验功能：TA 还没试过、又正合适的一个功能（消息下面带一个入口，和聊天里的推荐同一个样子）
-  cheer   鼓励：最近真做成的事（完成的小步、留下的瞬间、记的小确幸），说具体的
+  cheer   鼓励：最近真做成的事（完成的小步、留下的瞬间），说具体的
 文字由小光按 TA 选的性格写，示范对话用的是产品负责人亲手写的参考回复（core/voice.py），不套模板；
 消息上不标「这是哪一类」，也不标「主动找你」，就是一条普通的消息。
 """
@@ -25,7 +25,7 @@ KIND_GOAL = {
 FEATURE_WHY = {
     "kickstart": "有一个小步放了好几天还没开始",
     "meditation": "最近事情有点多",
-    "gratitude": "最近记的小确幸不多",
+    "gratitude": "最近好像有点累，可以停下来数数身边的好事",
     "seven_steps_lite": "还没许过一个自己的愿望",
     "relearn": "还没回头看过这周的计划做得怎么样",
     "town": "攒的金币够盖一样新东西了",
@@ -80,8 +80,7 @@ def _feature_pick(st) -> str | None:
 def _cheer_material(st) -> list[str]:
     edge = (now() - timedelta(days=7)).date().isoformat()
     lines = [f"完成了小步「{s['title']}」" for s in st.steps() if s["status"] == "done" and (s.get("done_at") or "")[:10] >= edge][:3]
-    lines += [f"记下小确幸：{r['text']}" for r in st.records(30) if r["type"] == "good" and r["day"] >= edge][:3]
-    lines += [f"在轨迹上留下：{r[0]}" for r in st.c.execute("SELECT text FROM moment WHERE day>=? ORDER BY day DESC LIMIT 2", (edge,))]
+    lines += [f"留下一个瞬间：{r[0]}" for r in st.c.execute("SELECT text FROM moment WHERE day>=? ORDER BY day DESC LIMIT 3", (edge,))]
     return lines
 
 

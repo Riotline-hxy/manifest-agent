@@ -74,7 +74,7 @@ def _ro(path):
 
 def _dir_bytes(d) -> int:
     try:
-        return sum(f.stat().st_size for f in d.iterdir() if f.is_file())
+        return sum(f.stat().st_size for f in d.rglob("*") if f.is_file())   # 连同瞬间的照片
     except OSError:
         return 0
 
@@ -82,7 +82,7 @@ def _dir_bytes(d) -> int:
 def _scan(user: dict) -> dict:
     row = {"id": user["id"], "username": user["username"], "kind": user["kind"], "created_at": user["created_at"],
            "profile": {}, "msgs": 0, "msg_days": {}, "active_days": [], "last_active": "", "steps": 0, "steps_done": 0,
-           "good": 0, "memories": 0, "habits": 0, "xp": 0, "level": 1, "bytes": 0}
+           "moments": 0, "memories": 0, "habits": 0, "xp": 0, "level": 1, "bytes": 0}
     d = DATA / "u" / user["id"]
     f = d / "mind.db"
     if not f.is_file():
@@ -106,7 +106,7 @@ def _scan(user: dict) -> dict:
                                  q(f"SELECT COALESCE(MAX(at), '') FROM activity WHERE {BACKGROUND}"))
         row["steps"] = q("SELECT COUNT(*) FROM step")
         row["steps_done"] = q("SELECT COUNT(*) FROM step WHERE status = 'done'")
-        row["good"] = q("SELECT COUNT(*) FROM record WHERE type = 'good'")
+        row["moments"] = q("SELECT COUNT(*) FROM moment")
         row["memories"] = q("SELECT COUNT(*) FROM memory WHERE status = 'active'")
         row["habits"] = q("SELECT COUNT(*) FROM habit WHERE archived = 0")
         row["xp"] = q("SELECT COALESCE(SUM(amount), 0) FROM xp")

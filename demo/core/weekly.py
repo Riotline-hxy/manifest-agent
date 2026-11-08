@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from . import finds, llm
 from .util import clip, iso, now
 
-LABEL = {"good": "小确幸", "rest": "休息日", "find": "新发现"}
+LABEL = {"rest": "休息日"}
 WD = "一二三四五六日"
 
 PROMPT = """你是陪伴者「小光」。这是你自己的笔记本，一周写一页。本子是你的，但 TA 会翻开看，所以对 TA 说「你」，说自己用「我」。
@@ -160,18 +160,16 @@ def run_due(st) -> dict | None:
 
 
 def scraps(st, ref: datetime | None = None) -> list[dict]:
-    """这周到现在的碎片（不调模型）：TA 记下的、做完的、写下的瞬间，新的在前，最多 6 条。"""
+    """这周到现在的碎片（不调模型）：做完的小步、留下的瞬间，新的在前，最多 6 条。"""
     a, b = week_days(week_key(ref))
     items = []
-    for r in st.c.execute("SELECT type, text, created_at FROM record WHERE day>=? AND day<=? AND type IN ('good','find')", (a, b)):
-        items.append({"at": r["created_at"], "kind": r["type"], "text": clip(r["text"], 40)})
     for r in st.c.execute("SELECT title, done_at FROM step WHERE status='done' AND done_at>=? AND done_at<=?", (a, b + "T99")):
         items.append({"at": r["done_at"], "kind": "step", "text": clip(r["title"], 40)})
     for r in st.c.execute("SELECT text, created_at FROM moment WHERE day>=? AND day<=?", (a, b)):
         items.append({"at": r["created_at"], "kind": "moment", "text": clip(r["text"], 40)})
     items.sort(key=lambda x: x["at"] or "", reverse=True)
     out = []
-    for x in items:      # 同一件事记成了好消息又写成瞬间，只留一条
+    for x in items:      # 同一件事做完又写成瞬间，只留一条
         if not any(finds._sim(x["text"], y["text"]) > 0.5 for y in out):
             out.append(x)
     return out[:6]

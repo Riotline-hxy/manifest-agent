@@ -183,21 +183,41 @@ def moments(st, wish_id: str | None = None, since: str | None = None, limit: int
     return [dict(r) for r in st.c.execute(q, a)]
 
 
-def add_moment(st, wish_id: str, text: str, feeling: str = "", mood: str = "", day: str | None = None,
-               source: str = "user") -> dict:
+def _moment_wish(st, wish_id) -> dict | None:
+    """瞬间可以不挂愿望（空）；给了就得是一个真的愿望。"""
+    wish_id = str(wish_id or "")
+    if not wish_id:
+        return None
     w = get_wish(st, wish_id)
     if not w:
         raise ValueError("没有这个愿望")
+    return w
+
+
+def _moment_photo(st, pid) -> str:
+    from . import photos
+    pid = str(pid or "")
+    if pid and not photos.exists(st, pid):
+        raise ValueError("照片没传上来，再试一次")
+    return pid
+
+
+def add_moment(st, wish_id: str, text: str, feeling: str = "", mood: str = "", day: str | None = None,
+               source: str = "user", photo: str = "") -> dict:
+    """瞬间：一句话（可以配一张照片），可以挂在某个愿望下，也可以不挂。
+    只在用户自己留、或者点了小光提议卡上的「留下」、或者明确让小光记下时才写——走一遍练习不会自动加。"""
+    w = _moment_wish(st, wish_id)
     text = clip((text or "").strip(), 300)
     if not text:
         raise ValueError("写一句发生了什么就好")
     day = _valid_day(day)
+    photo = _moment_photo(st, photo)
     mid = new_id("mo")
     with st.lock:
-        st.c.execute("INSERT INTO moment(id, wish_id, day, text, feeling, mood, source, created_at, updated_at) "
-                     "VALUES(?,?,?,?,?,?,?,?,?)",
-                     (mid, wish_id, day, text, clip(feeling or "", 80), clip(mood or "", 10), source, iso(), iso()))
-    st.log("journey", f"在「{w['title']}」留下一个瞬间")
+        st.c.execute("INSERT INTO moment(id, wish_id, day, text, feeling, mood, source, created_at, updated_at, photo) "
+                     "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                     (mid, w["id"] if w else "", day, text, clip(feeling or "", 80), clip(mood or "", 10), source, iso(), iso(), photo))
+    st.log("journey", f"在「{w['title']}」留下一个瞬间" if w else "留下一个瞬间")
     return dict(st.c.execute("SELECT * FROM moment WHERE id=?", (mid,)).fetchone())
 
 
@@ -217,16 +237,30 @@ def edit_moment(st, mid: str, patch: dict) -> dict | None:
         fields["mood"] = clip(str(patch["mood"] or ""), 10)
     if "day" in patch:
         fields["day"] = _valid_day(patch["day"])
+    if "wish_id" in patch:
+        w = _moment_wish(st, patch["wish_id"])
+        fields["wish_id"] = w["id"] if w else ""
+    old_photo = r["photo"] or ""
+    if "photo" in patch and str(patch["photo"] or "") != old_photo:
+        fields["photo"] = _moment_photo(st, patch["photo"])
     if fields:
         fields["updated_at"] = iso()
         with st.lock:
             st.c.execute("UPDATE moment SET " + ",".join(f"{k}=?" for k in fields) + " WHERE id=?", (*fields.values(), mid))
+        if "photo" in fields and old_photo:   # 换了或去掉了照片：旧的那张删掉
+            from . import photos
+            photos.delete(st, old_photo)
     return dict(st.c.execute("SELECT * FROM moment WHERE id=?", (mid,)).fetchone())
 
 
 def delete_moment(st, mid: str) -> bool:
+    r = st.c.execute("SELECT photo FROM moment WHERE id=?", (mid,)).fetchone()
     with st.lock:
-        return st.c.execute("DELETE FROM moment WHERE id=?", (mid,)).rowcount > 0
+        gone = st.c.execute("DELETE FROM moment WHERE id=?", (mid,)).rowcount > 0
+    if gone and r and r["photo"]:
+        from . import photos
+        photos.delete(st, r["photo"])
+    return gone
 
 
 def _valid_day(day: str | None) -> str:
@@ -726,6 +760,15 @@ def edit_item(st, kind: str, ref: str, patch: dict, action: str = "") -> dict:
                          target_day=_when(patch) or None)
             return {"ok": True, "kind": kind, "id": w["id"], "title": w["title"],
                     "changed": [f"新开了一个愿望，计划 {_md(w['target_day'])} 实现"]}
+        if kind == "moment":   # 瞬间可以不挂愿望：说了是哪个愿望才挂，没说就不挂
+            ref_w = str(patch.get("wish") or "").strip()
+            w = _pick(wishes(st), ref_w) if ref_w else None
+            if ref_w and not w:
+                return {"ok": False, "error": "没找到这个愿望", "have": [x["title"] for x in wishes(st)]}
+            m = add_moment(st, w["id"] if w else "", str(patch.get("text") or title), str(patch.get("feeling") or ""),
+                           day=patch.get("day") or None, source="chat")
+            return {"ok": True, "kind": kind, "id": m["id"], "title": clip(m["text"], 30), "wish_title": w["title"] if w else "",
+                    "changed": [f"留成了一个瞬间（{_md(m['day'])}）" + (f"，挂在「{w['title']}」下" if w else "")], "new_moment": True}
         w = _wish_for(st, str(patch.get("wish") or ""))
         if not w:
             return {"ok": False, "error": "没找到要放进的愿望", "have": [x["title"] for x in wishes(st)]}
@@ -748,10 +791,7 @@ def edit_item(st, kind: str, ref: str, patch: dict, action: str = "") -> dict:
             st.log("plan", "加了一小步：" + title)
             return {"ok": True, "kind": kind, "id": s_["id"], "title": s_["title"], "wish_title": w["title"],
                     "changed": [f"加进了「{w['title']}」的小步" + (f"，安排在 {_md(day)}" if day else "")]}
-        m = add_moment(st, w["id"], str(patch.get("text") or title), str(patch.get("feeling") or ""),
-                       day=patch.get("day") or None, source="chat")
-        return {"ok": True, "kind": kind, "id": m["id"], "title": clip(m["text"], 30), "wish_title": w["title"],
-                "changed": [f"留在「{w['title']}」的轨迹上了（{_md(m['day'])}）"], "new_moment": True}
+        raise ValueError("不认识要加的东西")
 
     # ---- 愿望 ----
     if kind == "wish":
@@ -996,7 +1036,7 @@ def board(st) -> dict:
     return {
         "wishes": ws,
         "current": cur["id"] if cur else "",
-        "moments": moments(st, since=since),
+        "moments": moments(st, since=(today - timedelta(days=730)).isoformat()),   # 瞬间可以不挂愿望：不按愿望的起点截
         "rest_days": [r[0] for r in st.c.execute("SELECT DISTINCT day FROM record WHERE type='rest' AND day>=?", (since,))],
         "insights": {w["id"]: open_insight(st, w["id"]) for w in ws},
         "categories": [{"id": k, "label": v["label"], "vision": v["vision"]} for k, v in CATEGORIES.items()],

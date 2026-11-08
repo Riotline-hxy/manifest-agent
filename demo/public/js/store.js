@@ -61,6 +61,7 @@ export async function refresh() {
 }
 
 export function go(route, opts = {}) {
+  route = { goodnews: "moments", growth: "town" }[route] || route;   // 旧名字：好消息换成了瞬间
   if (opts.id) state.articleId = opts.id;
   state.route = route;
   if (location.hash.slice(1) !== route) history.replaceState(null, "", `#${route}`);

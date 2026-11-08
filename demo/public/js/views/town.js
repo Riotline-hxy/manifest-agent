@@ -14,7 +14,7 @@ const townBox = () => { const t = state.data.town; return boxOf(t.size, { top: h
 
 const SHOP_CATS = [["all", "全部"], ["build", "建筑"], ["nature", "自然"], ["road", "道路"], ["decor", "装饰"]];
 const KEEP_GOING = new Set(["nature", "road", "decor"]);   // 这些便宜的小东西可以连着放好几个
-const SRC = { action: "行动", good: "记录", practice: "练习", checkin: "陪伴", daily: "每日任务", first: "礼物", migrate: "开镇", buy: "建造",
+const SRC = { action: "行动", good: "瞬间", practice: "练习", checkin: "陪伴", daily: "每日任务", first: "礼物", migrate: "开镇", buy: "建造",
   milestone: "里程碑", record: "记录" };
 const md = (s) => `${+s.slice(5, 7)}月${+s.slice(8, 10)}日`;
 const coarse = () => matchMedia("(pointer: coarse)").matches;
