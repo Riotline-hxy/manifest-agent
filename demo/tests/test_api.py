@@ -2341,10 +2341,7 @@ class ApiTest(unittest.TestCase):
             nowish = agent.run_tool(st, "propose_plan", {"wish": "学钢琴", "steps": [{"title": "找一首曲子"}]})
             self.assertFalse(nowish["ok"])
             self.assertIn("学钢琴", nowish["error"])
-            slip = acts.view(st, "propose_plan", {}, nowish, {})[0]
-            self.assertTrue(slip["fail"])
-            self.assertNotRegex(slip["new"], r"[a-z_]{4,}")              # 给 TA 看的那行没有工具名
-            self.assertIn("edit_plan", slip["why"])                      # 给小光看的原因还在
+            self.assertEqual(acts.view(st, "propose_plan", {}, nowish, {}), [])   # 没办成的不在界面上出报错，小光在回复里说
 
         plan = {"wish": "健身", "milestones": [{"title": "一周能练上三次", "due_in_days": 14}],
                 "habits": [{"title": "练完拉伸五分钟", "freq": "weekly", "per_week": 3}],

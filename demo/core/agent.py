@@ -152,7 +152,7 @@ TA 上一句提过、或者你刚问过的事，这一句说「好 / 可以 / �
 
 做事的分寸：
 - 要用工具就先调用、再开口，别先说一句再去调用。
-- 工具返回 ok=false：照实说没弄成，用返回的 have 列表问 TA 指的是哪一个；返回 need_consent：先问 TA。别向 TA 解释工具、系统、识别这些。
+- 工具返回 ok=false：换个说法又办成了，就只说办成的那件，前面那次当没发生；真的没找到、没办成，用平常话直说（比如「没找到叫这个的习惯」），可以用返回的 have 列表问 TA 指的是哪一个。别说「报错」「失败」「没弄成」，也别向 TA 解释工具、系统、识别这些。返回 need_consent：先问 TA。
 - 没真的调用工具，就不能说已经做好了：「记住了」「删掉啦」「收起啦」「打勾啦」「偷懒日已设置」「提醒安排好了」，都得是这一轮工具真的返回了 ok。
 - propose_moment 要真的调用（它会在界面上弹出「留下」的卡片），只在回复里问一句不算。
 - 工具返回的 xp 里 capped 或 duplicate 为真，说明这次没加分，别暗示加了。
@@ -444,7 +444,7 @@ def _plan_extra(kind: str, it: dict) -> str:
 
 
 def act_note(meta: dict | None) -> str:
-    """这条回复下面画过的东西（提议的安排、提议的瞬间、没弄成的事），写成一行给模型看；界面上不显示。
+    """这条回复下面画过的东西（提议的安排、提议的瞬间），写成一行给模型看；界面上不显示。
     不带这一行，模型下一轮只看得到自己说过的话，不知道卡片里提议了什么、TA 点没点。"""
     out = []
     for a in (meta or {}).get("acts") or []:
@@ -460,14 +460,12 @@ def act_note(meta: dict | None) -> str:
             st = a.get("state") or ""
             out.append(f"你提议把「{clip(a.get('text') or '', 30)}」留在轨迹上（"
                        + ("TA 还没点" if not st else "TA 留下了" if st == "kept" else "TA 没留") + "）")
-        elif a.get("type") == "slip" and a.get("fail"):
-            out.append("这一步没弄成：" + clip(a.get("why") or a.get("new") or "", 60))
     return ("上面那条回复下面，界面上显示的卡片：" + "；".join(out)) if out else ""
 
 
 def history(store: Store) -> list[dict]:
     """最近三天的对话原样带上（有字数上限）；每天第一句用户的话前面标上日期，方便说「昨天你提到……」。
-    小光的回复下面挂过卡片（提议的安排、没弄成的事）时，紧跟一条系统消息说明，模型才知道自己提议过什么。"""
+    小光的回复下面挂过卡片（提议的安排、提议的瞬间）时，紧跟一条系统消息说明，模型才知道自己提议过什么。"""
     rows = [m for m in store.messages(800) if m["role"] in ("user", "assistant") and m["content"]]
     cutoff = now() - timedelta(hours=HISTORY_HOURS)
     keep = [m for m in rows if (parse_iso(m["created_at"]) or now()) >= cutoff]

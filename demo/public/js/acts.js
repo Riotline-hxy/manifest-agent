@@ -46,7 +46,7 @@ function slipText(v) {
 function slipEl(v, i, ctx) {
   const el = document.createElement("div");
   const undone = v.state === "undone";
-  el.className = `cact act-slip ${v.fail ? "fail" : ""} ${undone ? "undone" : ""}`;
+  el.className = `cact act-slip ${undone ? "undone" : ""}`;
   const canUndo = v.undo && !undone && ctx.msgId && Date.parse(v.undo.until || 0) > Date.now();
   const links = [];
   if (undone) links.push(`<span class="act-note">已撤销</span>`);
@@ -54,7 +54,7 @@ function slipEl(v, i, ctx) {
   if (!undone && v.adjust) links.push(`<button class="act-link" data-adjust>调整计划</button>`);
   if (!undone && v.notify && "Notification" in window && Notification.permission === "default") links.push(`<button class="act-link" data-notify>开启通知</button>`);
   if (!undone && !canUndo && v.go && GO_LABEL[v.go]) links.push(`<button class="act-link" data-go="${esc(v.go)}">${GO_LABEL[v.go]}</button>`);
-  el.innerHTML = `<span class="act-ic" style="color:${v.fail ? "var(--danger)" : esc(v.color)}">${icon(v.icon)}</span>
+  el.innerHTML = `<span class="act-ic" style="color:${esc(v.color)}">${icon(v.icon)}</span>
     <span class="act-txt">${slipText(v)}</span>
     ${v.gain && !undone ? `<span class="act-gain">+${v.gain}</span>` : ""}${links.join("")}`;
   el.querySelector("[data-undo]")?.addEventListener("click", async (e) => {
@@ -155,7 +155,7 @@ function askEl(v, i, ctx) {
 }
 
 export function actEl(v, i, ctx) {
-  if (!v) return null;
+  if (!v || v.fail) return null;     // 以前存下的「没弄成」回执：不再给 TA 看
   if (v.type === "entry") return entryEl(v);
   if (v.type === "slip") return slipEl(v, i, ctx);
   if (v.type === "ask") return askEl(v, i, ctx);
@@ -166,7 +166,7 @@ export function actEl(v, i, ctx) {
 export function actsBlock(acts, ctx) {
   const box = document.createElement("div");
   box.className = "acts";
-  const slips = acts.map((v, i) => [v, i]).filter(([v]) => v?.type === "slip");
+  const slips = acts.map((v, i) => [v, i]).filter(([v]) => v?.type === "slip" && !v.fail);
   const group = slips.length >= 3 ? document.createElement("details") : null;
   if (group) {
     group.className = "cact act-group";

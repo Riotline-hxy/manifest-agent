@@ -130,12 +130,6 @@ def _xp_refs(name: str, result: dict, changes: list[dict]) -> list[str]:
     return refs
 
 
-def user_reason(error: str) -> str:
-    """工具的报错是写给小光看的（里面会有「就用 edit_plan 直接改」这种话）：给 TA 看时去掉带英文工具名、提到 TA 的分句。"""
-    parts = [x for x in re.split(r"[。；;，,]", error or "") if x.strip() and not re.search(r"[a-z_]{4,}|TA|对方|再调用|调用", x)]
-    return parts[0].strip() if parts else ""
-
-
 def _slip(icon: str, color: str, verb: str, new: str = "", old: str = "", **kw) -> dict:
     return {"type": "slip", "icon": icon, "color": color, "verb": verb, "old": old, "new": new, **kw}
 
@@ -160,8 +154,7 @@ def view(st, name: str, args: dict, result: dict, snap: dict) -> list[dict]:
     if result.get("skipped"):
         return []      # 被拦下的（TA 没让改）：小光会在回复里问，不出东西
     if not ok:
-        why = str(result.get("error") or "")
-        return [_slip("close", "var(--danger)", "没弄成", clip(result.get("tip") or user_reason(why), 40), fail=True, why=clip(why, 120))]
+        return []      # 没办成的不出东西：小光在回复里用平常话说（比如「没找到叫这个的习惯」），界面上不出报错
 
     if name == "suggest_feature":
         e = entry(str(args.get("feature") or ""), task=str(args.get("task") or ""))

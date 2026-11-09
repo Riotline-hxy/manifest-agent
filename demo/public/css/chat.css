@@ -126,7 +126,6 @@
 .act-slip del { color: var(--text-3); text-decoration-thickness: 1.5px; }
 .act-arrow { color: var(--text-4); margin: 0 4px; }
 .act-gain { flex: none; font-size: 11.5px; font-weight: 900; color: var(--accent); }
-.act-slip.fail { border-color: var(--danger); }
 .act-slip.undone .act-txt { color: var(--text-3); text-decoration: line-through; }
 
 .act-group { padding: 0; }
