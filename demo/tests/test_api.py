@@ -1331,7 +1331,7 @@ class ApiTest(unittest.TestCase):
             self.assertTrue(all(s["scheduled_day"] >= today for s in st.steps(200) if s["status"] == "todo" and s["scheduled_day"]))
         _, d = c.req("GET", "/api/bootstrap")
         self.assertEqual(d["growth"]["level"]["lv"], out["lv"])
-        self.assertEqual(len(d["journey"]["wishes"]), 3)
+        self.assertEqual(len(d["journey"]["wishes"]), 4)   # 睡觉、跑步、大理、刚加的电吉他
 
     def test_daily_tasks_pay_once_and_chat_gives_no_coins(self):
         from core.util import day_key
