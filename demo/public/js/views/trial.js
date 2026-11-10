@@ -84,7 +84,7 @@ function pickGoal(root) {
       <input class="field" maxlength="30" placeholder="或者自己写一句">
       <button class="btn btn-main" disabled>就这个</button>
     </div>
-    <p class="trial-note">不用注册。聊完觉得合适，再决定要不要留下。</p>`;
+    <p class="trial-note">不用注册，先聊聊看。</p>`;
   const own = body.querySelector(".trial-own input");
   const ok = body.querySelector(".trial-own button");
   own.addEventListener("input", () => { ok.disabled = !own.value.trim(); });
@@ -98,7 +98,7 @@ function pickGoal(root) {
 
 // ---- 2. 聊几句 / 3. 今天的一小步 ----
 function talk(root, goal) {
-  stage(root, 1, "不用想得很完整，像跟朋友吐槽那样说就行。", "35");
+  stage(root, 1, "像跟朋友吐槽那样说就行。", "35");
   const body = root.querySelector(".trial-body");
   body.innerHTML = `
     <div class="trial-chat">
@@ -175,7 +175,7 @@ function talk(root, goal) {
   }
 
   function stepCard(r) {
-    stage(root, 2, "这是我觉得今天最好开始的一步。太难的话，跟我说，换个更小的。", "19");
+    stage(root, 2, "今天就从这一步开始。太难的话，换个更小的。", "19");
     const card = document.createElement("div");
     card.className = "trial-step";
     card.innerHTML = `
@@ -183,10 +183,10 @@ function talk(root, goal) {
       <div class="ts-main">
         <div class="ts-k">今天的一小步</div>
         <div class="ts-t">${esc(r.step.title)}</div>
-        <div class="ts-n">${icon("clock")}${esc(r.step.when)}${r.step.why ? ` · ${esc(r.step.why)}` : ""}</div>
+        ${whenLine(r.step) ? `<div class="ts-n">${icon("clock")}${esc(whenLine(r.step))}</div>` : ""}
         <div class="ts-acts">
           <button class="btn btn-main" data-act="ok">${icon("check")}就这个</button>
-          ${smaller < 2 ? `<button class="btn btn-ghost" data-act="smaller">还是有点难，再小一点</button>` : ""}
+          ${smaller < 2 ? `<button class="btn btn-ghost" data-act="smaller">再小一点</button>` : ""}
         </div>
       </div>`;
     thread.append(card);
@@ -223,12 +223,17 @@ function talk(root, goal) {
   setTimeout(() => ta.focus(), 300);
 }
 
+// 「什么时候做」：小步标题里已经写了（「今晚 11 点把手机……」）就不再重复
+function whenLine(step) {
+  const w = (step.when || "").trim();
+  return w && !step.title.replace(/\s/g, "").includes(w.replace(/\s/g, "")) ? w : "";
+}
+
 // ---- 4. 记下来 ----
 function done(root, goal, r) {
-  stage(root, 3, "好，就这么定了。你看，今天这些我都记下了。", "10");
+  stage(root, 3, "定好了，这些我都记下了。", "10");
   const remember = r.remember?.length ? r.remember : [`你想${goal.t.replace(/^想/, "")}`];
-  const today = new Date();
-  const day = `${today.getMonth() + 1}月${today.getDate()}日`;
+  const when = whenLine(r.step);
   sessionStorage.setItem(CARRY_KEY, JSON.stringify({
     goal: goal.t, why_goal: r.why_goal || "", step: r.step.title, why: r.step.why || "", remember,
   }));
@@ -237,21 +242,16 @@ function done(root, goal, r) {
     <div class="trial-cards">
       <div class="tcard card" style="--i:0">${tile("flag", "var(--c-orange)", 42)}
         <div><div class="tc-k">今天的一小步</div><div class="tc-t">${esc(r.step.title)}</div>
-        <div class="tc-n">${esc(r.step.when)}</div></div></div>
+        ${when ? `<div class="tc-n">${esc(when)}</div>` : ""}</div></div>
       <div class="tcard card" style="--i:1">${tile("memory", "var(--c-violet)", 42)}
         <div><div class="tc-k">小光记住了</div>
-        <div class="tc-chips">${remember.map((m) => `<span class="pill">${esc(m)}</span>`).join("")}</div>
-        <div class="tc-n">下次来，不用再从头讲一遍。</div></div></div>
-      <div class="tcard card" style="--i:2">${tile("sprout", "var(--c-mint)", 42)}
-        <div><div class="tc-k">成长记录</div><div class="tc-t">${day} · 定下了第一小步</div>
-        <div class="tc-n">做完回来说一声，这里会再多一条，你的小镇也会多一块砖。</div></div></div>
-      <div class="tcard card" style="--i:3">${tile("letter", "var(--c-sky)", 42)}
-        <div><div class="tc-k">明天，小光会来问你</div><div class="tc-t">「${esc(r.tomorrow || "")}」</div>
-        <div class="tc-n">没做成也没关系，它会照你喜欢的方式陪你看看卡在哪。</div></div></div>
+        <div class="tc-chips">${remember.map((m) => `<span class="pill">${esc(m)}</span>`).join("")}</div></div></div>
+      ${r.tomorrow ? `<div class="tcard card" style="--i:2">${tile("letter", "var(--c-sky)", 42)}
+        <div><div class="tc-k">明天小光会问你</div><div class="tc-t">「${esc(r.tomorrow)}」</div></div></div>` : ""}
     </div>
     <div class="trial-cta card">
       <h3>想让小光明天真的来问你？</h3>
-      <p>注册一个账号就行。刚才这一步、它记住的话，都会一起带过去。</p>
+      <p>注册后，这一步和它记住的都会带过去。</p>
       <div class="gate-acts">
         <button class="btn btn-main btn-lg" data-act="reg">注册，留下这一步</button>
         <button class="btn btn-ghost btn-lg" data-act="login">已有账号，登录</button>

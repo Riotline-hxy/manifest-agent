@@ -87,7 +87,7 @@ export function renderOnboarding(root) {
           <span class="ob-e-main"><b>${e.t}</b><small>${esc(done[e.k] ? summary[e.k]() : e.h)}</small></span>
           <span class="ob-e-st">${done[e.k] ? icon("check") : icon("arrow")}</span></button>`).join("")}</div>
       <button class="btn btn-main btn-lg ob-enter" data-enter>${n === 3 ? "都好了，进入显伴" : "进入显伴"}</button>
-      ${n < 3 ? `<p class="ob-note">没做的以后在设置和蜕变计划里也能补</p>` : ""}`);
+      ${n < 3 ? `<p class="ob-note">跳过的以后也能补</p>` : ""}`);
     say(line || (n === 3 ? "都好啦！进去看看吧。" : n ? "好啦～还想看看哪个？" : "嗨，我是小光。这三件事，从哪个开始都行～"), n === 3 ? "10" : "02", n === 3 ? "bounce" : null);
     main.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => open[b.dataset.open]()));
     main.querySelector("[data-enter]").addEventListener("click", () => finish());
