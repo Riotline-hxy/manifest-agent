@@ -208,6 +208,8 @@ def seed_showcase(st) -> dict:
         ("十月去香港玩了一个周末，在西贡徒步了三个多小时", "event", "chat", "active", 22, ""),
         ("用扇贝背单词，累计一千五百多天，中间断过", "identity", "chat", "active", 53, "likes"),
         ("会自己下厨，做过沙茶面", "preference", "chat", "active", 48, "likes"),
+        ("小时候学过两年电子琴，看得懂谱", "identity", "chat", "active", 57, "self"),
+        ("十一月开始学电吉他，琴是自己买的；工作日晚上能练二十分钟", "event", "chat", "active", 57, "effort"),
         ("十一月初连着加了三周班，那段时间睡得很差", "event", "chat", "active", 55, "self"),
         ("加班的日子回家只想刷手机，觉得一天都没有属于自己的时间", "insight", "chat", "active", 55, "self"),
         ("冥想后的感受：肩膀松下来了，想早点睡", "event", "scene:meditation", "active", 7, ""),
@@ -233,15 +235,49 @@ def seed_showcase(st) -> dict:
         (55, 22, 46, "user", "可以试试"),
         (55, 22, 47, "assistant", "那今晚就试。睡前那十分钟，我帮你安排成读纸质书了，书桌上那本还没读完吧？"),
         (55, 22, 48, "user", "还没，读了一半"),
-        (57, 19, 30, "user", "今天下班路上的晚霞好好看"),
-        (57, 19, 31, "assistant", "拍下来了吗？"),
-        (57, 19, 32, "user", "拍了，已经放进瞬间了"),
-        (57, 19, 33, "assistant", "看到了，粉色的。今天七点前就下班了，难得。周六跑团那 5 公里，还想去吗？"),
-        (57, 19, 35, "user", "想去，就是有点怕跑不下来"),
-        (57, 19, 36, "assistant", "上次 4 公里停了一次，这次跑不完也可以走一段，跟着阿姨的节奏就行。我已经把它排在周六了，到时候跑完回来跟我说说。"),
     ]
     for d, h, mi, role, text in convo:
         st.add_msg(role, text, at=at(d, h, mi))
+
+    # ---------------------------------------------------------------- 最近一次：和小光一起把「学电吉他」排出来 ----
+    guitar = wish("学会弹电吉他", "freedom", "小时候学过两年电子琴，吉他一次都没碰过", "能抱着琴弹唱一首完整的歌", SPAN - 1, 90)
+    v1 = {"milestones": [{"title": "能弹下来《晴天》的前奏", "due_in_days": 30}, {"title": "完整弹唱一首歌", "due_in_days": 90}],
+          "habits": [{"title": "每天练琴 20 分钟", "freq": "daily", "per_week": 7}],
+          "steps": [{"title": "跟着视频把琴调准音", "why": "琴到手的第一件事"},
+                    {"title": "认识六根弦和前三品", "why": "先知道手指往哪按"},
+                    {"title": "学会 C 和 G 两个和弦", "why": "《晴天》前奏用得上"}]}
+    v2 = {**v1, "habits": [{"title": "下班后练琴 20 分钟", "freq": "weekly", "per_week": 4}]}
+
+    def card(plan, state, why):
+        return {"type": "ask", "ask": "plan", "icon": "flag", "color": "var(--c-orange)",
+                "question": "给「学会弹电吉他」的一套安排，勾掉不想要的", "plan": plan, "why": why,
+                "wish_id": guitar["id"], "wish_title": guitar["title"], "state": state}
+    new_wish = {"type": "slip", "icon": "flag", "color": "var(--c-orange)", "verb": "新愿望", "new": "学会弹电吉他", "old": "", "go": "plan"}
+    for mi, role, text, acts in [
+        (2, "user", "帮我安排一下怎么新学电吉他", None),
+        (3, "assistant", "好呀。先问三件事：以前碰过乐器吗？琴买了没有？一周大概能练几次，每次多久？", None),
+        (6, "user", "小时候学过两年电子琴。琴昨天下单了，明天到。工作日晚上大概能弹二十分钟，周末可以多一点", None),
+        (7, "assistant", "学过电子琴，看谱和节奏就不用从零开始了。我先把它建成一个愿望，再按你的时间拆一版。\n\n"
+                         "第一个月先把手指练出来，目标是弹下来《晴天》的前奏。三个小步在琴到的头两天就能做完。",
+         [new_wish, card(v1, "replaced", "第一个月先练手指")]),
+        (10, "user", "每天练有点难，加班的时候肯定做不到", None),
+        (11, "assistant", "那就一周四次，加班的日子不练也不算断。其他的不变，你再看看。", [card(v2, "added", "一周四次，加班的日子跳过")]),
+        (13, "user", "可以，就这样", None),
+        (14, "assistant", "加进去了：两个站点，一个月弹下来《晴天》的前奏，三个月弹唱一首完整的歌；下班后练琴，一周四次；还有三个小步。\n\n明天琴到了先调音，那一步排在明天。C 和 G 两个和弦放在周四，周六上午跑完步，下午可以多弹一会儿。", None),
+    ]:
+        st.add_msg(role, text, {"acts": acts} if acts else None, at=at(SPAN - 1, 20, mi))
+    for title, due in [("能弹下来《晴天》的前奏", 30), ("完整弹唱一首歌", 90)]:
+        m = journey.add_milestone(st, guitar["id"], title, day(SPAN - 1 + due))
+        back("milestone", "created_at", m["id"], at(SPAN - 1, 20, 13))
+    h = journey.add_habit(st, guitar["id"], "下班后练琴 20 分钟", "weekly", 4)
+    back("habit", "created_at", h["id"], at(SPAN - 1, 20, 13))
+    for title, why, plan in [("跟着视频把琴调准音", "琴到手的第一件事", SPAN), ("认识六根弦和前三品", "先知道手指往哪按", None),
+                             ("学会 C 和 G 两个和弦", "《晴天》前奏用得上", SPAN + 2)]:
+        s_ = st.add_step(title, why, guitar["title"], due_day=day(SPAN - 1), wish_id=guitar["id"],
+                         scheduled_day=day(plan) if plan is not None else "")
+        back("step", "created_at", s_["id"], at(SPAN - 1, 20, 13))
+    st.add_msg("user", "琴到了！比想象中重", at=at(SPAN, 12, 20))
+    st.add_msg("assistant", "电吉他是会沉一点，背带调短些会舒服。今天那一步就是调音，晚上回家先调准，弹一下空弦听听。", at=at(SPAN, 12, 21))
     st.push_inbox("周六的 5 公里不用一口气跑完，跑不动就走一段。", "checkin")
     st.c.execute("UPDATE inbox SET created_at=?, seen=1", (at(SPAN - 1, 12),))
 
@@ -251,22 +287,44 @@ def seed_showcase(st) -> dict:
         (45, "被六十多岁的阿姨超过，你还挺开心的。", ["跟跑团跑了 4 公里"]),
         (52, "小雨要结婚了，你说替她高兴，也有点恍惚。", ["和小雨视频了一个小时"]),
         (55, "加班的三天都一点多才睡，你说一天都没有自己的时间。", ["想把刷手机挪到洗澡前"]),
-        (57, "今天七点前下班，路上的晚霞是粉色的。", ["拍了晚霞", "想去周六的 5 公里"]),
+        (57, "你想学电吉他，我们一起排了第一个月，琴明天到。", ["开始学电吉他", "下班路上的粉色晚霞"]),
     ]:
         st.save_digest(day(d), summary, hl, none, [], True)
         st.c.execute("UPDATE digest SET created_at=? WHERE day=?", (at(d + 1, 3, 10) if d + 1 < SPAN else at(SPAN, 3, 10), day(d)))
     st.set_profile({"last_digest_day": day(SPAN - 1)})
-    wa, wb = weekly.week_key(parse_iso(at(46, 12))), weekly.week_key(parse_iso(at(53, 12)))
-    st.save_week(wa, {"title": "被阿姨超过的那个早上", "quotes": ["被超了也挺开心", "我说不用，这次我请"],
-                      "bits": ["绿萝冒了新叶子", "4 公里停了一次", "旅行基金 3000", "周六没定闹钟"],
-                      "body": "这周你第一次跟跑团跑，4 公里中间停了一次，被一个六十多岁的阿姨超过去，你说挺开心的。"
-                              "一个人跑总想偷懒，有人在前面跑，你就跟上了。周末旅行基金到了 3000，妈妈问要不要出一半，你说不用，这次你请。"}, True)
-    st.save_week(wb, {"title": "一天里属于自己的时间", "quotes": ["感觉一天都没有自己的时间", "替她高兴，也有点恍惚"],
-                      "bits": ["小雨要结婚了", "下雨天在家拉伸", "粉色的晚霞"],
-                      "body": "这周又加了三天班，三天都一点多才睡。你说回家只想刷一会儿手机，不然一天都没有自己的时间。"
-                              "所以晚睡大概不是管不住自己，是白天太满了。我们说好把刷手机挪到洗澡前，看看这周能不能早一点。"},
-                  wb != weekly.week_key())
-    st.set_profile({"last_week_page": wb if wb != weekly.week_key() else wa})
+    pages = [
+        (4, "手机睡在客厅的第一周", ["有点不习惯，脑子还在转"], ["充电器挪到客厅", "三点后不喝咖啡", "面包店的可颂", "第一次冥想"],
+         "这周你把充电器从床头挪到了客厅。第三天十二点零五分就躺下了，比前一天早了一个小时，你说有点不习惯，脑子还在转。"
+         "三点以后不喝咖啡试了三天，你自己发现晚上好睡一些。小事，但是你自己试出来的。"),
+        (11, "删掉那个 App 以后", ["居然困了"], ["加班后偷了一天懒", "翻了二十页书", "翻出旧跑鞋"],
+         "连着加了三天班，你给自己放了一天假。第二天把最常刷的短视频卸载了，睡前翻了二十页书，写下「居然困了」。"
+         "周末你又开了一个新愿望：重新跑起来。第一天只是把旧跑鞋翻出来，看看还能不能穿。"),
+        (18, "一周四天", ["腿软，心情还行", "早上起床没那么难了"], ["跑一分钟走一分钟", "机械闹钟", "同事带的伞", "去香港"],
+         "第一次跑走结合两公里，跑一分钟就喘，你说腿软，心情还行。买了机械闹钟，手机终于不用进卧室了。"
+         "这周有四天是十二点前睡的，第一个站点到了。周末你去了香港，在商场里抬头看了好久那个天花板。"),
+        (25, "从山那边回来", ["腿酸，但值了", "小钱也是钱"], ["西贡的海", "新跑鞋", "两个会员取消了"],
+         "在西贡走了三个多小时，翻过山看到那片海，你说腿酸，但值了。回来以后你开了第三个愿望：明年三月带妈妈去大理。"
+         "第一件事是把三个月的账单看一遍，然后取消了两个没在用的会员，一个月省 58 块。"),
+        (32, "原来我能跑这么久", ["原来我能跑这么久"], ["加班也把手机放客厅", "操场 8 圈", "老家的柿子"],
+         "加班到十点那天，你回家还是把手机放到了客厅。周四在操场连续跑了 8 圈，三公里，停下来的时候想喊一声。"
+         "周末妈妈发来院子里的柿子，说等你回去摘。"),
+        (39, "这次我请", ["我说不用，这次我请"], ["绿萝冒了新叶", "妈妈说三月都行", "六点四十自己醒"],
+         "你问妈妈三月哪周有空，她说中旬都行，还问要不要出一半。你说不用，这次你请。"
+         "阳台的绿萝救活了，有一天早上你六点四十就醒了，比闹钟早二十分钟。"),
+        (46, "被阿姨超过的那个早上", ["被超了也挺开心", "一顿省下四十块"], ["感冒歇了一天", "跑团的 4 公里", "周六八点自己醒", "沙茶面"],
+         "这周你第一次跟跑团跑，4 公里中间停了一次，被一个六十多岁的阿姨超过去，你说挺开心的。"
+         "一个人跑总想偷懒，有人在前面，你就跟上了。周六没定闹钟，八点自己醒了；周日晚上第一次自己做了沙茶面，比外卖好吃。"),
+        (53, "一天里属于自己的时间", ["感觉一天都没有自己的时间", "从 1 开始也没关系"], ["旅行基金 3000", "小雨要结婚了", "扇贝又打卡了"],
+         "旅行基金到了 3000。后半周又加了三天班，三天都一点多才睡，你说回家只想刷一会儿，不然一天都没有自己的时间。"
+         "所以晚睡大概不是管不住自己，是白天太满了。断了好一阵的扇贝你又打开了，连续打卡从 1 开始，你说也没关系。"),
+    ]
+    keys = []
+    for d, title, quotes, bits, body in pages:
+        k = weekly.week_key(parse_iso(at(d, 12)))
+        st.save_week(k, {"title": title, "quotes": quotes, "bits": bits, "body": body}, k != weekly.week_key())
+        st.c.execute("UPDATE week_page SET created_at=? WHERE week=?", (at(d + 4, 3, 20) if d + 4 <= SPAN else at(SPAN, 3, 20), k))
+        keys.append(k)
+    st.set_profile({"last_week_page": keys[-1]})
     st.set_profile({"portrait": {"text": "白天很满，所以总想在夜里给自己多留一会儿的人。", "by": "digest", "updated_at": at(SPAN, 3)}})
     st.set_profile({"finds_at": at(SPAN - 2, 4), "finds": [
         {"id": "fd_show_1", "at": at(SPAN - 2, 4), "text": "你睡得早的那几周，都是跑步跑得多的几周。",
@@ -279,7 +337,7 @@ def seed_showcase(st) -> dict:
     st.set_profile({"notebook": {"by": "digest", "day": day(SPAN - 1), "updated_at": at(SPAN, 3), "text": (
         "最近的生活：27 岁，在上海做产品运营，一个人住；十一月加班多，下班后才有自己的时间。\n"
         "在意的人：妈妈在老家，明年三月要带她去大理；大学室友小雨明年结婚；周六跑团里有位跑得很快的阿姨。\n"
-        "正在努力的事：十二点前睡，手机放客厅充电；每周跑三次，已经能连续跑 3 公里；给大理攒旅行基金，到 3000 了。\n"
+        "正在努力的事：十二点前睡，手机放客厅充电；每周跑三次，已经能连续跑 3 公里；给大理攒旅行基金，到 3000 了；刚开始学电吉他，一周练四次。\n"
         "心情和状态：加班的日子容易晚睡，不是管不住，是想给自己留点时间；有人一起的时候更容易开始。\n"
         "相处时的偏好：中断时想一起找原因，不想被催；说话直接一点，不要打鸡血。\n"
         f"时间线：{md(20)} 第一次一周四天早睡；{md(34)} 连续跑完 3 公里；{md(45)} 第一次跟跑团；{md(50)} 旅行基金到 3000。")}})
@@ -418,5 +476,5 @@ def seed_showcase(st) -> dict:
 
     lv_now = growth.level(st)["lv"]
     st.set_profile({"town_v": town.TOWN_V, "town_seen_level": lv_now, "town_welcome": "", "level_floor": 1})
-    st.set_profile({"current_wish": sleep["id"]})
+    st.set_profile({"current_wish": guitar["id"]})
     return {"lv": lv_now, "xp": tot, "coins": growth.coins(st), "size": town.size_for(lv_now)}
