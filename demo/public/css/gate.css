@@ -1,5 +1,5 @@
 /* 入口页 */
-.gate { position: relative; z-index: 1; height: 100vh; height: 100dvh; overflow-y: auto; }
+.gate { position: relative; z-index: 1; height: 100vh; height: 100dvh; overflow-y: auto; overflow-x: hidden; }
 .gate-nav { display: flex; align-items: center; width: min(1160px, 100%); margin: 0 auto; padding: 20px 28px 0; }
 .gate-logo { display: flex; align-items: center; gap: 10px; font-size: 21px; font-weight: 900; }
 .gate-nav .spacer { flex: 1; }

@@ -5,12 +5,12 @@ import { mountBall } from "../ball.js";
 import { renderTrial } from "./trial.js";
 import { THEMES, applyTheme, themeOf } from "../theme.js";
 
-// 三张卡片分别回答：它能帮我做什么 / 和普通聊天机器人有什么不一样 / 我为什么会一直用它
+// 三张卡片：它帮我做什么（拆小步）/ 它是谁（记得你的 AI 伙伴）/ 留下什么（日历、瞬间、小镇）。一句标题一句话
 const FEATURES = [
-  ["flag", "var(--c-orange)", "把想要的样子，变成今天能做的事", "想早点睡、想敢开口、想把拖着的事做完——先说给小光听。它陪你把心里那个样子说清楚，再拆成今天就能动手的一件小事。显化不靠干等，靠每天往那儿挪一点。"],
-  ["chat", "var(--c-violet)", "不是问答机器，是一个记得你的朋友", "它记得你上次聊到哪、在意什么、不喜欢被怎么催。不用每次从头讲，隔天它还会自己来问一句：「昨天那件事，后来怎么样了？」"],
-  ["sprout", "var(--c-mint)", "每一小步都算数，不用逼自己", "做到的小事、想留下的瞬间，都会变成看得见的成长记录，你的小镇也跟着一点点盖起来。哪天没做到也没关系，它不会数落你，明天接着来就好。"],
-];
+  ["flag", "var(--c-orange)", "说出愿望，拆成小步", "想早睡、想敢开口，告诉小光。它帮你拆成今天就能做的一件事。"],
+  ["chat", "var(--c-violet)", "一个记得你的 AI 伙伴", "记得你说过的话、在意的人。隔天会来问一句：后来怎么样了？"],
+  ["sprout", "var(--c-mint)", "走过的路，都看得见", "日历、瞬间和一座慢慢长大的小镇，替你留下每一步。没做到，也不扣分。"],
+]
 
 export function renderGate(root) {
   const cur = themeOf(localStorage.getItem("xg-theme")).id;
@@ -23,14 +23,14 @@ export function renderGate(root) {
       </header>
       <section class="gate-hero">
         <div class="gate-copy">
-          <span class="pill acc">显化陪伴 agent · 网页版</span>
+          <span class="pill acc">显化陪伴 · 网页版</span>
           <h1>把想成为的人，<br>收成今天的<span class="hl">一小步</span>。</h1>
-          <p>小光会记得你说过的话，在你中断的时候照你喜欢的方式回应，再陪你一点点往前走。</p>
+          <p>一个记得你的 AI 伙伴，陪你把想成为的样子，拆成每天的一小步。<br>走过的路，都会被留下来。</p>
           <div class="gate-acts">
             <button class="btn btn-main btn-lg" data-act="guest">先体验一下</button>
             <button class="btn btn-ghost btn-lg" data-act="auth">登录 / 注册</button>
           </div>
-          <p class="gate-try">不用注册，花两分钟和小光聊几句，带走今天的一小步。</p>
+          <p class="gate-try">免注册，两分钟带走今天的一小步。</p>
           <div class="gate-themes">
             <span class="gt-k">选一个氛围</span>
             ${THEMES.map((t) => `<button class="gt ${t.id === cur ? "on" : ""}" data-t="${t.id}" title="${esc(t.name)} · ${esc(t.for)}"
@@ -47,13 +47,13 @@ export function renderGate(root) {
       <section class="gate-feats">
         ${FEATURES.map(([ic, c, t, d], i) => `<div class="feat card" style="--i:${i}">${tile(ic, c, 48)}<h3>${esc(t)}</h3><p>${esc(d)}</p></div>`).join("")}
       </section>
-      <footer class="gate-foot">每个账号一个独立数据库 · 回复来自真实模型</footer>
+      <footer class="gate-foot">你的记录，只有你自己看得到</footer>
     </div>`;
 
   mountBall(root.querySelector(".gl-ball"), { size: 30, halo: false, interactive: false, agent: false });
   const ball = mountBall(root.querySelector(".gate-ball"), { size: 200, emotion: "01" });
   const say = root.querySelector(".gate-say");
-  const LINES = [["10", "嗨，我是小光。"], ["03", "今天想从哪件小事开始？"], ["37", "你说过的，我都记着。"], ["14", "不催你，慢一点也算数。"], ["19", "先挑一个你喜欢的氛围？"]];
+  const LINES = [["10", "嗨，我是小光。"], ["19", "先挑一个你喜欢的氛围？"], ["03", "今天想从哪件小事开始？"]];
   let i = 0;
   const timer = setInterval(() => {
     if (!say.isConnected) return clearInterval(timer);
