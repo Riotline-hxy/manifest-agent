@@ -14,11 +14,25 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
-from . import growth, journey, town, weekly
+import base64
+from pathlib import Path
+
+from . import growth, journey, photos, town, weekly
 from .onboarding import LOOK_DEFAULT
 from .util import dumps, now, parse_iso
 
 SPAN = 58          # 账号建了多少天（第 0 天到今天）
+# 带照片的瞬间用的真照片：showcase_photos/<名字>.jpg（大图）+ <名字>_s.jpg（小图），由 tools/prep_showcase_photos.py 从原图压出来。
+# 没有这个文件，那条瞬间就只有文字（不会随便配一张图）。
+PHOTO_DIR = Path(__file__).resolve().parent.parent / "showcase_photos"
+
+
+def _photo(st, name: str) -> str:
+    full, small = PHOTO_DIR / f"{name}.jpg", PHOTO_DIR / f"{name}_s.jpg"
+    if not (full.is_file() and small.is_file()):
+        return ""
+    b = lambda f: base64.b64encode(f.read_bytes()).decode()
+    return photos.save(st, b(full), b(small))
 
 
 def seed_showcase(st) -> dict:
@@ -134,7 +148,15 @@ def seed_showcase(st) -> dict:
 
     # ---------------------------------------------------------------- 瞬间 ----
     mo_rows = []
-    for k, d, h, text, feeling, mood in [
+    for k, d, h, text, feeling, mood, pic in [
+        ("", 21, 15, "周末去了趟香港，在商场里抬头看了好久这个天花板。", "像掉进一个大海螺里", "开心", "hk"),
+        ("run", 22, 11, "第二天去西贡徒步，走了三个多小时，翻过山就看到这片海。", "腿酸，但值了", "开心", "coast"),
+        ("trip", 48, 20, "第一次自己做沙茶面，虾、鱿鱼、鱼丸都放了，比外卖好吃。", "一顿省下四十块", "骄傲", "noodle"),
+        ("", 53, 23, "断了好一阵的扇贝又打开了，累计 1546 天，连续打卡从 1 重新开始。", "从 1 开始也没关系", "", "words"),
+        ("", 35, 21, "妈妈发来老家院子里的柿子，说等我回去摘。", "", "开心", ""),
+        ("sleep", 41, 7, "早上六点四十醒了，比闹钟早二十分钟。", "", "平静", ""),
+        ("run", 50, 9, "跑团的阿姨说我步子比第一次稳多了。", "", "开心", ""),
+    ] + [(*x, "") for x in [
         ("sleep", 3, 0, "十二点零五分就躺下了，比昨天早了一个小时。", "有点不习惯，脑子还在转", ""),
         ("sleep", 9, 23, "删掉短视频以后，睡前翻了二十页书。", "居然困了", "平静"),
         ("sleep", 20, 22, "这周有四天是十二点前睡的。", "早上起床没那么难了", "开心"),
@@ -153,8 +175,10 @@ def seed_showcase(st) -> dict:
         ("", 38, 10, "阳台的绿萝救活了，冒出两片新叶子。", "", "平静"),
         ("", 52, 22, "和大学室友小雨视频了一个小时，她明年要结婚了。", "替她高兴，也有点恍惚", ""),
         ("", 57, 19, "下班路上的晚霞是粉色的，停下来拍了一张。", "", "开心"),
-    ]:
+    ]]:
         m = journey.add_moment(st, W[k]["id"] if k else "", text, feeling, mood=mood, day=day(d))
+        if pic:
+            st.c.execute("UPDATE moment SET photo=? WHERE id=?", (_photo(st, pic), m["id"]))
         st.c.execute("UPDATE moment SET created_at=?, updated_at=? WHERE id=?", (at(d, h), at(d, h), m["id"]))
         mo_rows.append((d, m["id"]))
 
@@ -181,6 +205,9 @@ def seed_showcase(st) -> dict:
         ("和别人一起跑比一个人跑更容易坚持", "insight", "confirmed", "active", 45, "likes"),
         ("周六早上跟一个跑团跑步，团里有位六十多岁的阿姨跑得很快", "event", "chat", "active", 45, "people"),
         ("大学室友小雨明年要结婚", "event", "chat", "active", 52, "people"),
+        ("十月去香港玩了一个周末，在西贡徒步了三个多小时", "event", "chat", "active", 22, ""),
+        ("用扇贝背单词，累计一千五百多天，中间断过", "identity", "chat", "active", 53, "likes"),
+        ("会自己下厨，做过沙茶面", "preference", "chat", "active", 48, "likes"),
         ("十一月初连着加了三周班，那段时间睡得很差", "event", "chat", "active", 55, "self"),
         ("加班的日子回家只想刷手机，觉得一天都没有属于自己的时间", "insight", "chat", "active", 55, "self"),
         ("冥想后的感受：肩膀松下来了，想早点睡", "event", "scene:meditation", "active", 7, ""),
