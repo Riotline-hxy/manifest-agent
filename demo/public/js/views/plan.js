@@ -262,7 +262,7 @@ function stepsHTML(M, resting) {
     <div class="ps-list">
       ${M.todo.length ? group("今天", G.today) + group("之后", G.later) + group(any ? "还没安排" : "", G.none)
         : `<p class="muted ps-none">现在没有待做的小步。</p>`}
-      ${cleared.map((w) => `<button class="ps-clear" data-think="${esc(w.id)}">${icon("checkc")}<span>「${esc(w.title)}」的小步都做完了</span><b>和小光想想下一步</b></button>`).join("")}
+      ${cleared.map((w) => `<button class="ps-clear" data-think="${esc(w.id)}" style="--jc:${catOf(w.category).color}">${icon("checkc")}<span>「${esc(w.title)}」的小步都做完了</span><b>和小光想想下一步${icon("arrow")}</b></button>`).join("")}
     </div>
     ${M.todo.length && !any ? `<p class="ps-tip">${fine ? "把小步拖到下面的日历里，或者点日历按钮，给它选一天。" : "点日历按钮，给小步选一天。"}</p>` : ""}
     ${dropped.length ? `<details class="j-dropped"><summary>先放一放的 ${dropped.length} 件</summary>

@@ -1314,6 +1314,25 @@ class ApiTest(unittest.TestCase):
         _, d = accounts["starter_built"].req("GET", "/api/bootstrap")
         self.assertEqual(sorted((i["kind"], i["x"], i["y"]) for i in d["town"]["items"]), sorted(old + [("tree", 4, 0)]))
 
+    def test_showcase_account_is_consistent(self):
+        """官方展示账号：等级、金币、小镇都对得上账；地上的东西不重叠、不出界；小步的安排都在今天以后。"""
+        from core import growth, journey
+        from core.showcase import seed_showcase
+        c, uid = self.member("showcase")
+        with Store(uid) as st:
+            out = seed_showcase(st)
+            self.assertGreaterEqual(out["lv"], 15)
+            self.assertEqual(out["coins"], growth.coins(st))
+            self.assertGreater(out["coins"], 300)
+            cells = [(i["x"], i["y"]) for i in town.items(st)]
+            self.assertEqual(len(cells), len(set(cells)))
+            self.assertTrue(all(0 <= x < out["size"] and 0 <= y < out["size"] for x, y in cells))
+            today = journey.now().date().isoformat()
+            self.assertTrue(all(s["scheduled_day"] >= today for s in st.steps(200) if s["status"] == "todo" and s["scheduled_day"]))
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["growth"]["level"]["lv"], out["lv"])
+        self.assertEqual(len(d["journey"]["wishes"]), 3)
+
     def test_daily_tasks_pay_once_and_chat_gives_no_coins(self):
         from core.util import day_key
         c, uid = self.onboarded("daily")

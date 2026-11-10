@@ -116,11 +116,14 @@
 .pstep.dragging, .pc-tag.dragging { opacity: .35; }
 .pstep.pop { animation: pop-in .55s var(--spring); }
 .ps-tip { margin: 8px 2px 0; font-size: 12px; font-weight: 600; color: var(--text-4); }
-.ps-clear { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 8px; padding: 10px 12px; border-radius: 14px; background: var(--good-soft); text-align: left; font-size: 13px; font-weight: 700; color: var(--text-2); transition: transform .2s var(--spring); }
-.ps-clear:hover { transform: translateY(-1px); }
-.ps-clear .ic-svg { width: 16px; height: 16px; flex: none; color: var(--good); }
+/* 一个愿望的小步都做完了：不用整块的绿底（白色氛围下太跳），虚线框 + 愿望自己的颜色，和「还没安排」那些行一个调子 */
+.ps-clear { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 8px; padding: 10px 12px; border-radius: 14px; border: 1.5px dashed var(--line-2);
+  background: transparent; text-align: left; font-size: 13px; font-weight: 700; color: var(--text-3); transition: transform .2s var(--spring), border-color .2s; }
+.ps-clear:hover { transform: translateY(-1px); border-color: var(--jc, var(--accent)); }
+.ps-clear > .ic-svg { width: 16px; height: 16px; flex: none; color: var(--jc, var(--accent)); }
 .ps-clear span { flex: 1; min-width: 0; }
-.ps-clear b { flex: none; font-size: 12.5px; color: var(--text); }
+.ps-clear b { flex: none; display: inline-flex; align-items: center; gap: 3px; font-size: 12.5px; color: var(--accent); }
+.ps-clear b .ic-svg { width: 13px; height: 13px; }
 .ps-card.resting .steps { opacity: .62; }
 .ps-card.resting .steps:hover { opacity: .9; }
 .ps-card .rest-on { margin: 6px 0 8px; }
