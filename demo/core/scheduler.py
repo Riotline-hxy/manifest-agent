@@ -9,8 +9,10 @@ What to say and how to say it lives in core/proactive.py (four kinds, real mater
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from . import auth, digest, finds, journey, llm, nudges, proactive, tasks, webpush, weekly
 from .store import Store, UID_RE
@@ -21,6 +23,10 @@ IDLE_HOURS = {"more": 4, "normal": 8, "less": 24}   # 最多 4 小时一条（�
 QUIET = (23, 8)
 TICK_SECONDS = 600
 TASK_SECONDS = 30
+try:
+    WORKERS = max(1, int(os.environ.get("MANIFEST_SCHEDULER_WORKERS") or 4))   # 后台同时处理几个人
+except ValueError:
+    WORKERS = 4
 
 REMIND = {
     "gentle": "到点啦，{title}的时间到了。{message}",
@@ -110,30 +116,36 @@ def deliver(store: Store, force: bool = False) -> dict:
     return {"sent": True, "item": item, "reason": why if not ok else "ok"}
 
 
+def _tick_one(uid: str) -> bool:
+    """一个人：整理昨天的记忆、隔几天写发现、周一写上一周、看要不要主动发一条。出错只影响这个人。"""
+    try:
+        if not auth.get_user(uid):
+            return False     # 账号已经删了、文件夹还留着（或者被别的线程又建出来）：不替一个不存在的人整理记忆、发消息
+        with Store(uid) as st:
+            # 日终整理：03:00 之后处理「昨天」，每人每天一次
+            day = digest.due(st) if st.profile().get("digest_on", True) else None
+            if day:
+                out = digest.run(st, day)
+                if not out.get("skipped"):
+                    finds.discover(st)      # 隔几天写一次「小光的发现」（finds.due 自己判断）
+            weekly.run_due(st)              # 周一 03:00 之后：把上一周写成笔记本里的一页
+            return bool(deliver(st)["sent"])
+    except Exception as e:  # one broken user must not stop the loop
+        print("[scheduler]", uid, type(e).__name__, e)
+        return False
+
+
 def tick() -> int:
+    """所有人过一遍。几个人同时做（每人的库是分开的，主要在等模型）：以前一个接一个，每人整理一次最长 90 秒，
+    人一多，03:00 开始的这一轮要拖到早上，主动消息也跟着晚。同时做几个由 MANIFEST_SCHEDULER_WORKERS 定，默认 4。"""
     root = DATA / "u"
     if not root.is_dir():
         return 0
-    sent = 0
-    for d in root.iterdir():
-        if not UID_RE.match(d.name):
-            continue
-        if not auth.get_user(d.name):
-            continue     # 账号已经删了、文件夹还留着（或者被别的线程又建出来）：不替一个不存在的人整理记忆、发消息
-        try:
-            with Store(d.name) as st:
-                # 日终整理：03:00 之后处理「昨天」，每人每天一次
-                day = digest.due(st) if st.profile().get("digest_on", True) else None
-                if day:
-                    out = digest.run(st, day)
-                    if not out.get("skipped"):
-                        finds.discover(st)      # 隔几天写一次「小光的发现」（finds.due 自己判断）
-                weekly.run_due(st)              # 周一 03:00 之后：把上一周写成笔记本里的一页
-                if deliver(st)["sent"]:
-                    sent += 1
-        except Exception as e:  # one broken user must not stop the loop
-            print("[scheduler]", d.name, type(e).__name__, e)
-    return sent
+    uids = [d.name for d in root.iterdir() if UID_RE.match(d.name)]
+    if not uids:
+        return 0
+    with ThreadPoolExecutor(max_workers=min(WORKERS, len(uids)), thread_name_prefix="tick") as ex:
+        return sum(ex.map(_tick_one, uids))
 
 
 def compose_task(st: Store, t: dict) -> str:

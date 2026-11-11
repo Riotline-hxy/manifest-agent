@@ -145,7 +145,7 @@ def material(st) -> tuple[str, str, int]:
     out = [f"认识 TA {st.counts().get('days', 1)} 天。"]
     nb = (p.get("notebook") or {}).get("text") or ""
     if nb:
-        out += ["", "## 笔记本里整理好的要点", nb]
+        out += ["", "## 笔记本里的近况", nb]
     mems = [m["text"] for m in st.memories(statuses=("active",), limit=60)]
     if mems:
         out += ["", "## 记得的事"] + [f"- {t}" for t in mems]

@@ -5,7 +5,7 @@ from . import academy, cheer, finds, weekly, growth, journey, kickstart, portrai
 from .store import Store
 from .util import agent_name, named
 
-VERSION = "3.21.1"
+VERSION = "3.22.0"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。

@@ -361,11 +361,11 @@ class Store:
     def memories(self, status: str | None = None, limit: int = 200, statuses: tuple | None = None) -> list[dict]:
         if statuses:
             q = ",".join("?" * len(statuses))
-            rows = self.c.execute(f"SELECT * FROM memory WHERE status IN ({q}) ORDER BY created_at DESC LIMIT ?", (*statuses, limit))
+            rows = self.c.execute(f"SELECT * FROM memory WHERE status IN ({q}) ORDER BY created_at DESC, rowid DESC LIMIT ?", (*statuses, limit))
         elif status:
-            rows = self.c.execute("SELECT * FROM memory WHERE status=? ORDER BY created_at DESC LIMIT ?", (status, limit))
+            rows = self.c.execute("SELECT * FROM memory WHERE status=? ORDER BY created_at DESC, rowid DESC LIMIT ?", (status, limit))
         else:
-            rows = self.c.execute("SELECT * FROM memory WHERE status!='archived' ORDER BY created_at DESC LIMIT ?", (limit,))
+            rows = self.c.execute("SELECT * FROM memory WHERE status!='archived' ORDER BY created_at DESC, rowid DESC LIMIT ?", (limit,))
         return [dict(r) for r in rows]
 
     def search(self, query: str, k: int = 6, include_guess: bool = False, fallback: bool = False) -> list[dict]:

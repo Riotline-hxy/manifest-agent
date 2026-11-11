@@ -67,7 +67,7 @@ def _run_tool(store, name, args, user_text="", routed=""):
 
 agent.run_tool = _run_tool
 
-# 每轮回复前的路由判断（core/router.py）也记下来，报告里能看到它挑了哪个工具
+# 每轮回复前的路由判断（core/router.py）也记下来，报告里能看到它挑了哪个工具；代码直接强制的（agent.forced_tool）也算在这一栏
 _routed: dict[str, str] = {}
 _orig_decide = router.decide
 
@@ -136,6 +136,7 @@ def run_one(base: dict, case: dict, pname: str) -> dict:
             ago = int(case.get("前情几天前") or 0)       # 前情是几天前聊的（默认就是刚才）
             at = (FIXED_NOW - timedelta(days=ago, minutes=30)).isoformat(timespec="seconds") if ago else None
             st.add_msg("user" if who == "用户" else "assistant", str(text), meta, at=at)
+    forced = agent.forced_tool(st, case["用户说"], stored=False)
     t0 = time.time()
     first, reply, errors = None, "", []
     try:
@@ -147,9 +148,9 @@ def run_one(base: dict, case: dict, pname: str) -> dict:
                 errors.append(val.get("message"))
     finally:
         calls = _calls.pop(st.uid, [])
-        routed = _routed.pop(st.uid, None)
+        forced = _routed.pop(st.uid, None) or forced
         st.close() if hasattr(st, "close") else None
-    return {"id": case["id"], "性格": pname, "回复": reply.strip(), "工具": calls, "路由": routed, "错误": errors,
+    return {"id": case["id"], "性格": pname, "回复": reply.strip(), "工具": calls, "路由": forced, "错误": errors,
             "首字秒": first, "总秒": round(time.time() - t0, 2)}
 
 

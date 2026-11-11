@@ -120,7 +120,7 @@ function knownSheet(root) {
       <span class="kc-main"><b>${esc(c.name)}</b><small>${esc(c.items[0]?.text || "还没有，点开告诉" + aname() + "一件")}</small></span>
       <span class="kc-n num">${c.items.length || ""}</span></button>`).join("")}</div>
     <button class="kn-cat kn-notes" data-notes>${tile("book", "var(--c-violet)", 34)}
-      <span class="kc-main"><b>笔记本里整理好的要点</b><small>${nb.text ? "" + aname() + "聊天时靠它记得你，你也可以直接改" : "聊过几天以后，" + aname() + "会开始整理"}</small></span></button>
+      <span class="kc-main"><b>近况笔记</b><small>${nb.text ? "" + aname() + "聊天时靠它记得你，你也可以直接改" : "聊过几天以后，" + aname() + "会开始整理"}</small></span></button>
     <button class="all-link" data-all>${icon("list")}按时间看全部 ${total} 件事和修订记录</button>`;
   const s = sheet({ title: "" + aname() + "记得的关于你", sticker: "heart", body });
   body.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => { s.close(); catSheet(b.dataset.cat, root); }));
@@ -151,7 +151,7 @@ function notesSheet(root) {
       ${nb.text ? `<div class="nb-rows">${nbRows(nb.text)}</div>` : `<p class="muted">还没有内容。聊过几天以后，${aname()}会在这里整理关于你的事。</p>`}`;
   };
   view();
-  const s = sheet({ title: "整理好的要点", sticker: "book", body, footer: [h("button", { class: "btn btn-ghost", onclick: edit }, "改一改")] });
+  const s = sheet({ title: "近况笔记", sticker: "book", body, footer: [h("button", { class: "btn btn-ghost", onclick: edit }, "改一改")] });
   function edit() {
     body.innerHTML = `<textarea class="field" rows="12" maxlength="1600">${esc(nb.text || "")}</textarea>`;
     body.querySelector("textarea").focus();

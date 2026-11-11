@@ -72,7 +72,7 @@ def material(st, week: str) -> tuple[str, str, int]:
         out += ["", "## 上一页", "（没有。这是笔记本里关于 TA 的第一页，不要提上一页、上周）"]
     nb = (st.profile().get("notebook") or {}).get("text") or ""
     if nb:
-        out += ["", "## 笔记本里整理好的要点（背景，不是这周的事）", clip(nb, 800)]
+        out += ["", "## 笔记本里的近况（背景）", clip(nb, 800)]
     corpus = []
     digs = [d for d in st.digests(60) if a <= d["day"] <= b]
     if digs:

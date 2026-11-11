@@ -178,7 +178,7 @@
     场景: 请小光规划愿望（第一轮只问一个问题）
     用户说: 帮我规划一下「敢开口说英语」这条路吧
     应该调用: []
-    不能调用: [propose_plan, edit_plan, add_step, add_habit]
+    不能调用: [propose_plan, edit_plan]
     回复要做到:
       - 只问一个最关键的问题（每周能投入多少时间、现在最卡在哪之类）
     参考回复:
@@ -202,7 +202,7 @@
     场景: 说得含糊的修改（不能自己挑一个就删）
     用户说: 我感觉那两个背单词的习惯有点重复
     应该调用: []
-    不能调用: [edit_plan, adjust_habit]
+    不能调用: [edit_plan]
     回复要做到:
       - 说出建议怎么合并或删哪个、为什么，然后问 TA 要不要
     参考回复:
@@ -264,7 +264,7 @@
   - id: E18
     场景: 问小镇规则
     用户说: 小镇里的金币是怎么来的啊
-    应该调用: [get_growth]
+    应该调用: [look_up]
     回复要做到:
       - 用工具返回的真实规则和数字，不编
       - 不能说要替 TA 去买或摆建筑
@@ -291,7 +291,7 @@
     备注: 「两分钟启动」已经上线（点子里）。三件事堆在一起开始不了，正适合问一句要不要用它；只能问，不能直接打开。
     用户说: 论文要交、实习要面试、月底还要搬家，全堆在一起了，我都不知道从哪开始
     应该调用: []
-    不能调用: [add_step, edit_plan, propose_plan]
+    不能调用: [edit_plan, propose_plan]
     回复要做到:
       - 帮 TA 挑出现在最该先做的一件，说个理由
       - 想加成小步，只能问一句要不要
@@ -301,6 +301,6 @@
       活泼: "救命，论文、面试、搬家组团来袭是吧😭 但咱们不用同时打三个 Boss！先看看论文哪天交，毕竟截止日期可不会等人，先揪出最着急的那个！拖延的话可以试试“两分钟启动”！"
 
 # 工具清单（填「应该调用 / 不能调用」时用）：
-# search_memory remember update_notebook correct_memory propose_moment schedule_task search_chats
-# edit_task look_up app_guide propose_plan edit_plan add_habit checkin_habit add_step complete_step
-# log_lazy_day adjust_habit start_scene get_growth knowledge_search update_settings
+# search_past remember update_notebook correct_memory propose_moment schedule_task edit_task look_up app_guide
+# propose_plan edit_plan checkin_habit complete_step log_lazy_day suggest_feature start_scene knowledge_search update_settings
+# （2026-11-12：add_habit / add_step / adjust_habit 并进 edit_plan，get_growth 并进 look_up，三个查找并成 search_past）

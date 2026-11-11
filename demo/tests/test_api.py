@@ -43,9 +43,11 @@ class FakeLLM:
         self.seen = []         # captured messages
         self.seen_json = []    # captured complete_json messages
         self.seen_tools = []   # tool names offered per stream_chat call
+        self.choices = []      # tool_choice per stream_chat call
 
-    def stream(self, messages, tools=None, model=None, reasoning=None, timeout=None):
+    def stream(self, messages, tools=None, model=None, reasoning=None, timeout=None, tool_choice=None):
         self.seen.append(messages)
+        self.choices.append(tool_choice)
         self.seen_tools.append([t["function"]["name"] for t in tools or []])
         script = self.turns.pop(0) if self.turns else [("text", "嗯，我在。")]
         for ev in script:
@@ -660,8 +662,8 @@ class ApiTest(unittest.TestCase):
             mat = digest.material(st, k["day"])
             self.assertEqual(len(mat["kicks"]), 1)
             self.assertIn("怕写不好", mat["user_lines"])
-            hit = agent.run_tool(st, "kick_history", {"query": "周报"})
-            miss = agent.run_tool(st, "kick_history", {"query": "练琴"})
+            hit = agent.run_tool(st, "search_past", {"query": "周报", "source": "kick"})
+            miss = agent.run_tool(st, "search_past", {"query": "练琴", "source": "kick"})
         self.assertEqual(len(hit["entries"]), 1)
         self.assertEqual((miss["entries"], bool(miss["note"])), ([], True))
         # 我的空间里能删
@@ -1116,7 +1118,7 @@ class ApiTest(unittest.TestCase):
         self.assertIn("tool", names)
         self.assertEqual("".join(d["text"] for e, d in ev if e == "delta"), "太好了，这条我收下了。")
         ctx = next(d for e, d in ev if e == "context")
-        self.assertIn("晚上十一点后容易刷手机停不下来", [m["text"] for m in ctx["memories"]])
+        self.assertEqual(ctx["memories"], [])                              # 记得的事不多：整份在系统提示里，不用再检索
         self.assertTrue([d["id"] for e, d in ev if e == "mood"])          # 调工具时小光换了表情
         sys_prompt = " ".join(m["content"] for m in self.fake.seen[0] if m["role"] == "system")
         self.assertIn("健康作息", sys_prompt)
@@ -2046,14 +2048,14 @@ class ApiTest(unittest.TestCase):
         c.req("POST", "/api/habit", {"action": "add", "wish_id": wid, "title": "11 点放下手机", "freq": "daily"})
         self.fake.turns = [[("tool_calls", [{"id": "c1", "name": "log_lazy_day", "arguments": '{"note":"加班太累"}'}])],
                            [("text", "收到，今天给自己放个假吧。")],
-                           [("tool_calls", [{"id": "c2", "name": "adjust_habit", "arguments": '{"title":"放下手机","action":"ease"}'}])],
+                           [("tool_calls", [{"id": "c2", "name": "edit_plan", "arguments": '{"action":"change","kind":"habit","target":"放下手机","freq":"weekly","per_week":3}'}])],
                            [("text", "调成每周 3 次了。")]]
         s, ev = c.sse("今天加班太累了，想偷个懒")
         tool = next(d for e, d in ev if e == "tool" and d["name"] == "log_lazy_day")
         self.assertEqual(tool["result"]["record"]["text"], "今天偷个懒：加班太累")
         s, ev = c.sse("放下手机那个每天做有点难，能不能少一点")
-        tool = next(d for e, d in ev if e == "tool" and d["name"] == "adjust_habit")
-        self.assertEqual(tool["result"]["done"], "调成每周 3 次")
+        tool = next(d for e, d in ev if e == "tool" and d["name"] == "edit_plan")
+        self.assertEqual(tool["result"]["changed"], ["改成每周 3 次"])
         _, d = c.req("GET", "/api/bootstrap")
         self.assertEqual(d["journey"]["wishes"][0]["habits"][0]["freq_text"], "每周 3 次")
 
@@ -2349,16 +2351,20 @@ class ApiTest(unittest.TestCase):
         """2026-11-08 的两段对话：「我想要做一个新愿望，是健身」被许可检查挡掉、一直陪聊；
         提议的安排还没加进计划，TA 说其中一个小步麻烦，小光却去计划里找。"""
         c, uid = self.onboarded("wish_flow")
-        from core import acts, agent, router
+        from core import acts, agent
+        pending = lambda st: "".join(i.get("title") or "" for w in agent.journey.wishes(st)
+                                     for k, v in (agent._pending_plan(st, w["id"]) or {}).items() for i in v)
         with Store(uid) as st:
             ok = agent.run_tool(st, "edit_plan", {"action": "add", "kind": "wish", "title": "健身"}, "我想要做一个新愿望，是健身")
             self.assertTrue(ok["ok"], ok)
-            routed = agent.run_tool(st, "edit_plan", {"action": "add", "kind": "step", "title": "换上运动鞋", "wish": "健身"},
-                                    "早上起来很昏沉", routed="edit_plan")
-            self.assertTrue(routed["ok"], routed)                        # 路由判断就是要加：放行
-            gone = agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "step", "target": "换上运动鞋"},
-                                  "最近好累", routed="edit_plan")
-            self.assertTrue(gone.get("need_consent"))                    # 删东西仍然只认 TA 的原话
+            ask = agent.run_tool(st, "edit_plan", {"action": "add", "kind": "step", "title": "换上运动鞋", "wish": "健身"},
+                                 "早上起来很昏沉")
+            self.assertTrue(ask.get("need_consent"))                     # 没让加：先问
+            added = agent.run_tool(st, "edit_plan", {"action": "add", "kind": "step", "title": "换上运动鞋", "wish": "健身"},
+                                   "帮我加一个小步：换上运动鞋")
+            self.assertTrue(added["ok"], added)
+            gone = agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "step", "target": "换上运动鞋"}, "最近好累")
+            self.assertTrue(gone.get("need_consent"))                    # 删东西只认 TA 的原话
             empty = agent.run_tool(st, "propose_plan", {})
             self.assertFalse(empty["ok"])
             self.assertNotIn("已经有了", empty["error"])
@@ -2374,7 +2380,7 @@ class ApiTest(unittest.TestCase):
                            [("text", "拆好啦，你看看哪些想加进来～")]]
         c.sse("帮我拆一下吧")
         with Store(uid) as st:
-            self.assertIn("今晚挑一个想练的部位", "".join(router.pending_plan(st)))
+            self.assertIn("今晚挑一个想练的部位", pending(st))
             last = [m for m in agent.history(st) if m["role"] == "system"][-1]["content"]
             self.assertIn("还没加进计划", last)
             self.assertIn("今晚挑一个想练的部位，存个视频", last)
@@ -2385,7 +2391,7 @@ class ApiTest(unittest.TestCase):
         with Store(uid) as st:
             asks = [a for m in st.messages(20) for a in (m.get("meta") or {}).get("acts") or [] if a.get("ask") == "plan"]
             self.assertEqual([a["state"] for a in asks], ["replaced", ""])   # 旧的一版作废，新的一版等 TA 点
-            self.assertNotIn("存个视频", "".join(router.pending_plan(st)))
+            self.assertNotIn("存个视频", pending(st))
 
     def test_look_up_and_app_guide_cover_every_area(self):
         c, uid = self.onboarded("lookup")
@@ -2406,8 +2412,8 @@ class ApiTest(unittest.TestCase):
             self.assertIn("look_up", prompt)
             self.assertIn("小镇", prompt)
             self.assertNotIn("宠物「", prompt)
-            g = agent.run_tool(st, "get_growth", {}, "我能建什么")
-            self.assertTrue(g["ok"] and "coins" in g["growth"] and g["growth"]["town"]["land"] == "5×5")
+            g = agent.run_tool(st, "look_up", {"area": "growth"}, "我能建什么")
+            self.assertTrue(g["ok"] and "现在的金币够盖" in g["text"] and "地 5×5" in g["text"], g)
 
     def test_moments_tasks_settings_and_lazy_undo_via_agent(self):
         c, uid = self.onboarded("misc_tools")
@@ -2560,14 +2566,14 @@ class ApiTest(unittest.TestCase):
         orig = agent.run_tool
         agent.run_tool = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
         try:
-            self.fake.turns = [[("tool_calls", [{"id": "b2", "name": "add_step", "arguments": json.dumps({"title": "x"})}])],
+            self.fake.turns = [[("tool_calls", [{"id": "b2", "name": "edit_plan", "arguments": json.dumps({"action": "add", "kind": "step", "title": "x"})}])],
                                [("text", "刚才没加上，我再试试？")]]
             s, ev = c.sse("帮我加一个小步")
         finally:
             agent.run_tool = orig
         tool_msg = next(m for m in self.fake.seen[-1] if m["role"] == "tool")
         self.assertIn('"ok": false', tool_msg["content"])
-        self.assertEqual(self._tool_events(ev, "add_step")[0]["acts"], [])
+        self.assertEqual(self._tool_events(ev, "edit_plan")[0]["acts"], [])
         self.assertTrue([d for e, d in ev if e == "done"])
 
     def test_a_turn_never_ends_without_words(self):
@@ -2650,8 +2656,7 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(d["profile"]["notebook"]["text"], "最近的生活：宿舍新养了只橘猫叫土豆。\n在意的人：室友阿琪")
         with Store(uid) as st:
             note = agent.context_note([], st)                       # 放在离 TA 这句话最近的那条系统消息里
-            self.assertIn("TA 亲手让你忘掉、或者更正过的", note)
-            self.assertIn("「喜欢吃寿司」（TA 让你忘掉了）", note)
+            self.assertNotIn("寿司", note)        # 删掉的事不再在提示里点名（点名反而让模型想起它）；记忆、笔记本、旧对话里都已经拿掉
             self.assertFalse("寿司" in agent.system_prompt(st, []).split("## 你的笔记本")[-1])   # 笔记本里那半句已经拿掉
             # 当天聊天里还有这句话，模型想把它记回去、写回笔记本：都拦下
             st.add_msg("user", "中午又去吃了寿司")
@@ -2669,7 +2674,9 @@ class ApiTest(unittest.TestCase):
         s, d = c.req("POST", "/api/memory", {"action": "edit", "id": k["id"], "text": "室友叫小琪，不叫阿琪"})
         self.assertNotIn("室友阿琪", d["profile"]["notebook"]["text"])
         with Store(uid) as st:
-            self.assertIn("「室友叫阿琪」 → 现在是「室友叫小琪，不叫阿琪」", agent.context_note([], st))
+            note = agent.context_note([], st)
+            self.assertIn("TA 更正过的", note)
+            self.assertIn("「室友叫阿琪」 → 现在是「室友叫小琪，不叫阿琪」", note)
             # TA 自己又把它加回来了：不再算「忘掉的」
             st.add_memory("喜欢吃寿司", "preference", "confirmed")
             self.assertNotIn("喜欢吃寿司", [f["old"] for f in memory.forgotten(st)])
@@ -2856,26 +2863,6 @@ class ApiTest(unittest.TestCase):
         shutil.rmtree(os.path.join(TMP, "u", ghost), ignore_errors=True)
 
 
-    def test_router_leaves_moment_proposals_to_the_chat_and_saves_on_yes(self):
-        """「提议留成一个瞬间」是小光自己的主意，路由不再强制它；小光刚问过、TA 说好，就是存下（不再弹第二张提议卡）。"""
-        from core import router
-        self.assertNotIn("propose_moment", router.ACTIONS)
-        c, uid = self.onboarded("rv_router")
-        with Store(uid) as st:
-            self.fake.json_out = {"tool": "propose_moment"}                    # 模型硬要判成它：不认
-            self.assertEqual(router.decide(router.context(st), "今天食堂的糖醋排骨居然没卖完，我抢到了最后一份！"), "")
-            st.add_msg("user", "今天在英语课上第一次举手发言了，手都在抖")
-            st.add_msg("assistant", "手抖着也举起来了，这一下真的不容易。要不要把它留成一个瞬间？")
-            ctx = router.context(st)
-            self.assertTrue(ctx["moment_asked"])
-            n = len(self.fake.seen_json)
-            self.assertEqual(router.decide(ctx, "好呀，留着吧"), "edit_plan")
-            self.assertEqual(len(self.fake.seen_json), n)                       # 不用再问模型
-            self.fake.json_out = {"tool": ""}
-            self.assertEqual(router.decide(ctx, "不用啦"), "")
-            self.fake.json_out = {"tool": "checkin_habit"}
-            self.assertEqual(router.decide(ctx, "对了我今天还去跑步了"), "")     # 没有习惯：不逼着去打一个不存在的卡
-
     def test_history_drops_what_the_user_asked_to_forget(self):
         """TA 亲手忘掉的事：之前的对话里说到它的那句不再带进上下文；忘掉之后 TA 自己又说起的照旧带上。"""
         from core import agent
@@ -2956,6 +2943,136 @@ class ApiTest(unittest.TestCase):
         self.assertIn("球", tools)
         self.assertTrue(all("小光" not in json.dumps(t, ensure_ascii=False) for t in agent.named(agent.TOOLS, "球")))
         self.assertIs(agent.named(guide.MAP, "小光"), guide.MAP)                  # 默认名字：原样，不多做一次替换
+
+
+    # ---- 2026-11-12：去掉路由、工具瘦身、记忆整份放进提示、笔记本只留近况、后台并发 -----------------------
+    def test_slim_tool_list_and_router_only_knows_real_tools(self):
+        """工具 18 个，合并掉的旧名字不再出现在给模型的工具、提示和路由里；路由只会挑真有的工具。"""
+        from core import agent, router
+        self.assertLessEqual(set(router.ACTIONS), {t["function"]["name"] for t in agent.TOOLS})
+        names = [t["function"]["name"] for t in agent.TOOLS]
+        self.assertEqual(len(names), 18)
+        for old in ("add_habit", "add_step", "adjust_habit", "get_growth", "search_memory", "search_chats", "kick_history"):
+            self.assertNotIn(old, names)
+        c, uid = self.onboarded("rv_norouter")
+        with Store(uid) as st:
+            sp = agent.system_prompt(st, [])
+            for old in ("add_habit", "add_step", "adjust_habit", "get_growth", "search_memory", "kick_history"):
+                self.assertNotIn(old, sp, old)
+        self.fake.json_out = {"tool": ""}
+        self.fake.turns = [[("text", "嗯，我在。")]]
+        c.sse("今天有点累")
+        self.assertEqual(self.fake.choices[-1], None)                       # 路由说不用做事：不强制任何工具
+        self.fake.json_out = {"tool": "update_settings"}
+        self.fake.turns = [[("text", "好呀，星星镇。")],
+                           [("tool_calls", [{"id": "s1", "name": "update_settings", "arguments": json.dumps({"town_name": "星星镇"}, ensure_ascii=False)}])],
+                           [("text", "改好啦，小镇叫星星镇了。")]]
+        s, ev = c.sse("我的小镇就叫星星镇吧")
+        self.assertEqual(self.fake.choices[-3:], [None, "update_settings", None])   # 模型只说没做：丢掉重来，先调工具
+        self.assertTrue(self._tool_events(ev, "update_settings")[0]["result"]["ok"])
+
+    def test_short_yes_after_offering_a_moment_saves_it(self):
+        """小光刚问「要不要留成一个瞬间」，TA 只说「好呀」：代码要求第一轮先调 edit_plan（不调模型判断）；说了别的就不管。"""
+        from core import agent
+        c, uid = self.onboarded("rv_forced")
+        with Store(uid) as st:
+            st.add_msg("user", "今天在英语课上第一次举手发言了，手都在抖")
+            st.add_msg("assistant", "手抖着也举起来了，这一下真的不容易。要不要把它留成一个瞬间？")
+            self.assertEqual(agent.forced_tool(st, "好呀，留着吧", stored=False), "edit_plan")
+            self.assertEqual(agent.forced_tool(st, "不用啦", stored=False), "")
+            self.assertEqual(agent.forced_tool(st, "对了我今天还去跑步了", stored=False), "")
+        self.fake.turns = [[("tool_calls", [{"id": "m1", "name": "edit_plan", "arguments": json.dumps(
+                               {"action": "add", "kind": "moment", "text": "今天在英语课上第一次举手发言了，手都在抖"}, ensure_ascii=False)}])],
+                           [("text", "留好啦。")]]
+        s, ev = c.sse("好呀")
+        self.assertEqual(self.fake.choices[-2], "edit_plan")
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual([m["text"] for m in d["journey"]["moments"]], ["今天在英语课上第一次举手发言了，手都在抖"])
+        self.fake.turns = [[("text", "瞬间页右上角点「留下一个瞬间」，就能把一件事留成一个瞬间啦。")]]
+        c.sse("瞬间这个功能怎么用")
+        self.fake.turns = [[("text", "嗯。")]]
+        c.sse("好")
+        self.assertEqual(self.fake.choices[-1], None)                       # 小光只是讲到这个功能，不算问过
+
+    def test_whole_memory_goes_into_the_prompt_and_only_overflow_is_searched(self):
+        """记得的事整份按六类放进系统提示（规矩在最前），猜测单独标出；超出预算时规矩照样全放，放不下的才按这句话检索。"""
+        from core import agent, memory
+        c, uid = self.onboarded("rv_memdoc")
+        with Store(uid) as st:
+            st.add_memory("室友叫阿琪，关系很好", "identity", "chat:explicit")
+            st.add_memory("喜欢吃寿司", "preference", "chat:explicit")
+            st.add_memory("可能不太喜欢被追问进度", "insight", "digest", "guess")
+            sp = agent.system_prompt(st, [])
+            self.assertIn("你记得的关于 TA 的事", sp)
+            for t in ("室友叫阿琪，关系很好", "喜欢吃寿司", "不希望被：别说教"):
+                self.assertIn(t, sp)
+            self.assertIn("待确认的猜测", sp)
+            self.assertLess(sp.index("相处的小规矩"), sp.index("喜欢吃寿司"))
+            doc, shown = memory.memory_doc(st)
+            self.assertEqual(len(shown), st.counts()["memories"])            # 不多：全都在
+            st.add_memory("10月2日：第一次一个人去海边看了灯塔", "event", "digest")       # 最早的一件事
+            for i in range(60):
+                st.add_memory(f"11月{i % 28 + 1}日：去了第{i}家咖啡馆，点了一杯燕麦拿铁和一块很甜的蛋糕", "event", "digest")
+            doc, shown = memory.memory_doc(st, budget=600)
+            self.assertIn("不希望被：别说教", doc)                            # 规矩不受预算限制
+            self.assertLess(len(shown), st.counts()["memories"])
+        self.fake.turns = [[("text", "嗯。")]]
+        s, ev = c.sse("我以前是不是去看过灯塔")
+        ctx = next(d for e, d in ev if e == "context")
+        self.assertEqual([m["text"] for m in ctx["memories"]], ["10月2日：第一次一个人去海边看了灯塔"])   # 放不下的才检索
+        note = [m for m in self.fake.seen[-1] if m["role"] == "system"][-1]["content"]
+        self.assertIn("更早的记忆", note)
+
+    def test_notebook_keeps_only_recent_life_and_moves_facts_to_memory(self):
+        """笔记本只留近况、心情、时间线；夜里整理的提示里这样要求，旧笔记本里的长期事实改成记忆。"""
+        from core import agent, digest
+        self.assertIn("只分这三块", digest.PROMPT)
+        self.assertIn("改成 ADD 操作记进记忆", digest.PROMPT)
+        self.assertEqual(agent.TOOLS[[t["function"]["name"] for t in agent.TOOLS].index("update_notebook")]["function"]
+                         ["parameters"]["properties"]["section"]["enum"], ["最近的生活", "心情和状态", "时间线"])
+        c, uid = self.onboarded("rv_notebook")
+        with Store(uid) as st:
+            st.set_profile({"notebook": {"text": "最近的生活：在准备期末", "by": "digest"}})
+            st.add_msg("user", "我妈下周来看我")
+            self.fake.json_out = {"summary": "s", "highlights": [], "portrait": "",
+                                  "notebook": "最近的生活：在准备期末；妈妈下周要来\n时间线：11月12日 说妈妈要来",
+                                  "ops": [{"op": "ADD", "text": t, "kind": "identity", "source": "said"} for t in (
+                                      "妈妈是中学老师", "弟弟在读高三", "室友叫阿琪", "养了一只橘猫叫土豆", "在准备雅思", "想学会游泳",
+                                      "喜欢吃寿司", "不喝咖啡", "习惯晚上跑步", "怕冷", "老家在成都", "大三学生", "学的是建筑",
+                                      "周末常去图书馆", "最好的朋友叫小雨", "希望说话直接一点")]}
+            out = digest.run(st)
+            self.assertEqual(len([o for o in out["ops"] if o["op"] == "ADD"]), 16)   # 一次挪过来十几条也能记下
+
+    def test_nightly_pass_runs_several_people_at_once(self):
+        """夜里整理几个人同时做：每人的模型调用在等的时候，别人不用排队。"""
+        from core import scheduler
+        uids = []
+        for i in range(4):
+            c, uid = self.onboarded(f"rv_par{i}")
+            uids.append(uid)
+        orig_run, orig_due, orig_deliver = scheduler.digest.run, scheduler.digest.due, scheduler.deliver
+        busy, peak = [0], [0]
+        import threading as _th
+        lock = _th.Lock()
+
+        def slow(st, day=None, use_model=True):
+            with lock:
+                busy[0] += 1; peak[0] = max(peak[0], busy[0])
+            time.sleep(0.3)
+            with lock:
+                busy[0] -= 1
+            return {"skipped": True}
+        scheduler.digest.run = slow
+        scheduler.digest.due = lambda st, ref=None: "2026-01-01" if st.uid in uids else None     # 不看现在几点
+        scheduler.deliver = lambda st, force=False: {"sent": False}
+        try:
+            t0 = time.time()
+            scheduler.tick()
+            took = time.time() - t0
+        finally:
+            scheduler.digest.run, scheduler.digest.due, scheduler.deliver = orig_run, orig_due, orig_deliver
+        self.assertGreaterEqual(peak[0], 2)
+        self.assertLess(took, 0.3 * len(uids))                              # 比一个接一个快
 
 
 class MemoryTest(unittest.TestCase):

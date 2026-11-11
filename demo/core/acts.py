@@ -37,7 +37,7 @@ for _k, _s in SCENES.items():   # 练习的介绍和时长照点子页
         FEATURES[_k].setdefault("desc", clip(_s.get("desc") or "", 40))
         FEATURES[_k].setdefault("minutes", _s.get("minutes"))
 
-READ_ONLY = {"look_up", "app_guide", "search_memory", "search_chats", "kick_history", "get_growth", "list_tasks"}
+READ_ONLY = {"look_up", "app_guide", "search_past"}
 
 # 小光嘴上推荐了一个练习、却忘了调 suggest_feature：照它说的名字补一个入口（说了「试试」就一定有入口）
 MENTION = [("两分钟启动", "kickstart"), ("冥想", "meditation"), ("三分钟感恩", "gratitude"), ("感恩练习", "gratitude"),
@@ -54,7 +54,7 @@ def infer_entry(reply: str, done: list[dict]) -> dict | None:
     return None
 
 # 会改这些表的工具：改之前拍一张，改完对比，就知道改了什么、怎么撤
-TABLES = {"complete_step": ["step"], "add_step": ["step"], "add_habit": ["habit"], "adjust_habit": ["habit"],
+TABLES = {"complete_step": ["step"],
           "checkin_habit": ["habit_log"], "log_lazy_day": ["record"]}
 PLAN_TABLE = {"wish": "wish", "milestone": "milestone", "habit": "habit", "step": "step", "moment": "moment"}
 KIND_NAME = {"wish": "愿望", "milestone": "里程碑", "habit": "习惯", "step": "小步", "moment": "瞬间"}
@@ -194,14 +194,11 @@ def view(st, name: str, args: dict, result: dict, snap: dict) -> list[dict]:
         if len(changes) > 1:
             new += f" 等 {len(changes)} 处"
         return [_slip("edit" if old else "flag", "var(--c-orange)", verb, new, old, go="moments" if kind == "moment" else "plan", undo=undo, **extra)]
-    if name in ("complete_step", "add_step", "add_habit", "adjust_habit"):
-        kind = "habit" if "habit" in name else "step"
+    if name == "complete_step":
         if not changes:
-            return [_slip("flag", "var(--c-orange)", "计划", _title(result.get("step") or result.get("habit")), go="plan")]
-        verb, old, new = _change_text(kind, changes[0])
-        if name == "add_habit":
-            new += " · " + ((result.get("habit") or {}).get("freq_text") or "")
-        return [_slip("check" if name == "complete_step" else "flag", "var(--c-orange)", verb, new, old, go="plan", undo=undo, **extra)]
+            return [_slip("flag", "var(--c-orange)", "计划", _title(result.get("step")), go="plan")]
+        verb, old, new = _change_text("step", changes[0])
+        return [_slip("check", "var(--c-orange)", verb, new, old, go="plan", undo=undo, **extra)]
     if name == "checkin_habit":
         h = result.get("habit") or {}
         note = "今天已经打过了" if result.get("already") else f"本周 {h.get('week')}/{h.get('need')}"
@@ -219,7 +216,7 @@ def view(st, name: str, args: dict, result: dict, snap: dict) -> list[dict]:
     if name == "schedule_task":
         t = result.get("task") or {}
         return [_slip("clock", "var(--c-sky)", "提醒", f"{t.get('title') or ''} · {t.get('when') or ''}", go="panel", notify=True)]
-    if name in ("edit_task", "cancel_task"):
+    if name == "edit_task":
         return [_slip("clock", "var(--c-sky)", "提醒", f"{result.get('task') or ''} · {result.get('done') or '关掉了'}", go="panel")]
     if name == "update_settings":
         return [_slip("compass", "var(--c-sky)", "设置", clip("，".join(result.get("changed") or []), 40), go="settings")]

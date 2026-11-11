@@ -195,6 +195,8 @@ def look_up(st, area: str, query: str = "") -> dict:
             + f"；全勤 +{g['daily']['bonus']['coins']} {'✓' if g['daily']['bonus']['done'] else ''}")
         L.append(town.summary(st))
         t = town.state(st)
+        afford = sorted((c for c in t["catalog"] if c["unlocked"] and c["price"] <= t["coins"] and c["cat"] == "build"), key=lambda c: -c["price"])
+        L.append("现在的金币够盖：" + ("、".join(c["name"] for c in afford[:3]) or "还不够盖新建筑") + f"；地 {t['size']}×{t['size']}")
         if t["items"]:
             L.append("小镇里：" + "、".join(f"{i['name']}（{i['created_at'][5:10]}）" for i in t["items"] if i["kind"] != "road")[:300])
         L.append("规则：" + growth.rules_text())

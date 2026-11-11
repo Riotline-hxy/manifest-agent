@@ -197,3 +197,44 @@ def without_forgotten(text: str, at: str, items: list[dict]) -> str:
 def blocked(text: str, items: list[dict], day: str) -> bool:
     """夜里整理想新记的这一条，是不是 TA 在那天之后亲手删掉的（不带新说法的才算）。"""
     return any(not f["new"] and f["at"][:10] >= day and _dice(text, f["old"]) >= 0.6 for f in items)
+
+
+# ---------------------------------------------------------------- 给对话用的整份记忆 ----
+# 以前每轮只放「固定要点」（≤700 字）再按字面检索几条，检索常常对不上、甚至对错（「你还记得我喜欢吃什么」对上「不喜欢被打鸡血」）。
+# 现在：记得的事不多时（大多数人几十条、两千字以内），整份按「了解你」的六类放进系统提示，模型自己判断哪条有用；
+# 这一段只在记忆变了时才变，能命中缓存。超出预算时，相处的小规矩一定全放，其余按类别、新的在前放到预算为止，
+# 放不下的（多半是较早的「最近发生的事」）才用检索补。
+MEM_BUDGET = 2400
+CAT_ORDER = ["rules", "self", "people", "effort", "likes", "recent"]
+CAT_TITLE = {"rules": "相处的小规矩（必须遵守）", "self": "关于 TA 自己", "people": "在意的人", "effort": "在努力的事",
+             "likes": "喜好和习惯", "recent": "最近发生的事"}
+GUESS_SHOWN = 5
+
+
+def memory_doc(store: Store, budget: int = MEM_BUDGET) -> tuple[str, set]:
+    """返回 (放进系统提示的整份记忆, 放进去了的记忆 id)。"""
+    from .portrait import cat_of
+    rows = store.memories(statuses=("active",), limit=400)          # 新的在前
+    groups = {c: [] for c in CAT_ORDER}
+    for m in rows:
+        groups[cat_of(m)].append(m)
+    prot = Store.PROTECTED_SOURCES
+    used, shown, parts = 0, set(), []
+    for c in CAT_ORDER:
+        lines = []
+        for m in sorted(groups[c], key=lambda m: m["source"] not in prot):   # TA 亲口让记的、确认过的排前；同一档里保持新的在前
+            line = "- " + m["text"] + (f"（{m['created_at'][5:10]}）" if c == "recent" else "")
+            if c != "rules" and used + len(line) > budget:
+                if c == "recent":
+                    break      # 事件按新到旧放：放不下了就停，别让一条更早的短句插到前面
+                continue
+            used += len(line)
+            shown.add(m["id"])
+            lines.append(line)
+        if lines:
+            parts.append(f"{CAT_TITLE[c]}：" + NL + NL.join(lines))
+    guesses = store.memories(statuses=("guess",), limit=GUESS_SHOWN)
+    if guesses:
+        parts.append("待确认的猜测（不能当事实说；别专门去问，TA 聊到相关的事时可以顺口确认一句）：" + NL
+                     + NL.join("- " + m["text"] for m in guesses))
+    return (NL + NL).join(parts), shown
