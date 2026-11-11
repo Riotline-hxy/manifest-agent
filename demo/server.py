@@ -188,6 +188,11 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
+    def _same_etag(self, etag: str) -> bool:
+        """浏览器带来的 If-None-Match 里有没有这一版。前面的 nginx 压缩时会把它改成弱校验（W/"…"），也算。"""
+        given = self.headers.get("If-None-Match") or ""
+        return any(x.strip().removeprefix("W/") == etag for x in given.split(","))
+
     def _not_modified(self, etag: str, cache: str):
         """文件没变：只回 304，不带内容。"""
         self.send_response(304)
@@ -204,7 +209,7 @@ class Handler(BaseHTTPRequestHandler):
             from core import town
             data = town.bundle_js()
             etag = '"b-%s"' % hashlib.md5(data).hexdigest()[:16]
-            if self.headers.get("If-None-Match") == etag:
+            if self._same_etag(etag):
                 return self._not_modified(etag, "no-cache")
             self._headers(200, "text/javascript; charset=utf-8", len(data), {"Cache-Control": "no-cache", "ETag": etag})
             self.end_headers()
@@ -222,7 +227,7 @@ class Handler(BaseHTTPRequestHandler):
         info = f.stat()
         etag = '"%x-%x"' % (info.st_mtime_ns, info.st_size)
         rng = (self.headers.get("Range") or "").strip()
-        if not rng and self.headers.get("If-None-Match") == etag:
+        if not rng and self._same_etag(etag):
             return self._not_modified(etag, cache)
         data = f.read_bytes()
         extra = {"Cache-Control": cache, "Accept-Ranges": "bytes", "ETag": etag}

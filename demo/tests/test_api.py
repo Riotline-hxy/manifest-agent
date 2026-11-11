@@ -2801,6 +2801,9 @@ class ApiTest(unittest.TestCase):
             c.request("GET", path, headers={"If-None-Match": etag})      # 同一条连接接着用：304 不能把连接弄坏
             r = c.getresponse()
             self.assertEqual((r.status, r.read(), r.getheader("ETag")), (304, b"", etag), path)
+            c.request("GET", path, headers={"If-None-Match": '"old", W/' + etag})   # nginx 压缩后会改成弱校验，也认
+            r = c.getresponse()
+            self.assertEqual((r.status, r.read()), (304, b""), path)
             c.request("GET", path, headers={"If-None-Match": '"stale"'})
             r = c.getresponse()
             self.assertEqual((r.status, r.read()), (200, body), path)
@@ -2890,6 +2893,32 @@ class ApiTest(unittest.TestCase):
             self.assertTrue(any("学校旁边那家" in t for t in said()))            # 别的话都在
             st.add_msg("user", "今天又想吃寿司了")
             self.assertTrue(any("今天又想吃寿司了" in t for t in said()))        # 忘掉之后自己又说起：照 TA 现在说的来
+
+
+    def test_asking_to_keep_a_moment_always_shows_the_card(self):
+        """小光嘴上问了「要不要留成一个瞬间」却没调工具：补上那张「留下」的卡片（内容是 TA 自己的话）；只是讲到这个功能时不补。"""
+        c, uid = self.onboarded("rv_ask_moment")
+        said = "刚才小组讨论我第一个用英语发言了，手心全是汗，但说完感觉好爽"
+        self.fake.turns = [[("text", "第一个开口诶，这一步可不小。要不要把这个留成一个瞬间？")]]
+        s, ev = c.sse(said)
+        card = self._tool_events(ev, "propose_moment")
+        self.assertEqual(len(card), 1)
+        self.assertEqual((card[0]["acts"][0]["ask"], card[0]["acts"][0]["text"], card[0]["acts"][0]["state"]), ("moment", said, ""))
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["messages"][-1]["meta"]["acts"][-1]["ask"], "moment")       # 存进了这条回复，翻回去看还在
+        self.assertEqual(d["journey"]["moments"], [])                                   # 只是提议，没点「留下」不会存
+        # 模型自己调了 propose_moment：不重复出卡
+        self.fake.turns = [[("tool_calls", [{"id": "p1", "name": "propose_moment", "arguments": json.dumps({"text": "第一次举手发言"})}])],
+                           [("text", "要不要把它留成一个瞬间？")]]
+        s, ev = c.sse("今天在英语课上第一次举手发言了，手都在抖")
+        self.assertEqual(len(self._tool_events(ev, "propose_moment")), 1)
+        # 只是在讲「瞬间」这个功能、或者 TA 只回了一两个字：不出卡
+        self.fake.turns = [[("text", "瞬间页右上角点「留下一个瞬间」，就能把一件事留成一个瞬间啦。")]]
+        s, ev = c.sse("瞬间这个功能怎么用呀，在哪里")
+        self.assertEqual(self._tool_events(ev, "propose_moment"), [])
+        self.fake.turns = [[("text", "嗯嗯。要不要把刚才那件事留成一个瞬间？")]]
+        s, ev = c.sse("嗯")
+        self.assertEqual(self._tool_events(ev, "propose_moment"), [])
 
 
 class MemoryTest(unittest.TestCase):

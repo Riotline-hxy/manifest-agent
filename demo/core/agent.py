@@ -1207,6 +1207,17 @@ def chat(store: Store, user_text: str, *, extract: bool = True, topic: str = "")
         yield ("tool", {"name": "suggest_feature", "args": {"feature": extra["feature"]}, "result": {"ok": True},
                         "acts": [extra], "act_start": len(all_acts)})
         all_acts.append(extra)
+    # 嘴上问了「要不要留成一个瞬间」、却没调 propose_moment：补上那张「留下」的卡片，内容用 TA 自己这句话。
+    # （提议瞬间不再由路由强制，见 core/router.py；模型有时只问不调工具，界面上就没有地方点。）
+    saved = any(t["name"] == "edit_plan" and t["args"].get("kind") == "moment" and t["result"].get("ok") for t in tool_log)
+    if (router.MOMENT_OFFER.search(reply) and not saved and len(user_text.strip()) >= 8      # TA 这句得是在讲一件事（「嗯」「好」不拿来当瞬间的内容）
+            and not any(a.get("ask") == "moment" for a in all_acts)):
+        args = {"text": clip(user_text, 300)}
+        result, v = _run_safely(store, "propose_moment", args, user_text, "")
+        if v:
+            tool_log.append({"name": "propose_moment", "args": args, "result": result})
+            yield ("tool", {"name": "propose_moment", "args": args, "result": result, "acts": v, "act_start": len(all_acts)})
+            all_acts += v
     meta = {"memories": [m["id"] for m in retrieved], "tools": [{"name": t["name"], "args": t["args"]} for t in tool_log],
             "acts": all_acts}
     replace_old_plans(store, all_acts)
