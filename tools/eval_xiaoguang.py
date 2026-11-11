@@ -174,7 +174,7 @@ def hard_checks(case: dict, r: dict) -> list[str]:
     for t in case.get("不能做成") or []:
         if t in did:
             out.append(f"不该做成 {t}")
-    for w in case.get("回复不能有") or []:
+    for w in case.get("回复里不能出现") or []:      # 字面检查。「回复不能有」是给打分模型看的描述（比如「写代码」= 别真的写代码），不在这里查
         if w in text:
             out.append(f"回复里不该出现「{w}」")
     q = text.count("？") + text.count("?")

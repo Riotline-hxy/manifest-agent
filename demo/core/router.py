@@ -4,15 +4,24 @@
 这样「嘴上说记下了 / 删掉了，其实没调工具」就不会发生。不是、判断不了、或者超时，就照常让模型自己决定。
 
 只挑「TA 自己说了就直接做」的那几种；含糊的、需要先问的、只是情绪，一律返回空——那些交给主对话去问。
+「提议留成一个瞬间」（propose_moment）不在这里：那是小光自己的主意，不是 TA 让做的事。以前放在这里时，
+路由会把一句带过的小开心（「抢到最后一份糖醋排骨」）也判成值得留、强制弹出提议卡；交给主对话自己判断，
+该提议的（和愿望有关的具体行动和感受）照样会提议。2026-11-11 用真实模型对照过，见 docs/交付前审查-2026-11-11.md。
 """
 from __future__ import annotations
+
+import re
 
 from . import journey, llm
 from .util import clip
 
+MOMENT_OFFER = re.compile(r"留成一个瞬间|留成瞬间")
+# 整句就是一个简短的同意（「好呀」「可以，留着吧」）。「对了我今天还去跑步了」这种开头像同意、其实在说别的，不算
+YES = re.compile(r"(好|好的|好呀|好啊|好吧|嗯+|对|对的|对呀|是的|可以|行|要|要的|当然|ok|okay|留|留着|留下)"
+                 r"[呀啊吧啦哦嗯的～~!！。.，, ]*(留着吧?|留下吧?|留吧|记下吧?|存下吧?|就这样)?[呀啊吧啦哦～~!！。.]*", re.I)
+
 ACTIONS = {
     "log_lazy_day": "TA 说今天想躺平 / 休息 / 偷懒 / 什么都不干（只说累、焦虑、烦，不算）；或者说今天不偷懒了",
-    "propose_moment": "TA 讲了一件刚发生的、自己在意的具体的事，带着做了什么、看到了什么或什么感受，值得留成一个瞬间（闲聊、吐槽、一句带过的小事不算）",
     "complete_step": "TA 说做完了计划里某个待做的小步：说的事要和下面「待做的小步」里的某一条对得上；对不上就不是它",
     "checkin_habit": "TA 说今天做了某个习惯里的事（今天去健身了、背完单词了）",
     "remember": "TA 明确让你记住一件关于 TA 的事（「记一下」「记住」「别忘了」）",
@@ -35,6 +44,8 @@ PROMPT = """你在帮陪伴 App 里的 AI 朋友「小光」做一个判断：TA
 
 能直接做的事（TA 自己说了才算）：
 {actions}
+
+一句话对得上不止一种时：TA 做了计划里的事（待做的小步、习惯里的事）优先选 complete_step / checkin_habit，先把做了的事记上。
 
 这些都返回空，交给小光自己去聊或者先问：
 - TA 说得含糊（「这两个好像重复了」「帮我精简一下」），没点名要怎么改
@@ -59,13 +70,17 @@ TA 这一句：{text}
 
 def context(store) -> dict:
     """路由要看的几样东西。在主线程里读完（数据库连接不跨线程用），判断本身放到后台线程。"""
+    last = next((m for m in reversed(store.messages(6)) if m["role"] == "assistant" and m["content"]), None)
+    asked = bool(last) and (bool(MOMENT_OFFER.search(last["content"])) or any(
+        isinstance(a, dict) and a.get("ask") == "moment" and not a.get("state") for a in (last.get("meta") or {}).get("acts") or []))
     return {
         "uid": store.uid,
         "wishes": [w["title"] for w in journey.wishes(store)],
         "habits": [h["title"] for h in journey.habits(store)][:10],
         "steps": [s["title"] for s in store.steps() if s["status"] == "todo"][:8],
-        "prev": next((m["content"] for m in reversed(store.messages(6)) if m["role"] == "assistant" and m["content"]), ""),
+        "prev": last["content"] if last else "",
         "pending": pending_plan(store),
+        "moment_asked": asked,      # 小光上一句刚问过「要不要留成一个瞬间」
     }
 
 
@@ -80,6 +95,11 @@ def pending_plan(store) -> list[str]:
 
 
 def decide(ctx: dict, user_text: str, timeout: float = 8) -> str:
+    # 小光上一句刚问过「要不要留成一个瞬间」：TA 说好就是存下（不用再问模型，更不该再弹一张提议卡）；
+    # TA 没接、说了别的，这一轮也不再提议第二次。
+    t = (user_text or "").strip()
+    if ctx.get("moment_asked") and YES.fullmatch(t):
+        return "edit_plan"
     try:
         prompt = PROMPT.format(
             actions="\n".join(f"- {k}：{v}" for k, v in ACTIONS.items()),

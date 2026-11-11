@@ -186,6 +186,14 @@ def scrub_notebook(store: Store, old: str) -> bool:
     return True
 
 
+def without_forgotten(text: str, at: str, items: list[dict]) -> str:
+    """一条聊天记录里，说到「TA 之后亲手让忘掉 / 更正的事」的那半句拿掉。TA 忘掉之后又说起的不动。"""
+    for f in items:
+        if (at or "") < f["at"]:
+            text = scrub_text(text, f["old"])
+    return text
+
+
 def blocked(text: str, items: list[dict], day: str) -> bool:
     """夜里整理想新记的这一条，是不是 TA 在那天之后亲手删掉的（不带新说法的才算）。"""
     return any(not f["new"] and f["at"][:10] >= day and _dice(text, f["old"]) >= 0.6 for f in items)

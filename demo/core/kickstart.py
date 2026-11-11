@@ -99,6 +99,10 @@ def home(st: Store) -> dict:
         run = _row(st, act["id"])
         if t and (now() - t).total_seconds() < 6 * 3600 and run["route"]:
             active = public(run)
+        elif t and (now() - t).total_seconds() >= 6 * 3600:
+            # 做到一半直接关了页面、过了 6 小时不会再接着做：和中途关掉一样，这次的回答和路线不留
+            _wipe(run)
+            _save(st, run)
     return {"active": active}
 
 

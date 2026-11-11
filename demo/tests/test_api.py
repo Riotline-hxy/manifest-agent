@@ -2817,6 +2817,81 @@ class ApiTest(unittest.TestCase):
         c.close()
 
 
+    def test_abandoned_kickstart_is_wiped_and_orphan_folders_are_skipped(self):
+        """两分钟启动做到一半直接关了页面：过了 6 小时就和中途关掉一样，什么都不留。
+        账号删了、文件夹还在：后台不替一个不存在的人整理记忆、发消息。"""
+        from core import scheduler
+        c, uid = self.onboarded("rv_kick")
+        self.fake.json_out = {"say": "从最小的开始。", "cheer": "开始了。", "steps": [
+            {"title": "打开文档", "tip": "只打开，不写。", "minutes": 1}, {"title": "写一行", "tip": "随便写。", "minutes": 1},
+            {"title": "再写一行", "tip": "接着写。", "minutes": 1}]}
+        run = self._kick(c, "start", task="写论文的引言", mode="low")["run"]
+        self.assertTrue(c.req("GET", "/api/kick")[1]["active"])                       # 刚开始：能接着做
+        with Store(uid) as st:
+            st.c.execute("UPDATE kick_run SET updated_at='2026-01-01T08:00:00+08:00' WHERE id=?", (run["id"],))
+        self.assertIsNone(c.req("GET", "/api/kick")[1]["active"])
+        with Store(uid) as st:
+            row = st.c.execute("SELECT status, route, say FROM kick_run WHERE id=?", (run["id"],)).fetchone()
+            self.assertEqual((row["status"], row["say"]), ("closed", ""))
+            self.assertNotIn("打开文档", row["route"])
+        ghost = "u_" + "0" * 16                       # 没有账号的文件夹
+        with Store(ghost) as st:
+            st.set_profile({"onboarded": True, "proactive": "more"})
+            st.add_msg("user", "昨天说的话", at="2026-01-01T20:00:00+08:00")
+        n = len(self.fake.seen_json)
+        orig = scheduler.deliver
+        seen = []
+        scheduler.deliver = lambda st, force=False: (seen.append(st.uid), {"sent": False})[1]
+        try:
+            scheduler.tick()
+        finally:
+            scheduler.deliver = orig
+        self.assertIn(uid, seen)
+        self.assertNotIn(ghost, seen)
+        with Store(ghost) as st:
+            self.assertEqual(st.digests(3), [])
+        shutil.rmtree(os.path.join(TMP, "u", ghost), ignore_errors=True)
+
+
+    def test_router_leaves_moment_proposals_to_the_chat_and_saves_on_yes(self):
+        """「提议留成一个瞬间」是小光自己的主意，路由不再强制它；小光刚问过、TA 说好，就是存下（不再弹第二张提议卡）。"""
+        from core import router
+        self.assertNotIn("propose_moment", router.ACTIONS)
+        c, uid = self.onboarded("rv_router")
+        with Store(uid) as st:
+            self.fake.json_out = {"tool": "propose_moment"}                    # 模型硬要判成它：不认
+            self.assertEqual(router.decide(router.context(st), "今天食堂的糖醋排骨居然没卖完，我抢到了最后一份！"), "")
+            st.add_msg("user", "今天在英语课上第一次举手发言了，手都在抖")
+            st.add_msg("assistant", "手抖着也举起来了，这一下真的不容易。要不要把它留成一个瞬间？")
+            ctx = router.context(st)
+            self.assertTrue(ctx["moment_asked"])
+            n = len(self.fake.seen_json)
+            self.assertEqual(router.decide(ctx, "好呀，留着吧"), "edit_plan")
+            self.assertEqual(len(self.fake.seen_json), n)                       # 不用再问模型
+            self.fake.json_out = {"tool": ""}
+            self.assertEqual(router.decide(ctx, "不用啦"), "")
+            self.fake.json_out = {"tool": "checkin_habit"}
+            self.assertEqual(router.decide(ctx, "对了我今天还去跑步了"), "")     # 没有习惯：不逼着去打一个不存在的卡
+
+    def test_history_drops_what_the_user_asked_to_forget(self):
+        """TA 亲手忘掉的事：之前的对话里说到它的那句不再带进上下文；忘掉之后 TA 自己又说起的照旧带上。"""
+        from core import agent
+        c, uid = self.onboarded("rv_hist")
+        with Store(uid) as st:
+            st.add_msg("user", "我最喜欢吃寿司了，每周都想去", at="2026-01-05T12:00:00+08:00")
+            st.add_msg("assistant", "那你肯定有一家心里的第一名吧～", at="2026-01-05T12:00:05+08:00")
+            st.add_msg("user", "有，学校旁边那家", at="2026-01-05T12:01:00+08:00")
+            m = st.add_memory("最喜欢吃寿司", "preference", "chat:explicit")
+            said = lambda: [x["content"] for x in agent.history(st) if x["role"] == "user"]
+            self.assertTrue(any("寿司" in t for t in said()))
+        self.assertEqual(c.req("POST", "/api/memory", {"action": "forget", "id": m["id"]})[0], 200)
+        with Store(uid) as st:
+            self.assertFalse(any("寿司" in t for t in said()))
+            self.assertTrue(any("学校旁边那家" in t for t in said()))            # 别的话都在
+            st.add_msg("user", "今天又想吃寿司了")
+            self.assertTrue(any("今天又想吃寿司了" in t for t in said()))        # 忘掉之后自己又说起：照 TA 现在说的来
+
+
 class MemoryTest(unittest.TestCase):
     """记忆读写（2026-11-07）：写之前查重（mem0 的 ADD / UPDATE / NOOP），要点一直放在提示里（Letta 的 core block）。"""
 

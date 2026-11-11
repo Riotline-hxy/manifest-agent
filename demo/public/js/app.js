@@ -87,8 +87,12 @@ async function boot() {
       setAgentLook(lookOf(null));
       root.innerHTML = "";
       renderGate(root);
+      let was = "";
+      try { was = sessionStorage.getItem("xg_expired") || ""; sessionStorage.removeItem("xg_expired"); } catch {}
+      if (was) toast("登录过期了，重新登录一下就好");     // 用着用着被送回登录页：说一声为什么（api.js 的 sessionExpired）
       return;
     }
+    try { sessionStorage.removeItem("xg_expired"); } catch {}
     state.user = me.user;
     const data = await api.bootstrap();
     setData(data, { silent: true });

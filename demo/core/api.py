@@ -86,6 +86,6 @@ def bootstrap(st: Store) -> dict:
         "portrait": portrait.portrait(st),    # 小光眼中的你，一句话
         "notebook_weeks": weekly.view(st),    # 小光的笔记本：一周一页 + 这周到现在的碎片
         "finds": finds.view(st),              # 小光的发现（小光翻笔记本时注意到的事，core/finds.py）
-        "kick_memories": kickstart.entries(st, 30),   # 《两分钟启动记忆》：我的空间 → 记忆 里能看、能删
+        "kick_memories": kickstart.entries(st, 30),   # 《两分钟启动记忆》：我的空间 → 了解你 → 小光记得的 →「按时间看全部」里能看、能删
         "proactive": dict(zip(("ok", "reason"), scheduler.should_reach_out(p, scheduler.waiting_unseen(st, p)))),
     }

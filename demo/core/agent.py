@@ -480,7 +480,12 @@ def history(store: Store) -> list[dict]:
         used += len(c)
         picked.append((m, c))
     out, last_day = [], ""
+    gone = memory.forgotten(store)
     for m, c in reversed(picked):
+        if gone:      # TA 亲手让忘掉 / 更正过的事：在那之前的对话里说到它的那句不带进上下文（只在提示里说「别提」，模型有时还是照着原话接）
+            c = memory.without_forgotten(c, m["created_at"], gone)
+            if not c.strip():
+                continue
         d = m["created_at"][:10]
         if m["role"] == "user" and d != last_day:
             c = f"［{int(d[5:7])}月{int(d[8:10])}日 {m['created_at'][11:16]}］{c}"

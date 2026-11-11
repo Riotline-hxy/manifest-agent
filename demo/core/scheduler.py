@@ -12,7 +12,7 @@ from __future__ import annotations
 import threading
 import time
 
-from . import digest, finds, journey, llm, nudges, proactive, tasks, webpush, weekly
+from . import auth, digest, finds, journey, llm, nudges, proactive, tasks, webpush, weekly
 from .store import Store, UID_RE
 from .util import DATA, clip, day_key, hours_since, iso, now
 from .voice import STYLE
@@ -118,6 +118,8 @@ def tick() -> int:
     for d in root.iterdir():
         if not UID_RE.match(d.name):
             continue
+        if not auth.get_user(d.name):
+            continue     # 账号已经删了、文件夹还留着（或者被别的线程又建出来）：不替一个不存在的人整理记忆、发消息
         try:
             with Store(d.name) as st:
                 # 日终整理：03:00 之后处理「昨天」，每人每天一次

@@ -49,6 +49,12 @@ python -m unittest discover -s demo/tests -v
 
 用脚本化的假模型跑真服务器，不消耗额度。模型对比：`python demo/bench_models.py`（需要 key，结果写到 `docs/bench-<日期>.json`，不进 git）。
 
+真实模型的评测（需要 key，数据在脚本自己的临时目录）：`python tools/eval_xiaoguang.py`，三份评测集都在 `docs/prompt-rework/`：
+`评测集.yaml`（人味和常用工具）、`评测集-功能与记忆.yaml`、`评测集-边界.yaml`（对象不清的删改先问、提议后同意 / 拒绝、更正和忘掉、不该动的情况；
+用 `应该做成 / 不能做成` 按结果检查，模型调了、被代码拦下的不算做成）。加 `--no-judge` 只做硬检查。
+
+2026-11-11 的交付前审查见 [docs/交付前审查-2026-11-11.md](docs/交付前审查-2026-11-11.md)。
+
 ## 成长：我的小镇
 
 每个人一座小镇，现实里做成的事都在这里盖起来。规则全在后端（`core/growth.py`、`core/town.py`），前端和小光只读。
@@ -137,6 +143,13 @@ deploy/              部署脚本与 systemd 服务（服务文件改了要手�
 ## 数据
 
 运行时数据在 `demo/data/`（服务器上软链到 `/opt/manifest-agent/data`）：`auth.db` 存账号，`u/<user_id>/mind.db` 每人一份。不进 git。
+
+备份：`python3 demo/backup.py <数据目录> <备份到哪> [--photos]`。服务运行着也能做（库用 SQLite 的在线备份接口拷，拷完做完整性检查；
+直接拷 `.db` 文件可能拷到写了一半的状态）。`deploy/deploy.sh` 换版本之前会调它，默认不带照片：**照片目前没有任何备份**，要备份得加 `--photos` 单独跑。
+
+两个可选的环境变量（放在服务器的 `.env` 里）：
+- `MANIFEST_PROXY_HOPS`：服务前面有几层自己的反向代理，默认 1（只有本机的 nginx）。限流按这个数从 `X-Forwarded-For` 的右边取来访地址；前面再加一层 CDN 就设成 2，不然所有人会被当成同一个地址一起限流。
+- `MANIFEST_PUSH_HOSTS`：额外允许的推送服务域名，逗号分隔。默认只认 Chrome / Edge、Firefox、Safari 的推送服务。
 
 ## 形象与素材
 

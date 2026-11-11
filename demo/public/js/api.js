@@ -21,8 +21,19 @@ async function request(method, path, body) {
   } catch {
     data = { error: text };
   }
+  if (res.status === 401 && !path.startsWith("/api/auth/")) sessionExpired();
   if (!res.ok) throw new ApiError(res.status, data?.error || `HTTP ${res.status}`);
   return data;
+}
+
+// 登录过期了（30 天到了、账号在别处退出或被删）：回到登录页。
+// 不然人会对着一个点什么都弹「请先登录」、对话只会说「连不上了」的页面，不知道要刷新。
+let expired = false;
+function sessionExpired() {
+  if (expired) return;
+  expired = true;
+  try { sessionStorage.setItem("xg_expired", "1"); } catch {}
+  setTimeout(() => location.reload(), 900);
 }
 
 export const get = (p) => request("GET", p);
@@ -90,6 +101,7 @@ export async function streamChat(text, handlers = {}, extra = {}) {
     try {
       msg = JSON.parse(raw).error || msg;
     } catch {}
+    if (res.status === 401) sessionExpired();
     throw new ApiError(res.status, msg);
   }
   const reader = res.body.getReader();

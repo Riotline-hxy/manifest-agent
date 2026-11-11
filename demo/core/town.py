@@ -22,6 +22,7 @@ import os
 import pathlib
 import re
 import threading
+import time
 
 from . import growth
 from .util import DATA, clip, dumps, iso, loads, new_id, now
@@ -38,7 +39,18 @@ _cache: dict = {}
 _cache_lock = threading.Lock()
 
 
+_STAMP_TTL = 1.0      # 秒
+_stamps: dict = {}
+
+
 def _stamp(*paths) -> tuple:
+    """这些文件现在的样子（名字 + 修改时间），用来判断素材库 / 后台配置变没变。
+    一秒内问过就用上一次的结果：拼一次页面数据会问几十遍，每遍都要把素材库的三十多个文件挨个看一眼
+    （老用户的小镇东西多，光这一项就占了每次操作一大半的时间）。文件改了最多晚一秒生效；后台保存时会立刻清掉。"""
+    t = time.monotonic()
+    hit = _stamps.get(paths)
+    if hit and t - hit[0] < _STAMP_TTL:
+        return hit[1]
     out = []
     for path in paths:
         try:
@@ -48,6 +60,7 @@ def _stamp(*paths) -> tuple:
                 out.append((path.name, path.stat().st_mtime_ns))
         except OSError:
             out.append((str(path), 0))
+    _stamps[paths] = (t, tuple(out))
     return tuple(out)
 
 
@@ -512,4 +525,5 @@ def admin_save(patch: dict) -> dict:
     tmp = CONFIG.with_suffix(".tmp")
     tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=1), encoding="utf-8")
     os.replace(tmp, CONFIG)
+    _stamps.clear()      # 改完立刻生效，不等那一秒
     return admin_catalog()
