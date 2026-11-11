@@ -9,6 +9,7 @@ pass a user id in a request.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import mimetypes
 import os
@@ -187,6 +188,13 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
+    def _not_modified(self, etag: str, cache: str):
+        """文件没变：只回 304，不带内容。"""
+        self.send_response(304)
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", cache)
+        self.end_headers()
+
     def _static(self, path: str):
         if path in ("", "/"):
             path = "/index.html"
@@ -195,23 +203,32 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/js/buildings/all.js":   # 建筑素材库：服务器把目录拼成一个模块（core/town.py）
             from core import town
             data = town.bundle_js()
-            self._headers(200, "text/javascript; charset=utf-8", len(data), {"Cache-Control": "no-cache"})
+            etag = '"b-%s"' % hashlib.md5(data).hexdigest()[:16]
+            if self.headers.get("If-None-Match") == etag:
+                return self._not_modified(etag, "no-cache")
+            self._headers(200, "text/javascript; charset=utf-8", len(data), {"Cache-Control": "no-cache", "ETag": etag})
             self.end_headers()
             self.wfile.write(data)
             return
         f = (PUBLIC / path.lstrip("/")).resolve()
         if PUBLIC.resolve() not in f.parents or not f.is_file():
             raise ApiError(404, "not found")
-        data = f.read_bytes()
         ctype = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype.endswith("javascript"):
             ctype += "; charset=utf-8"
         cache = "no-cache" if f.suffix in (".html", ".js", ".css") else "public, max-age=86400"
-        extra = {"Cache-Control": cache, "Accept-Ranges": "bytes"}
+        # 页面、脚本、样式每次打开都要问一遍有没有新版本（no-cache）。带上 ETag，没变就只回一个 304：
+        # 不然每次打开都把七十多个文件、一兆左右的内容重新下一遍，手机上尤其慢。
+        info = f.stat()
+        etag = '"%x-%x"' % (info.st_mtime_ns, info.st_size)
+        rng = (self.headers.get("Range") or "").strip()
+        if not rng and self.headers.get("If-None-Match") == etag:
+            return self._not_modified(etag, cache)
+        data = f.read_bytes()
+        extra = {"Cache-Control": cache, "Accept-Ranges": "bytes", "ETag": etag}
         if f.suffix == ".html":
             extra.update({"Content-Security-Policy": CSP, "X-Frame-Options": "DENY"})
         # 按段取（冥想的背景音乐）：iPhone 的 Safari 放音频一定要服务器支持 Range，否则放不出来
-        rng = (self.headers.get("Range") or "").strip()
         if rng.startswith("bytes=") and "," not in rng:
             a, _, b = rng[6:].partition("-")
             size = len(data)

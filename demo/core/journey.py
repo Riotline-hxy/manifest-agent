@@ -683,6 +683,54 @@ def _unclear(cands: list[dict], key: str = "title") -> dict:
             "error": f"有 {len(cands)} 项都对得上，别替 TA 挑一个动手：先问 TA 指的是哪一个（have 里是这几项）"}
 
 
+ALL_OF_THEM = re.compile(r"都|全部|所有|全删|两个|三个|这些|那些|一起")
+
+
+def _said(title: str, text: str) -> float:
+    """这个名字有多少出现在一句话里（0–1）：整个名字都在就是 1，否则看两字片段对上了几成。"""
+    from .util import tokens
+    title, text = (title or "").strip(), text or ""
+    if not title or not text:
+        return 0.0
+    if title in text or (_norm(title) and _norm(title) in _norm(text)):
+        return 1.0
+    want = set(tokens(title))
+    return len(want & set(tokens(text))) / len(want) if want else 0.0
+
+
+def unnamed_removal(st, kind: str, ref: str, said: str, last_ai: str = "") -> dict | None:
+    """删东西之前：TA 这句话到底有没有点到这一项。看的是 TA 的原话，不是模型填的目标——
+    模型会自己挑一个、把准确的 id 填进来（「把背单词那个习惯删了吧」，计划里有两个背单词，它就挑了一个删）。
+    算点了名的：这一项的名字（大半）出现在 TA 这句话里；或者 TA 这句话只沾到这一项；
+    或者 TA 没提任何一项、而小光上一句刚说到它（TA 是在回应小光的提议）。其余都先问。
+    同类的东西只有一个、或者 TA 说了「都 / 全部」，不拦。返回 None 表示可以删。"""
+    if kind == "habit":
+        pool = habits(st)
+    elif kind == "wish":
+        pool = wishes(st)
+    elif kind == "milestone":
+        live = {w["id"] for w in wishes(st)}
+        pool = [m for m in milestones(st) if m["wish_id"] in live]
+    elif kind == "step":
+        pool = [dict(r) for r in st.c.execute("SELECT * FROM step WHERE status IN ('todo','dropped') ORDER BY created_at DESC LIMIT 200")]
+    else:
+        return None           # 瞬间是一整句话，TA 很少照着念：交给上面按名字的检查
+    if len(pool) < 2 or not (said or "").strip() or ALL_OF_THEM.search(said):
+        return None
+    it = _pick(pool, ref) if (ref or "").strip() else None
+    if not it:
+        return None           # 没找到 / 没填目标：edit_item 自己会照实说
+    named = [x for x in pool if _said(x["title"], said) >= 0.2]
+    if _said(it["title"], said) >= 0.8 or [x["id"] for x in named] == [it["id"]]:
+        return None
+    if not named and _said(it["title"], last_ai) >= 0.5:
+        return None
+    if len(named) > 1:
+        return _unclear(named)
+    return {"ok": False, "ambiguous": True, "have": [clip(x["title"], 24) for x in pool[:6]],
+            "error": f"TA 这句话没点到「{clip(it['title'], 16)}」，别替 TA 挑一个删：先问一句是不是它"}
+
+
 def _when(patch: dict, base: str = "") -> str | None:
     """新日期：指定的日子 / 从今天起 N 天后 / 在原来的日子上挪 N 天（「往后推两周」= +14，「提前三天」= -3）。"""
     if patch.get("shift_days") not in (None, "", 0):

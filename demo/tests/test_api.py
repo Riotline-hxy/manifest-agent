@@ -2607,6 +2607,21 @@ class ApiTest(unittest.TestCase):
             self.assertTrue(out.get("ambiguous"), out)
             self.assertEqual(sorted(out["have"]), ["每天背20个单词", "睡前背单词"])
             self.assertEqual(len(journey.habits(st)), 3)
+            pick = next(h for h in journey.habits(st) if h["title"] == "每天背20个单词")
+            for target in (pick["id"], "每天背20个单词"):                # 模型自己挑了一个、填上准确的 id 或名字：照样拦下
+                out = agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "habit", "target": target}, "把背单词那个习惯删了吧")
+                self.assertTrue(out.get("ambiguous"), out)
+                self.assertEqual(sorted(out["have"]), ["每天背20个单词", "睡前背单词"])
+            out = agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "habit", "target": pick["id"]}, "那个早上的习惯不要了")
+            self.assertTrue(out.get("ambiguous"), out)                                # TA 这句话没点到任何一个
+            wid = next(x["id"] for x in journey.wishes(st) if x["title"] == "学吉他")
+            out = agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "wish", "target": wid}, "把那个愿望删了吧")
+            self.assertTrue(out.get("ambiguous"), out)
+            self.assertEqual(len(journey.habits(st)), 3)
+            # 小光上一句刚提议过这一项，TA 说「删吧」：是在回应提议，直接做
+            st.add_msg("assistant", "要不留下「每天背20个单词」，把「晨跑」先收起来？")
+            self.assertIsNone(journey.unnamed_removal(st, "habit", "晨跑", "删吧", "要不留下「每天背20个单词」，把「晨跑」先收起来？"))
+            self.assertIsNone(journey.unnamed_removal(st, "habit", "晨跑", "把这几个习惯都删了"))       # 说了「都」
             out = agent.run_tool(st, "edit_plan", {"action": "change", "kind": "habit", "target": "背单词", "freq": "weekly", "per_week": 3},
                                  "背单词改成每周三次")
             self.assertTrue(out.get("ambiguous"), out)                                # 改也一样：不知道是哪个就先问
@@ -2634,10 +2649,10 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(s, 200)
         self.assertEqual(d["profile"]["notebook"]["text"], "最近的生活：宿舍新养了只橘猫叫土豆。\n在意的人：室友阿琪")
         with Store(uid) as st:
-            sp = agent.system_prompt(st, [])
-            self.assertIn("TA 让你忘掉、或者更正过的", sp)
-            self.assertIn("「喜欢吃寿司」（TA 让你忘掉了）", sp)
-            self.assertNotIn("常去学校旁边那家", sp)
+            note = agent.context_note([], st)                       # 放在离 TA 这句话最近的那条系统消息里
+            self.assertIn("TA 亲手让你忘掉、或者更正过的", note)
+            self.assertIn("「喜欢吃寿司」（TA 让你忘掉了）", note)
+            self.assertFalse("寿司" in agent.system_prompt(st, []).split("## 你的笔记本")[-1])   # 笔记本里那半句已经拿掉
             # 当天聊天里还有这句话，模型想把它记回去、写回笔记本：都拦下
             st.add_msg("user", "中午又去吃了寿司")
             self.fake.json_out = {"summary": "s", "highlights": [], "portrait": "",
@@ -2654,7 +2669,7 @@ class ApiTest(unittest.TestCase):
         s, d = c.req("POST", "/api/memory", {"action": "edit", "id": k["id"], "text": "室友叫小琪，不叫阿琪"})
         self.assertNotIn("室友阿琪", d["profile"]["notebook"]["text"])
         with Store(uid) as st:
-            self.assertIn("「室友叫阿琪」 → 现在是「室友叫小琪，不叫阿琪」", agent.system_prompt(st, []))
+            self.assertIn("「室友叫阿琪」 → 现在是「室友叫小琪，不叫阿琪」", agent.context_note([], st))
             # TA 自己又把它加回来了：不再算「忘掉的」
             st.add_memory("喜欢吃寿司", "preference", "confirmed")
             self.assertNotIn("喜欢吃寿司", [f["old"] for f in memory.forgotten(st)])
@@ -2770,6 +2785,36 @@ class ApiTest(unittest.TestCase):
         with Store(uid) as st:
             self.assertEqual(st.profile()["flow_end"], {})
             self.assertEqual(st.get_scene(run["id"])["answers"], [])
+
+
+    def test_static_files_revalidate_with_etag(self):
+        """页面、脚本、样式每次打开都会问有没有新版本：没变就回 304、不带内容，不用整份重下。"""
+        for path in ("/", "/js/app.js", "/css/base.css", "/js/buildings/all.js"):
+            c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+            c.request("GET", path)
+            r = c.getresponse()
+            body = r.read()
+            etag = r.getheader("ETag")
+            self.assertEqual(r.status, 200, path)
+            self.assertTrue(etag and len(body) > 100, path)
+            self.assertEqual(r.getheader("Cache-Control"), "no-cache", path)
+            c.request("GET", path, headers={"If-None-Match": etag})      # 同一条连接接着用：304 不能把连接弄坏
+            r = c.getresponse()
+            self.assertEqual((r.status, r.read(), r.getheader("ETag")), (304, b"", etag), path)
+            c.request("GET", path, headers={"If-None-Match": '"stale"'})
+            r = c.getresponse()
+            self.assertEqual((r.status, r.read()), (200, body), path)
+            c.close()
+        # 按段取音频时不走 304（iPhone 放音频靠 Range）
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/audio/meditation.mp3", headers={"Range": "bytes=0-9"})
+        r = c.getresponse()
+        etag = r.getheader("ETag")
+        self.assertEqual((r.status, len(r.read())), (206, 10))
+        c.request("GET", "/audio/meditation.mp3", headers={"Range": "bytes=0-9", "If-None-Match": etag})
+        r = c.getresponse()
+        self.assertEqual((r.status, len(r.read())), (206, 10))
+        c.close()
 
 
 class MemoryTest(unittest.TestCase):

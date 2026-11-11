@@ -32,7 +32,7 @@ import yaml  # noqa: E402
 
 # 场景都按工作日白天写的：整个程序看到的「现在」固定在 2026-11-04（周三）上午 10 点。
 # 各模块是 `from .util import now` 拿的函数，所以要在导入它们之前先换掉 util.now。
-from datetime import datetime  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
 
 from core import util  # noqa: E402
 
@@ -100,6 +100,8 @@ def build_user(profile: dict, persona: str) -> Store:
             st.add_step(re.sub(r"^\[[^\]]*\]\s*", "", s), wish_id=wish["id"])
     for m in profile.get("记忆") or []:
         st.add_memory(m, kind="preference", source="onboarding")
+    for m in profile.get("忘掉的") or []:      # TA 在「小光记得的」里亲手点了忘掉的事（之前的对话里可能还提过它）
+        st.delete_memory(st.add_memory(m, kind="preference", source="chat:explicit")["id"], reason="user_forget")
     if profile.get("今天是偷懒日") in ("是", True):
         st.add_record("rest", "今天偷个懒")
     return st
@@ -131,7 +133,9 @@ def run_one(base: dict, case: dict, pname: str) -> dict:
             if who == "提议安排":
                 continue
             meta = {"acts": [plan_card(st, card)]} if card and who != "用户" else None
-            st.add_msg("user" if who == "用户" else "assistant", str(text), meta)
+            ago = int(case.get("前情几天前") or 0)       # 前情是几天前聊的（默认就是刚才）
+            at = (FIXED_NOW - timedelta(days=ago, minutes=30)).isoformat(timespec="seconds") if ago else None
+            st.add_msg("user" if who == "用户" else "assistant", str(text), meta, at=at)
     t0 = time.time()
     first, reply, errors = None, "", []
     try:
@@ -162,6 +166,17 @@ def hard_checks(case: dict, r: dict) -> list[str]:
     for t in case.get("不能调用") or []:
         if t in called:
             out.append(f"不该调用 {t}")
+    # 看结果、不看有没有调用：模型调了、被代码拦下来（ok=false）不算做成。用来测「没点名不能真的删掉」这类边界
+    did = {c["name"] for c in r["工具"] if c.get("ok") and not c["skipped"]}
+    for t in case.get("应该做成") or []:
+        if t not in did:
+            out.append(f"{t} 没做成")
+    for t in case.get("不能做成") or []:
+        if t in did:
+            out.append(f"不该做成 {t}")
+    for w in case.get("回复不能有") or []:
+        if w in text:
+            out.append(f"回复里不该出现「{w}」")
     q = text.count("？") + text.count("?")
     if q > 2:
         out.append(f"问了 {q} 个问题")

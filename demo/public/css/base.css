@@ -177,3 +177,9 @@ h1, h2, h3, h4 { font-weight: 700; margin: 0; letter-spacing: -0.01em; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+
+/* iPhone / iPad：输入框的字小于 16px 时，一点进去 Safari 会把整个页面放大，而且不会自己缩回来（装到主屏幕的也一样）。
+   各处输入框原来是 13–15.5px，所以只在 iOS 上统一提到 16px；别的设备不变。 */
+@supports (-webkit-touch-callout: none) {
+  input, textarea, select { font-size: 16px !important; }
+}

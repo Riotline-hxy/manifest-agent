@@ -417,10 +417,6 @@ def system_prompt(store: Store, retrieved: list[dict]) -> str:
     if pins:
         s += ("\n\n## 关于 TA 你一直记得的（边界必须遵守；其余自然地用上，别一条条念出来）\n"
               + "\n".join(f"- {m['text']}" for m in pins))
-    gone = memory.forgotten(store)
-    if gone:   # TA 亲手删掉 / 更正过的：笔记本和前几天的对话里可能还有旧说法，明说一遍才不会再被提起
-        s += ("\n\n## TA 让你忘掉、或者更正过的（旧的说法别再提起、别当成事实，哪怕下面的笔记本或以前的对话里还有；"
-              "TA 自己又说起时，照 TA 现在的说法）\n" + memory.forgotten_text(gone))
     nb = (p.get("notebook") or {}).get("text") or ""
     if nb:
         s += "\n\n## 你的笔记本（你每天夜里整理的、关于 TA 的长期笔记）\n" + nb
@@ -525,6 +521,11 @@ def context_note(retrieved: list[dict], store: Store | None = None) -> str:
         s += "\n\n## 和这句话相关的记忆\n" + "\n".join(f"- {m['text']}（{m['created_at'][:10]}）" for m in facts)
     if guesses:
         s += "\n\n## 待确认的猜测（不能当事实）\n" + "\n".join(f"- {m['text']}" for m in guesses)
+    gone = memory.forgotten(store) if store is not None else []
+    if gone:   # TA 亲手删掉 / 更正过的：前几天的对话原话里可能还有旧说法。放在离这句话最近的地方说，模型才不会照着旧话接
+        s += ("\n\n## TA 亲手让你忘掉、或者更正过的\n" + memory.forgotten_text(gone)
+              + "\n旧的说法就当不知道：不提起、不拿来猜 TA 的喜好和情况，哪怕前面的对话里 TA 说过。"
+                "只有 TA 这一句自己又说起，才照 TA 现在说的来。")
     return s
 
 
@@ -855,6 +856,11 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "", routed: s
         keys = ("title", "due_day", "due_in_days", "shift_days", "freq", "per_week", "status", "vision_text", "now_text",
                 "text", "feeling", "day", "wish", "why", "delete")
         patch = {k: args.get(k) for k in keys if args.get(k) not in (None, "")}
+        if removing and user_text:      # 删之前：TA 这句话有没有点到这一项（模型自己挑一个、填上准确 id 的，也拦得住）
+            last_ai = next((m["content"] for m in reversed(store.messages(6)) if m["role"] == "assistant" and m["content"]), "")
+            unclear = journey.unnamed_removal(store, str(args.get("kind") or ""), str(args.get("target") or ""), user_text, last_ai)
+            if unclear:
+                return unclear
         try:
             out = journey.edit_item(store, str(args.get("kind") or ""), str(args.get("target") or ""), patch,
                                     str(args.get("action") or ""))
