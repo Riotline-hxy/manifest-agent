@@ -30,6 +30,10 @@ load_dotenv(ROOT / ".env")
 
 COOKIE = "xg_session"
 MAX_BODY = 64 * 1024
+try:
+    PROXY_HOPS = max(1, int(os.environ.get("MANIFEST_PROXY_HOPS") or 1))   # 我们前面有几层自己的反向代理（见 Handler._ip）
+except ValueError:
+    PROXY_HOPS = 1
 BIG_BODY = {"/api/photo": 6 * 1024 * 1024}   # 瞬间的照片：压过的大图 ≤3MB + 小图，base64 之后大约 4.6MB
 mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("image/svg+xml", ".svg")
@@ -54,7 +58,14 @@ class Handler(BaseHTTPRequestHandler):
         return self.headers.get("X-Forwarded-Proto") == "https"
 
     def _ip(self) -> str:
-        return (self.headers.get("X-Forwarded-For") or self.client_address[0]).split(",")[0].strip()
+        """限流用的来访地址。X-Forwarded-For 最前面那几段是来访者自己能写的，不能信：
+        只有请求是从本机的反向代理（nginx）进来的才看这个头，而且从右往左数——最右边一段是离我们最近的那层代理填的。
+        前面还有一层 CDN 时，把 MANIFEST_PROXY_HOPS 设成 2。"""
+        peer = self.client_address[0]
+        hops = [x.strip() for x in (self.headers.get("X-Forwarded-For") or "").split(",") if x.strip()]
+        if not hops or peer not in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
+            return peer
+        return hops[-min(PROXY_HOPS, len(hops))]
 
     def _token(self, name: str = COOKIE) -> str | None:
         c = cookies.SimpleCookie()
@@ -232,15 +243,25 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.close_connection = True
         gone = False
-        with Store(u["id"]) as st, metrics.chat_span():
-            for event, data in agent.chat(st, text, topic=clip(str(body.get("topic") or ""), 40)):
-                if gone:
-                    continue   # client left: keep going so the reply (and tool results) still get saved
-                try:
-                    self.wfile.write(f"event: {event}\ndata: {dumps(data)}\n\n".encode())
-                    self.wfile.flush()
-                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-                    gone = True
+
+        def emit(event, data):
+            nonlocal gone
+            if gone:
+                return   # client left: keep going so the reply (and tool results) still get saved
+            try:
+                self.wfile.write(f"event: {event}\ndata: {dumps(data)}\n\n".encode())
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                gone = True
+
+        try:
+            with Store(u["id"]) as st, metrics.chat_span():
+                for event, data in agent.chat(st, text, topic=clip(str(body.get("topic") or ""), 40)):
+                    emit(event, data)
+        except Exception:
+            # 响应头已经发出去了，这时再回一个 500 的 JSON 只会把流弄坏：照流的格式说一声出错，正常收尾
+            traceback.print_exc()
+            emit("error", {"message": "server"})
 
 
 from routes import ROUTES  # noqa: E402

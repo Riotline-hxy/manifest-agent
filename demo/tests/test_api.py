@@ -330,23 +330,28 @@ class ApiTest(unittest.TestCase):
         s, k = c.req("GET", "/api/push/key")
         self.assertEqual((s, len(k["key"]), k["devices"]), (200, 87, 0))   # 65-byte P-256 point, base64url
         self.assertEqual(c.req("POST", "/api/push/subscribe", {"subscription": {"endpoint": "http://evil"}})[0], 400)
-        sub = {"endpoint": "https://push.example/abc", "keys": {"p256dh": "x", "auth": "y"}}
+        # 只认浏览器真正的推送服务：别的 https 地址（内网、任意网站、换了端口）不收，不然登录用户能让服务器去敲任意地址
+        for bad in ("https://push.example/abc", "https://127.0.0.1/x", "https://fcm.googleapis.com.evil.cn/x",
+                    "https://fcm.googleapis.com:8443/x", "https://evil.cn/fcm.googleapis.com"):
+            self.assertEqual(c.req("POST", "/api/push/subscribe", {"subscription": {"endpoint": bad}})[0], 400, bad)
+        self.assertEqual(webpush.subs(uid), [])
+        sub = {"endpoint": "https://fcm.googleapis.com/fcm/send/abc", "keys": {"p256dh": "x", "auth": "y"}}
         s, out = c.req("POST", "/api/push/subscribe", {"subscription": sub})
         self.assertEqual((s, out["devices"]), (200, 1))
-        c.req("POST", "/api/push/subscribe", {"subscription": {"endpoint": "https://push.example/gone"}})
+        c.req("POST", "/api/push/subscribe", {"subscription": {"endpoint": "https://fcm.googleapis.com/fcm/send/gone"}})
 
         # a proactive message wakes every device; the service worker then fetches the text
         self.fake.json_out = {"text": "还在靠近「健康作息」吗？"}
         c.req("POST", "/api/proactive/now", {})
         pushed = self.wait_pushes(2)
-        self.assertEqual(sorted(ep for ep, _ in pushed), ["https://push.example/abc", "https://push.example/gone"])
+        self.assertEqual(sorted(ep for ep, _ in pushed), ["https://fcm.googleapis.com/fcm/send/abc", "https://fcm.googleapis.com/fcm/send/gone"])
         ep, hd = pushed[0]
         self.assertTrue(hd["Authorization"].startswith("vapid t=") and f"k={k['key']}" in hd["Authorization"])
         self.assertEqual(hd["Content-Length"], "0")                         # no payload goes to the push service
         s, latest = c.req("GET", "/api/push/latest")
         self.assertEqual((latest["title"], latest["text"]), ("阿光", "还在靠近「健康作息」吗？"))
         time.sleep(0.2)
-        self.assertEqual([x["endpoint"] for x in webpush.subs(uid)], ["https://push.example/abc"])  # 410 pruned
+        self.assertEqual([x["endpoint"] for x in webpush.subs(uid)], ["https://fcm.googleapis.com/fcm/send/abc"])  # 410 pruned
 
         # the same device logging in as someone else moves to that account; logout unbinds it
         d, uid2 = self.onboarded("push_other")
@@ -2513,6 +2518,258 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(w["target_day"], (date.today() + timedelta(days=40)).isoformat())
         s, ev = c.sse("改到那天对吧")
         self.assertFalse(self._tool_events(ev, "edit_plan"))      # 已经是这样了：不出「没成功」的卡片
+
+
+    # ---- 2026-11-11 交付前审查：每一条都是先复现、再修好的缺陷 -------------------------------
+    def test_archiving_the_only_wish_does_not_bring_it_back(self):
+        """收起唯一的愿望，下一次打开不能照建档时的说法又长出一个同名的。"""
+        c, uid = self.onboarded("rv_onlywish")
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual([w["title"] for w in d["journey"]["wishes"]], ["健康作息"])
+        wid = d["journey"]["wishes"][0]["id"]
+        _, d = c.req("POST", "/api/wish", {"action": "edit", "id": wid, "archived": True})
+        self.assertEqual(d["journey"]["wishes"], [])
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual(d["journey"]["wishes"], [])
+        with Store(uid) as st:
+            from core import agent, journey
+            self.assertEqual(len(journey.wishes(st, include_archived=True)), 1)       # 还是原来那一个，只是收起了
+            self.assertIsNone(journey.current(st))
+            self.assertIn("TA 还没有愿望", agent.core_block(st.profile(), st))
+            self.assertTrue(agent.run_tool(st, "edit_plan", {"action": "restore", "kind": "wish", "target": "健康作息"}, "把健康作息找回来")["ok"])
+            self.assertEqual([w["id"] for w in journey.wishes(st)], [wid])
+
+    def test_bad_tool_arguments_do_not_break_the_turn(self):
+        """模型把参数类型写错（名字写成数组、星期写成数字）：这一轮照样有回复、照样存下来，下一轮还能聊。"""
+        c, uid = self.onboarded("rv_badargs")
+        c.req("POST", "/api/step", {"action": "add", "title": "读两页书"})
+        for name, args, said in (("complete_step", {"step_id": 12, "title": ["读两页书"]}, "读两页书做完了"),
+                                 ("start_scene", {"scene": ["meditation"]}, "我想冥想"),
+                                 ("schedule_task", {"title": "喝水", "kind": "remind", "repeat": "weekly", "time": "9:5", "days": 3}, "每周三九点零五提醒我喝水")):
+            self.fake.turns = [[("tool_calls", [{"id": "b1", "name": name, "arguments": json.dumps(args)}])], [("text", "好。")]]
+            s, ev = c.sse(said)
+            self.assertEqual(s, 200)
+            self.assertTrue([d for e, d in ev if e == "done"], name)                  # 这一轮正常收尾
+            self.assertEqual("".join(d["text"] for e, d in ev if e == "delta"), "好。", name)
+        _, d = c.req("GET", "/api/bootstrap")
+        self.assertEqual([m["role"] for m in d["messages"]][-6:], ["user", "assistant"] * 3)
+        t = next(t for t in d["tasks"] if t["title"] == "喝水")
+        self.assertEqual((t["time"], t["days"], t["when"]), ("09:05", "3", "每周周三 09:05"))   # 时间写整齐，单个数字也算星期
+        # 工具自己出了意外：模型拿到「没办成」的回执（不是整轮崩掉），界面上不出回执
+        from core import agent
+        orig = agent.run_tool
+        agent.run_tool = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+        try:
+            self.fake.turns = [[("tool_calls", [{"id": "b2", "name": "add_step", "arguments": json.dumps({"title": "x"})}])],
+                               [("text", "刚才没加上，我再试试？")]]
+            s, ev = c.sse("帮我加一个小步")
+        finally:
+            agent.run_tool = orig
+        tool_msg = next(m for m in self.fake.seen[-1] if m["role"] == "tool")
+        self.assertIn('"ok": false', tool_msg["content"])
+        self.assertEqual(self._tool_events(ev, "add_step")[0]["acts"], [])
+        self.assertTrue([d for e, d in ev if e == "done"])
+
+    def test_a_turn_never_ends_without_words(self):
+        """模型调完工具却一个字没说：先再要一次；还是不说，就照真实做了的事给一句最短的话。存下来的不能是空消息。"""
+        c, uid = self.onboarded("rv_silent")
+        from core import agent
+        self.fake.turns = [[("tool_calls", [{"id": "s1", "name": "log_lazy_day", "arguments": "{}"}])], [], [("text", "偷懒日已设置。")]]
+        s, ev = c.sse("今天想躺平")
+        self.assertEqual("".join(d["text"] for e, d in ev if e == "delta"), "偷懒日已设置。")
+        self.assertEqual(self.fake.seen[-1][-1], {"role": "system", "content": agent.SPEAK_UP})
+        c.req("POST", "/api/record", {"type": "rest", "undo": True})
+        self.fake.turns = [[("tool_calls", [{"id": "s2", "name": "log_lazy_day", "arguments": "{}"}])], [], []]
+        s, ev = c.sse("今天想躺平")
+        _, d = c.req("GET", "/api/bootstrap")
+        last = d["messages"][-1]
+        self.assertEqual((last["role"], last["content"]), ("assistant", "弄好了，在下面。"))
+        self.assertIn("今天偷个懒", [a.get("verb") for a in last["meta"]["acts"]])
+        self.fake.turns = [[], []]                                                    # 什么都没做也没说
+        s, ev = c.sse("在吗")
+        self.assertEqual("".join(d["text"] for e, d in ev if e == "delta"), "嗯，我在。你接着说。")
+
+    def test_removing_without_a_clear_target_asks_first(self):
+        """「把那个愿望删了吧」「把背单词那个习惯删了」：对象不清楚，不替 TA 挑一个动手。"""
+        c, uid = self.onboarded("rv_vague")
+        with Store(uid) as st:
+            from core import agent, journey
+            w = journey.current(st)
+            journey.add_wish(st, "学吉他", "other")
+            out = agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "wish"}, "把那个愿望删了吧")
+            self.assertFalse(out["ok"])
+            self.assertEqual(sorted(out["have"]), ["健康作息", "学吉他"])
+            self.assertEqual(len(journey.wishes(st)), 2)
+            journey.add_habit(st, w["id"], "每天背20个单词", "daily")
+            journey.add_habit(st, w["id"], "睡前背单词", "daily")
+            journey.add_habit(st, w["id"], "晨跑", "daily")
+            out = agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "habit", "target": "背单词"}, "把背单词那个习惯删了")
+            self.assertTrue(out.get("ambiguous"), out)
+            self.assertEqual(sorted(out["have"]), ["每天背20个单词", "睡前背单词"])
+            self.assertEqual(len(journey.habits(st)), 3)
+            out = agent.run_tool(st, "edit_plan", {"action": "change", "kind": "habit", "target": "背单词", "freq": "weekly", "per_week": 3},
+                                 "背单词改成每周三次")
+            self.assertTrue(out.get("ambiguous"), out)                                # 改也一样：不知道是哪个就先问
+            # 点了名的（完整名字、id、只对得上一个的说法）照旧利落地做
+            self.assertTrue(agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "habit", "target": "睡前背单词"}, "把睡前背单词删了")["ok"])
+            self.assertTrue(agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "habit", "target": "跑"}, "把晨跑收起来")["ok"])
+            hid = journey.habits(st)[0]["id"]
+            self.assertTrue(agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "habit", "target": f"[{hid}] 每天背20个单词"}, "删掉")["ok"])
+            self.assertEqual(journey.habits(st), [])
+            # 只有一个愿望时，「把愿望收起来」对象是清楚的
+            self.assertTrue(agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "wish", "target": "学吉他"}, "把学吉他收起来")["ok"])
+            self.assertTrue(agent.run_tool(st, "edit_plan", {"action": "remove", "kind": "wish"}, "把愿望收起来吧")["ok"])
+            self.assertEqual(journey.wishes(st), [])
+
+    def test_forgotten_memory_is_gone_from_notebook_prompt_and_digest(self):
+        """「忘掉」要真的生效：笔记本里的那半句拿掉、提示里明说别再提、夜里整理不从当天的对话里再记回来。"""
+        c, uid = self.onboarded("rv_forget")
+        from core import agent, digest, memory
+        with Store(uid) as st:
+            m = st.add_memory("喜欢吃寿司", "preference", "chat:explicit")
+            k = st.add_memory("室友叫阿琪", "identity", "chat:explicit")
+            st.set_profile({"notebook": {"text": "最近的生活：喜欢吃寿司，常去学校旁边那家；宿舍新养了只橘猫叫土豆。\n在意的人：室友阿琪", "by": "digest"}})
+            self.assertIn("寿司", agent.system_prompt(st, []))
+        s, d = c.req("POST", "/api/memory", {"action": "forget", "id": m["id"]})
+        self.assertEqual(s, 200)
+        self.assertEqual(d["profile"]["notebook"]["text"], "最近的生活：宿舍新养了只橘猫叫土豆。\n在意的人：室友阿琪")
+        with Store(uid) as st:
+            sp = agent.system_prompt(st, [])
+            self.assertIn("TA 让你忘掉、或者更正过的", sp)
+            self.assertIn("「喜欢吃寿司」（TA 让你忘掉了）", sp)
+            self.assertNotIn("常去学校旁边那家", sp)
+            # 当天聊天里还有这句话，模型想把它记回去、写回笔记本：都拦下
+            st.add_msg("user", "中午又去吃了寿司")
+            self.fake.json_out = {"summary": "s", "highlights": [], "portrait": "",
+                                  "notebook": "最近的生活：喜欢吃寿司；宿舍新养了只橘猫叫土豆。\n在意的人：室友阿琪",
+                                  "ops": [{"op": "ADD", "text": "喜欢吃寿司", "kind": "preference", "source": "said"},
+                                          {"op": "ADD", "text": "中午常去吃日料", "kind": "preference", "source": "said"}]}
+            out = digest.run(st)
+            self.assertIn({"op": "ADD", "text": "喜欢吃寿司", "why": "user forgot this"}, out["rejected"])
+            self.assertEqual([o["text"] for o in out["ops"]], ["中午常去吃日料"])
+            self.assertIn("TA 亲手删掉或更正过的", self.fake.seen_json[-1][1]["content"])
+            self.assertNotIn("喜欢吃寿司", st.profile()["notebook"]["text"])
+            self.assertNotIn("喜欢吃寿司", [x["text"] for x in st.memories()])
+        # 更正：旧说法从笔记本拿掉，提示里写「旧 → 新」
+        s, d = c.req("POST", "/api/memory", {"action": "edit", "id": k["id"], "text": "室友叫小琪，不叫阿琪"})
+        self.assertNotIn("室友阿琪", d["profile"]["notebook"]["text"])
+        with Store(uid) as st:
+            self.assertIn("「室友叫阿琪」 → 现在是「室友叫小琪，不叫阿琪」", agent.system_prompt(st, []))
+            # TA 自己又把它加回来了：不再算「忘掉的」
+            st.add_memory("喜欢吃寿司", "preference", "confirmed")
+            self.assertNotIn("喜欢吃寿司", [f["old"] for f in memory.forgotten(st)])
+            # 聊天里更正（correct_memory）也一样清笔记本
+            st.add_memory("交换的学校在英国", "identity", "chat:explicit")
+            st.set_profile({"notebook": {"text": "正在努力的事：准备交换；交换的学校在英国", "by": "digest"}})
+            out = agent.run_tool(st, "correct_memory", {"about": "交换学校 英国", "new_text": "交换的学校换成澳洲了", "quote": "交换的学校换成澳洲了"},
+                                 "交换的学校换成澳洲了")
+            self.assertTrue(out["ok"], out)
+            self.assertEqual(st.profile()["notebook"]["text"], "正在努力的事：准备交换")
+        self.assertEqual(memory.scrub_text("最近的生活：养了只猫", "猫"), "最近的生活：养了只猫")       # 太短的不拿来删，免得误伤
+
+    def test_habit_checkin_counts_once_per_day_however_the_day_is_written(self):
+        """打卡的奖励按「习惯 + 这一天」只算一次；同一天换个写法（多个空格、带时间）不能再拿一次。"""
+        c, uid = self.onboarded("rv_habitxp")
+        _, d = c.req("GET", "/api/bootstrap")
+        _, d = c.req("POST", "/api/habit", {"action": "add", "wish_id": d["journey"]["current"], "title": "散步", "freq": "daily"})
+        hid = d["habit"]["id"]
+        today = d["journey"]["today"]
+        got = []
+        for day in (None, today, today + " ", today + "T08:00", today + "x"):
+            s, d = c.req("POST", "/api/habit", {"action": "check", "id": hid, "day": day})
+            self.assertEqual(s, 200, d)
+            got.append((d.get("xp") or {}).get("amount", 0))
+            c.req("POST", "/api/habit", {"action": "uncheck", "id": hid, "day": day})
+        self.assertEqual(got, [10, 0, 0, 0, 0])
+        with Store(uid) as st:
+            self.assertEqual([r[0] for r in st.c.execute("SELECT ref FROM xp WHERE source='action'")], [f"habit:{hid}:{today}"])
+
+    def test_manual_digest_today_does_not_skip_tonight(self):
+        """白天手动整理了今天，夜里还要再整理一遍今天（不然后半天说的话永远不会被整理）。"""
+        from datetime import timedelta
+        from core import digest
+        from core.util import now
+        c, uid = self.onboarded("rv_digest")
+        with Store(uid) as st:
+            st.add_msg("user", "上午：我想学吉他")
+            self.fake.json_out = {"summary": "s", "highlights": [], "notebook": "", "portrait": "", "ops": []}
+            out = digest.run(st)
+            self.assertFalse(out.get("skipped"))
+            st.add_msg("user", "晚上：报了周六的吉他课")
+            tomorrow = (now() + timedelta(days=1)).replace(hour=3, minute=5)
+            self.assertEqual(digest.due(st, tomorrow), out["day"])
+            digest.run(st, out["day"])                      # 这是「昨天」的整理了：还没过完的今天不记号
+            self.assertEqual(st.profile()["last_digest_day"], "")
+            yday = (now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            st.add_msg("user", "昨天说的话", at=yday + "T20:00:00+08:00")
+            digest.run(st, yday)
+            self.assertEqual(st.profile()["last_digest_day"], yday)
+
+    def test_finds_wait_a_few_days_between_runs(self):
+        """「小光的发现」隔几天写一次：上次写的时间要真的存下来（以前存不进去，每晚都会再调一次模型）。"""
+        from core import finds
+        c, uid = self.onboarded("rv_finds")
+        with Store(uid) as st:
+            st.set_profile({"created_at": "2026-01-01T08:00:00+08:00"})
+            self.assertTrue(finds.due(st))
+            self.fake.json_out = {"finds": []}
+            n = len(self.fake.seen_json)
+            finds.discover(st, force=True)
+            self.assertEqual(len(self.fake.seen_json), n + 1)
+            self.assertTrue(st.profile()["finds_at"])
+            self.assertFalse(finds.due(st))
+            self.assertEqual(finds.discover(st), [])
+            self.assertEqual(len(self.fake.seen_json), n + 1)                         # 没到日子：不再调模型
+
+    def test_rate_limits_ignore_a_spoofed_forwarded_for(self):
+        """X-Forwarded-For 最前面那段是来访者自己写的：换着写不能绕过限流；只认离我们最近的代理填的那一段。"""
+        c = Client(self.port)
+        codes = []
+        for i in range(10):
+            s, _ = c.req("POST", "/api/auth/login", {"username": f"rv_nobody{i}", "password": "wrongpass"},
+                         headers={"X-Forwarded-For": f"10.9.{i}.1, 203.0.113.77"})
+            codes.append(s)
+        self.assertEqual(codes, [401] * 8 + [429] * 2)
+        s, _ = c.req("POST", "/api/auth/login", {"username": "rv_nobody_x", "password": "wrongpass"},
+                     headers={"X-Forwarded-For": "203.0.113.77, 198.51.100.5"})        # 另一个真实来源不受影响
+        self.assertEqual(s, 401)
+
+    def test_profile_and_insight_reject_malformed_values(self):
+        c, uid = self.onboarded("rv_profile")
+        self.assertEqual(c.req("POST", "/api/profile", {"nickname": {"a": 1}})[0], 400)
+        self.assertEqual(c.req("POST", "/api/profile", {"schedule_hint": ["x"] * 50})[0], 400)
+        self.assertEqual(c.req("POST", "/api/profile", {"pace": "warp"})[0], 400)
+        s, d = c.req("POST", "/api/profile", {"nickname": "小周", "pace": "steady"})
+        self.assertEqual((s, d["profile"]["nickname"], d["profile"]["pace"]), (200, "小周", "steady"))
+        self.assertEqual(c.req("POST", "/api/insight", {"id": "x" * 5000, "fb": "no"})[0], 404)
+        s, d = c.req("POST", "/api/insight", {"id": "energy", "fb": "no"})
+        self.assertEqual((s, d["profile"]["insight_fb"]), (200, {"energy": "no"}))
+        self.fake.turns = [[("text", "嗯。")]]
+        s, ev = c.sse("在吗")                                                          # 画像没被弄坏，对话照常
+        self.assertTrue([d for e, d in ev if e == "done"])
+
+    def test_photo_shared_by_two_moments_survives_deleting_one(self):
+        c, uid = self.member("rv_photo")
+        _, out = self._photo(c, "jpg")
+        pid = out["photo"]
+        _, a = c.req("POST", "/api/moment", {"action": "add", "text": "晚霞", "photo": pid})
+        _, b = c.req("POST", "/api/moment", {"action": "add", "text": "还是晚霞", "photo": pid})
+        c.req("POST", "/api/moment", {"action": "delete", "id": a["moment"]["id"]})
+        self.assertEqual(self._get_bytes(c, f"/api/photo?id={pid}")[0], 200)          # 另一个瞬间还挂着它
+        c.req("POST", "/api/moment", {"action": "delete", "id": b["moment"]["id"]})
+        self.assertEqual(self._get_bytes(c, f"/api/photo?id={pid}")[0], 404)
+
+    def test_discarding_a_flow_drops_its_computed_ending(self):
+        """「显化你的愿望」答完不存：算好的小纸条（profile.flow_end）也不留。"""
+        c, uid = self.onboarded("rv_flow")
+        with Store(uid) as st:
+            run = st.start_scene("relearn")
+            st.update_scene(run["id"], 1, [{"state": "累"}], "done")
+            st.set_profile({"flow_end": {"run": run["id"], "key": "k", "end": {"say": "看到的你"}}})
+        self.assertEqual(c.req("POST", "/api/scene/discard", {"run_id": run["id"]})[0], 200)
+        with Store(uid) as st:
+            self.assertEqual(st.profile()["flow_end"], {})
+            self.assertEqual(st.get_scene(run["id"])["answers"], [])
 
 
 class MemoryTest(unittest.TestCase):

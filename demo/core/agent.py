@@ -16,6 +16,7 @@ import itertools
 import json
 import os
 import re
+import traceback
 from datetime import timedelta
 import threading
 
@@ -158,7 +159,7 @@ TA 上一句提过、或者你刚问过的事，这一句说「好 / 可以 / �
 - 工具返回的 xp 里 capped 或 duplicate 为真，说明这次没加分，别暗示加了。
 - 你不能替 TA 买或摆小镇里的建筑（那是 TA 自己在「我的小镇」里点的），可以说说能建什么、带 TA 去看看。
 - 打完卡可以带一句这周还差几次（用工具返回的数字，说成「还差 2 次」）。别的下一步，TA 没问就先不提。
-- 做完一件事以后别一口气抛好几个提议：要不要留在轨迹上、要不要想下一步，挑最自然的一个。
+- 做完一件事以后别一口气抛好几个提议：要不要留成一个瞬间、要不要想下一步，挑最自然的一个。
 """
 
 
@@ -416,6 +417,10 @@ def system_prompt(store: Store, retrieved: list[dict]) -> str:
     if pins:
         s += ("\n\n## 关于 TA 你一直记得的（边界必须遵守；其余自然地用上，别一条条念出来）\n"
               + "\n".join(f"- {m['text']}" for m in pins))
+    gone = memory.forgotten(store)
+    if gone:   # TA 亲手删掉 / 更正过的：笔记本和前几天的对话里可能还有旧说法，明说一遍才不会再被提起
+        s += ("\n\n## TA 让你忘掉、或者更正过的（旧的说法别再提起、别当成事实，哪怕下面的笔记本或以前的对话里还有；"
+              "TA 自己又说起时，照 TA 现在的说法）\n" + memory.forgotten_text(gone))
     nb = (p.get("notebook") or {}).get("text") or ""
     if nb:
         s += "\n\n## 你的笔记本（你每天夜里整理的、关于 TA 的长期笔记）\n" + nb
@@ -458,7 +463,7 @@ def act_note(meta: dict | None) -> str:
                        + "；".join(parts))
         elif a.get("type") == "ask" and a.get("ask") == "moment":
             st = a.get("state") or ""
-            out.append(f"你提议把「{clip(a.get('text') or '', 30)}」留在轨迹上（"
+            out.append(f"你提议把「{clip(a.get('text') or '', 30)}」留成一个瞬间（"
                        + ("TA 还没点" if not st else "TA 留下了" if st == "kept" else "TA 没留") + "）")
     return ("上面那条回复下面，界面上显示的卡片：" + "；".join(out)) if out else ""
 
@@ -783,6 +788,7 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "", routed: s
             store.c.execute("UPDATE memory SET source='confirmed' WHERE id=?", (m["id"],))
         else:
             store.delete_memory(m["id"], reason="user_corrected", evidence=quote)
+        memory.scrub_notebook(store, m["text"])     # 笔记本里的旧说法也拿掉，不然下一轮还会照着它说
         store.bump("memory_fix")
         store.log("memory", ("按你说的改了：" if new_text else "按你说的删掉了：") + m["text"])
         return {"ok": True, "old": m["text"], "new": new_text, "deleted": not new_text}
@@ -804,12 +810,12 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "", routed: s
         store.log("plan", "加了一小步：" + title)
         return {"ok": True, "step": s}
     if name == "complete_step":
-        cand = store.find_todo_step(args.get("step_id"), args.get("title"))
+        cand = store.find_todo_step(str(args.get("step_id") or ""), str(args.get("title") or ""))
         if not cand:
             return {"ok": False, "error": "没找到这一步"}
         if not step_said_done(store, user_text, cand["title"]):
             return {"ok": False, "skipped": True,
-                    "error": f"TA 这句话和「{cand['title']}」对不上，别替 TA 打勾。如果 TA 说的是一件新做成的事，用 propose_moment 提议留在轨迹上；"
+                    "error": f"TA 这句话和「{cand['title']}」对不上，别替 TA 打勾。如果 TA 说的是一件新做成的事，用 propose_moment 提议留成一个瞬间；"
                              f"如果觉得可能就是这一步，问一句「是不是『{clip(cand['title'], 16)}』这一步做完啦？」，TA 说是再打勾。"}
         s = store.complete_step(cand["id"])
         xp = growth.award(store, "action", ref="step:" + s["id"], note="完成：" + s["title"])
@@ -986,7 +992,7 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "", routed: s
         return {"ok": True, "feature": args.get("feature"), "title": f["title"],
                 "note": "界面会出一个入口，TA 点「开始」才开始。回复里一句话说为什么推荐就好，别说已经打开了。"}
     if name == "start_scene":
-        sid = args.get("scene")
+        sid = str(args.get("scene") or "")
         if sid == "kickstart":
             return {"ok": True, "scene": "kickstart", "title": "两分钟启动", "task": clip(str(args.get("task") or ""), 40),
                     "note": "界面会打开两分钟启动，你只需用一句话陪 TA 开始。"}
@@ -1035,6 +1041,40 @@ def _parse_args(raw: str) -> dict:
 # ---- the loop ----------------------------------------------------------------
 
 ROUTER_WAIT = 8   # 秒：第一轮的第一个字到了，最多再等路由这么久
+
+SPEAK_UP = ("你这一轮还没有对 TA 说话。现在用一两句话回复 TA：做了事就带上结果（照工具返回的说），"
+            "没做成就用平常话照实说。这一次不要调用工具。")
+TOOL_BROKE = ("这一步没办成：调用时的参数不对。这一轮别说已经做好了；照工具说明把参数重写一遍再调用一次，"
+              "还是不行就用平常话告诉 TA 这次没弄成。")
+
+
+def _run_safely(store: Store, name: str, args: dict, user_text: str, routed: str) -> tuple[dict, list]:
+    """执行一个工具，返回 (结果, 要画的东西)。工具里出了意外（多半是模型把参数的类型写错了）不能让整轮对话断掉：
+    照实告诉模型这一步没办成，由它换个写法重试或者直说。画卡片出了意外，事情其实已经做了：结果照旧，只是不画。"""
+    try:
+        snap = acts.before(store, name, args)
+        result = run_tool(store, name, args, user_text, routed)
+    except Exception:
+        traceback.print_exc()
+        return {"ok": False, "error": TOOL_BROKE}, []
+    if not isinstance(result, dict):
+        return {"ok": False, "error": TOOL_BROKE}, []
+    if result.get("skipped") or result.get("unchanged"):
+        return result, []
+    try:
+        return result, acts.view(store, name, args, result, snap)
+    except Exception:
+        traceback.print_exc()
+        return result, []
+
+
+def _quiet_reply(done: list[dict]) -> str:
+    """模型两次都没开口时的最短回复：只照这一轮真的出了什么来说，不替模型编内容。"""
+    if any(a.get("type") == "ask" for a in done):
+        return "你看看下面这张卡片，合适就点一下。"
+    if any(a.get("type") == "slip" and a.get("verb") != "今天来聊了" for a in done):
+        return "弄好了，在下面。"
+    return "嗯，我在。你接着说。"
 
 
 def _check_route(stream, rt, route: dict, msgs: list, tools: list):
@@ -1118,13 +1158,11 @@ def chat(store: Store, user_text: str, *, extract: bool = True, topic: str = "")
                 args = _parse_args(c["arguments"])
                 if c["name"] == "search_memory":
                     yield ("mood", {"id": MOODS["searching"]})
-                snap = acts.before(store, c["name"], args)
-                result = run_tool(store, c["name"], args, user_text, route.get("tool") or "")
+                result, v = _run_safely(store, c["name"], args, user_text, route.get("tool") or "")
                 tool_log.append({"name": c["name"], "args": args, "result": result})
                 if result.get("skipped"):
                     blocked.add(c["name"])
                 elif not result.get("unchanged"):
-                    v = acts.view(store, c["name"], args, result, snap)
                     yield ("tool", {"name": c["name"], "args": args, "result": result, "acts": v, "act_start": len(all_acts)})
                     all_acts += v
                 if result.get("ok") and c["name"] in TOOL_MOOD:
@@ -1132,11 +1170,26 @@ def chat(store: Store, user_text: str, *, extract: bool = True, topic: str = "")
                     yield ("mood", {"id": MOODS[TOOL_MOOD[c["name"]]]})
                 msgs.append({"role": "tool", "tool_call_id": c["id"] or f"call_{i}",
                              "content": json.dumps(result, ensure_ascii=False)[:6000]})
+        if not reply.strip():
+            # 模型调完工具却一个字没说（偶尔会这样）：再要一次，这次只让它开口
+            for kind, val in llm.stream_chat(msgs + [{"role": "system", "content": SPEAK_UP}]):
+                if kind == "text":
+                    reply += val
+                    yield ("delta", {"text": val})
     except llm.LLMError as e:
         if not reply:
             reply = "我这边连不上了，稍等一下再试试？你刚才说的我先记在这里。"
             yield ("delta", {"text": reply})
         yield ("error", {"message": str(e)[:200]})
+    except Exception as e:   # 程序自己出了意外：这一轮照样要有回复、要存下来，不能让对话断在半空
+        traceback.print_exc()
+        if not reply:
+            reply = "我这边出了点小状况，刚才那句没接住。你再说一遍好吗？"
+            yield ("delta", {"text": reply})
+        yield ("error", {"message": type(e).__name__})
+    if not reply.strip():      # 还是没开口：照这一轮真实做了什么，给一句最短的话，不留一个空气泡
+        reply = _quiet_reply(all_acts)
+        yield ("delta", {"text": reply})
 
     extra = acts.infer_entry(reply, all_acts)   # 嘴上推荐了练习、却没调 suggest_feature：补上入口
     if extra:

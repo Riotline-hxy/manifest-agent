@@ -6,6 +6,7 @@ the only source of the user id.
 from __future__ import annotations
 
 from core import academy, acts, admin, portrait, auth, digest, flows, metrics, photos, webpush, growth, journey, kickstart, llm, onboarding, report, scenes, scheduler, tasks, town, trial
+from core import memory as mem
 from core.store import Store
 from core.util import clip, day_key, iso
 from core.api import VERSION, ApiError, bootstrap, public_user
@@ -114,10 +115,11 @@ def admin_login(h, u, b, q):
     if not admin.key():
         raise ApiError(404, "后台未开启：在服务器 .env 里设置 MANIFEST_ADMIN_KEY")
     k = "admin:" + h._ip()
-    if auth.too_many(k, 5):
+    if auth.too_many(k, 5) or auth.too_many("admin:*", 30):     # 第二道：不分来源，全站十分钟内最多错 30 次
         raise ApiError(429, "试太多次了，十分钟后再来")
     if not admin.check_key(b.get("key")):
         auth.note_fail(k)
+        auth.note_fail("admin:*")
         raise ApiError(401, "口令不对")
     return 200, {"ok": True}, {"Set-Cookie": h._admin_cookie(admin.make_token())}
 
@@ -309,10 +311,17 @@ PROFILE_FIELDS = {"nickname", "agent_name", "agent_hue", "agent_avatar_id", "int
                   "schedule_hint", "traits", "mbti_hint", "boundaries", "proactive",
                   "care_style", "pace", "theme", "persona", "custom_moods",
                   "chat_style", "energy_time"}
+PROFILE_TEXT = {"nickname", "agent_name", "agent_hue", "agent_avatar_id", "intent_primary", "intent_why", "schedule_hint",
+                "mbti_hint", "proactive", "care_style", "pace", "theme", "persona", "chat_style", "energy_time"}
 
 
 def profile(h, u, b, q):
     patch = {k: v for k, v in b.items() if k in PROFILE_FIELDS}
+    for k in PROFILE_TEXT & set(patch):      # 这些都是一句短话：别的类型（对象、数组）存进去会让以后每次组装提示词都出错
+        if not isinstance(patch[k], str):
+            raise ApiError(400, "格式不对")
+    if "pace" in patch and patch["pace"] not in ("gentle", "steady"):
+        raise ApiError(400, "偏好不对")
     if "proactive" in patch and patch["proactive"] not in ("more", "normal", "less", "off"):
         raise ApiError(400, "频率不对")
     if "care_style" in patch and patch["care_style"] not in ("", "nudge", "analyze", "quiet"):
@@ -360,6 +369,7 @@ def memory(h, u, b, q):
             st.log("memory", "你确认了：" + m["text"])
         elif act in ("reject", "forget"):
             st.delete_memory(m["id"], reason="user_" + act)
+            mem.scrub_notebook(st, m["text"])     # 笔记本里说这件事的那半句也拿掉：删了就真的不再提
             st.log("memory", ("你说不对，删掉了：" if act == "reject" else "按你说的忘掉了：") + m["text"])
         elif act == "edit":
             if not text:
@@ -367,6 +377,7 @@ def memory(h, u, b, q):
             if text != m["text"]:
                 st.update_memory(m["id"], text=text, status="active", reason="user_edit")
                 st.c.execute("UPDATE memory SET source='confirmed' WHERE id=?", (m["id"],))
+                mem.scrub_notebook(st, m["text"])
                 st.log("memory", "你改了一条记忆：" + text)
             if b.get("cat") in portrait.CAT_IDS:
                 st.set_cat(m["id"], b["cat"])
@@ -397,7 +408,11 @@ def insight_api(h, u, b, q):
     if fb not in ("yes", "no", ""):
         raise ApiError(400, "bad fb")
     with Store(u["id"]) as st:
-        cur = dict(st.profile().get("insight_fb") or {})
+        p = st.profile()
+        known = {f.get("id") for f in p.get("finds") or [] if isinstance(f, dict)} | {f["id"] for f in portrait.insights(st)}
+        cur = dict(p.get("insight_fb") or {})
+        if fid not in known and fid not in cur:      # 只认真有的那几条发现：不让随便一个字符串写进画像
+            raise ApiError(404, "没有这条发现")
         cur[fid] = fb
         st.set_profile({"insight_fb": cur})
         return 200, bootstrap(st)
@@ -482,9 +497,9 @@ def habit_api(h, u, b, q):
                 out["habit"] = journey.add_habit(st, str(b.get("wish_id") or ""), str(b.get("title") or ""),
                                                  str(b.get("freq") or "daily"), b.get("per_week") or 3)
             elif act in ("check", "uncheck"):
-                hb, created = journey.check_habit(st, str(b.get("id") or ""), b.get("day"), undo=act == "uncheck")
+                day = journey._valid_day(b.get("day"))    # 奖励按「习惯 + 这一天」只算一次：用校验过的日期，不用请求里原样的字符串
+                hb, created = journey.check_habit(st, str(b.get("id") or ""), day, undo=act == "uncheck")
                 if created:
-                    day = b.get("day") or day_key()
                     out["xp"] = growth.award(st, "action", ref=f"habit:{hb['id']}:{day}", note="打卡：" + hb["title"])
             elif act in ("skip", "unskip"):
                 journey.skip_habit(st, str(b.get("id") or ""), undo=act == "unskip")
@@ -650,7 +665,10 @@ def scene_save(h, u, b, q):
 def scene_discard(h, u, b, q):
     """结束页「返回对话」：这次的回答不留。"""
     with Store(u["id"]) as st:
-        scenes.discard(st, str(b.get("run_id") or ""))
+        rid = str(b.get("run_id") or "")
+        scenes.discard(st, rid)
+        if (st.profile().get("flow_end") or {}).get("run") == rid:
+            st.set_profile({"flow_end": {}})     # 算好的结尾（小纸条、调整方案）也不留
         return 200, {"ok": True}
 
 

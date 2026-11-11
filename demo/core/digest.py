@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from . import kickstart, llm
+from . import kickstart, llm, memory
 from .memory import KINDS
 from .store import Store
 from .util import clip, day_key, now
@@ -112,16 +112,21 @@ def fallback_summary(mat: dict) -> tuple[str, list[str]]:
 
 
 def run(st: Store, day: str | None = None, use_model: bool = True) -> dict:
-    day = day or day_key()
+    today = day_key()
+    day = day or today
+    # 只有过完的一天才算「整理过了」。白天手动整理今天（/api/memory/digest）不动这个记号，
+    # 不然第二天夜里会跳过今天，今天后半天说的话就再也不会被整理。
+    mark = (lambda: st.set_profile({"last_digest_day": day})) if day < today else (lambda: None)
     mat = material(st, day)
     if not has_material(mat):
-        st.set_profile({"last_digest_day": day})
+        mark()
         return {"day": day, "skipped": True, "reason": "这一天没有可整理的内容"}
 
     existing = st.memories(statuses=("active", "guess"), limit=60)
     mem_txt = "\n".join(
         f"- id={m['id']} [{m['kind']}]{' [保护]' if m['source'] in PROTECTED else ''}{' [猜测]' if m['status'] == 'guess' else ''} {m['text']}"
         for m in existing) or "（无）"
+    gone = memory.forgotten(st, days=45, limit=12)
     lines = [f"日期：{day}", "", "## 对话"] + (mat["convo"] or ["（没有聊天）"])
     if mat["records"]:
         lines += ["", "## 记录"] + [f"- [{ {'rest': '休息日'}.get(r['type'], r['type'])}] {r['text']}" for r in mat["records"]]
@@ -137,6 +142,9 @@ def run(st: Store, day: str | None = None, use_model: bool = True) -> dict:
     if mat.get("kicks"):
         lines += ["", "## 两分钟启动记忆（TA 勾选让你记住的启动经历）"] + [k["text"] for k in mat["kicks"]]
     lines += ["", "## 已有记忆", mem_txt]
+    if gone:
+        lines += ["", "## TA 亲手删掉或更正过的（不要再记回去，也不要写进笔记本；除非 TA 这一天自己又明确说起）",
+                  memory.forgotten_text(gone)]
     old_nb = (st.profile().get("notebook") or {}).get("text") or ""
     lines += ["", "## 笔记本（上一版）", old_nb or "（还没有，今天开始写）"]
 
@@ -147,8 +155,11 @@ def run(st: Store, day: str | None = None, use_model: bool = True) -> dict:
     if out:
         summary = clip(str(out.get("summary") or ""), 80)
         highlights = [clip(str(h), 24) for h in (out.get("highlights") or [])][:3]
-        applied, rejected = apply(st, out.get("ops") or [], {m["id"]: m for m in existing}, mat, day)
+        applied, rejected = apply(st, out.get("ops") or [], {m["id"]: m for m in existing}, mat, day, gone)
         nb = str(out.get("notebook") or "").strip()
+        for f in gone:      # 模型还是把 TA 删掉的事写回了笔记本：拿掉
+            if not f["new"] and f["at"][:10] >= day:
+                nb = memory.scrub_text(nb, f["old"])
         if len(nb) >= 20 and nb != old_nb:
             st.set_profile({"notebook": {"text": clip(nb, 1600), "updated_at": now().isoformat(timespec="seconds"), "day": day, "by": "digest"}})
         pt = clip(str(out.get("portrait") or "").strip(), 40)
@@ -170,13 +181,13 @@ def run(st: Store, day: str | None = None, use_model: bool = True) -> dict:
     ops_log = [{"op": a["op"], "text": a.get("text", ""), "old": a.get("old", ""), "kind": a.get("kind", ""),
                 "status": a.get("status", "")} for a in applied]
     st.save_digest(day, summary, highlights, stats, ops_log, bool(out), page)
-    st.set_profile({"last_digest_day": day})
+    mark()
     st.log("memory", f"整理了 {day[5:]} 的记忆：新记 {stats['added']}，更新 {stats['updated']}，待确认 {stats['guesses']}")
     return {"day": day, "summary": summary, "highlights": highlights, "page": page, "stats": stats, "ops": ops_log,
             "rejected": rejected, "by_model": bool(out)}
 
 
-def apply(st: Store, ops: list, known: dict, mat: dict, day: str) -> tuple[list[dict], list[dict]]:
+def apply(st: Store, ops: list, known: dict, mat: dict, day: str, gone: list | None = None) -> tuple[list[dict], list[dict]]:
     """Apply defensively. Every refusal is recorded so the behaviour is testable."""
     said = "\n".join(mat["user_lines"])
     applied, rejected, guesses = [], [], 0
@@ -187,13 +198,21 @@ def apply(st: Store, ops: list, known: dict, mat: dict, day: str) -> tuple[list[
         text = clip(str(op.get("text") or ""), 80).strip()
         kind = op.get("kind") if op.get("kind") in KINDS else "insight"
         evidence = clip(str(op.get("evidence") or ""), 200).strip()
-        target = known.get(op.get("id") or "")
+        target = known.get(str(op.get("id") or ""))
         if act == "ADD":
             if not text:
                 continue
             if any(text == m["text"] for m in known.values()):
                 rejected.append({"op": act, "text": text, "why": "duplicate"})
                 continue
+            if memory.blocked(text, gone or [], day):     # TA 亲手删掉的事，不从当天的对话里再记回来
+                rejected.append({"op": act, "text": text, "why": "user forgot this"})
+                continue
+            if kind != "event":      # 几乎一字不差的同一件事不再多记一条（带日期的事件除外：不同日子的事可以很像）
+                near = st.similar(text, k=1)
+                if near and near[0]["sim"] >= 0.9:
+                    rejected.append({"op": act, "text": text, "why": "near duplicate"})
+                    continue
             is_guess = op.get("source") == "guess"
             if is_guess:
                 if guesses >= 1:

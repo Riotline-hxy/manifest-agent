@@ -157,6 +157,8 @@ def current(st) -> dict | None:
     onboarding answer when someone arrives without one (so nobody starts empty)."""
     ws = wishes(st)
     if not ws:
+        if st.c.execute("SELECT 1 FROM wish LIMIT 1").fetchone():
+            return None       # 有过愿望、现在都收起了：是 TA 自己收的，不再照建档时的说法替 TA 建一个
         p = st.profile()
         intent = (p.get("intent_primary") or "").strip()
         if not intent or intent in ("还没想好",):
@@ -246,8 +248,7 @@ def edit_moment(st, mid: str, patch: dict) -> dict | None:
         with st.lock:
             st.c.execute("UPDATE moment SET " + ",".join(f"{k}=?" for k in fields) + " WHERE id=?", (*fields.values(), mid))
         if "photo" in fields and old_photo:   # 换了或去掉了照片：旧的那张删掉
-            from . import photos
-            photos.delete(st, old_photo)
+            _drop_photo(st, old_photo)
     return dict(st.c.execute("SELECT * FROM moment WHERE id=?", (mid,)).fetchone())
 
 
@@ -256,9 +257,15 @@ def delete_moment(st, mid: str) -> bool:
     with st.lock:
         gone = st.c.execute("DELETE FROM moment WHERE id=?", (mid,)).rowcount > 0
     if gone and r and r["photo"]:
-        from . import photos
-        photos.delete(st, r["photo"])
+        _drop_photo(st, r["photo"])
     return gone
+
+
+def _drop_photo(st, pid: str) -> None:
+    """删照片文件；万一别的瞬间还挂着同一张（照片 id 是前端传来的），就先留着。"""
+    from . import photos
+    if pid and not st.c.execute("SELECT 1 FROM moment WHERE photo=? LIMIT 1", (pid,)).fetchone():
+        photos.delete(st, pid)
 
 
 def _valid_day(day: str | None) -> str:
@@ -645,6 +652,37 @@ def _pick(items: list[dict], ref: str, key: str = "title") -> dict | None:
     return best if score >= 0.5 else None
 
 
+def _alike(items: list[dict], ref: str, key: str = "title") -> list[dict]:
+    """ref 没有照抄 id 或完整名字时，名字「像」它的所有项：互相包含，或两字片段重合一半以上。
+    照抄了 id / 完整名字（只对上一项）就返回空——那是点了名的。
+    改、删之前用它：像的不止一个，就不替 TA 挑一个动手，先问（「把背单词那个删了」而计划里有两个背单词）。"""
+    ref = (ref or "").strip()
+    if not ref:
+        return []
+    ids = {it["id"] for it in items}
+    if any(m in ids for m in re.findall(r"[a-z]{1,3}_[0-9a-f]{6,}", ref)):
+        return []
+    ref = ref.strip("[]【】「」\"' ")
+    if sum(1 for it in items if it["id"] == ref or it[key] == ref) == 1:
+        return []
+    n = _norm(ref)
+    if not n:
+        return []
+    grams = lambda t: {t[i:i + 2] for i in range(len(t) - 1)} or {t}
+    want = grams(n)
+    out = []
+    for it in items:
+        t = _norm(it[key])
+        if t and (n in t or t in n or len(want & grams(t)) / len(want) >= 0.5):
+            out.append(it)
+    return out
+
+
+def _unclear(cands: list[dict], key: str = "title") -> dict:
+    return {"ok": False, "ambiguous": True, "have": [clip(c[key], 24) for c in cands[:6]],
+            "error": f"有 {len(cands)} 项都对得上，别替 TA 挑一个动手：先问 TA 指的是哪一个（have 里是这几项）"}
+
+
 def _when(patch: dict, base: str = "") -> str | None:
     """新日期：指定的日子 / 从今天起 N 天后 / 在原来的日子上挪 N 天（「往后推两周」= +14，「提前三天」= -3）。"""
     if patch.get("shift_days") not in (None, "", 0):
@@ -746,6 +784,11 @@ def edit_item(st, kind: str, ref: str, patch: dict, action: str = "") -> dict:
         pool = wishes(st, include_archived=action == "restore")
         if action == "restore":
             pool = [w for w in pool if w["archived"]]
+        if not ref and action == "remove" and len(pool) > 1:    # 没说是哪个：不把「正在看的那个」当成 TA 要收起的
+            return {"ok": False, "ambiguous": True, "have": [x["title"] for x in pool],
+                    "error": "TA 没说是哪个愿望，别替 TA 挑：先问一句要收起哪一个"}
+        if len(_alike(pool, ref)) > 1:
+            return _unclear(_alike(pool, ref))
         w = _pick(pool, ref) if ref else (None if action == "restore" else current(st))
         if not w:
             have = [x["title"] for x in pool]
@@ -779,6 +822,8 @@ def edit_item(st, kind: str, ref: str, patch: dict, action: str = "") -> dict:
     if kind == "milestone":
         live = {w["id"] for w in wishes(st)}
         pool = [m for m in milestones(st) if m["wish_id"] in live]
+        if len(_alike(pool, ref)) > 1:
+            return _unclear(_alike(pool, ref))
         m = _pick(pool, ref)
         if not m:
             return {"ok": False, "error": "没找到这个里程碑", "have": [x["title"] for x in pool]}
@@ -805,6 +850,8 @@ def edit_item(st, kind: str, ref: str, patch: dict, action: str = "") -> dict:
         pool = habits(st, include_archived=action == "restore")
         if action == "restore":
             pool = [h for h in pool if h["archived"]]
+        if len(_alike(pool, ref)) > 1:
+            return _unclear(_alike(pool, ref))
         h = _pick(pool, ref)
         if not h:
             return {"ok": False, "error": "没找到这个习惯" if pool else "没有收起的习惯", "have": [x["title"] for x in pool]}
@@ -837,6 +884,8 @@ def edit_item(st, kind: str, ref: str, patch: dict, action: str = "") -> dict:
         rows = [dict(r) for r in st.c.execute("SELECT * FROM step WHERE status IN ('todo','dropped') ORDER BY created_at DESC LIMIT 200")]
         if action == "restore":
             rows = [r for r in rows if r["status"] == "dropped"]
+        if len(_alike(rows, ref)) > 1:
+            return _unclear(_alike(rows, ref))
         s_ = _pick(rows, ref)
         if not s_:
             return {"ok": False, "error": "没找到这一步", "have": [x["title"] for x in rows if x["status"] == "todo"][:8]}
@@ -867,6 +916,8 @@ def edit_item(st, kind: str, ref: str, patch: dict, action: str = "") -> dict:
     rows = moments(st, limit=300)
     for r in rows:
         r["title"] = r["text"]
+    if len(_alike(rows, ref)) > 1:
+        return _unclear(_alike(rows, ref))
     m = _pick(rows, ref)
     if not m:
         return {"ok": False, "error": "没找到这条瞬间", "have": [f"{r['day'][5:]} {clip(r['text'], 20)}" for r in rows[:8]]}

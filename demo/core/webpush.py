@@ -151,9 +151,24 @@ def reset_for_tests() -> None:
     _keys = None
 
 
+# 订阅地址是前端传来的。不限制的话，任何登录用户都能让服务器定时去敲一个任意的 https 地址（还会跟着跳转，可能跳进内网）。
+# 所以只认各家浏览器真正的推送服务；以后遇到新的，在 .env 里用 MANIFEST_PUSH_HOSTS=a.com,b.com 加。
+PUSH_HOSTS = ("fcm.googleapis.com", "android.googleapis.com",                 # Chrome / Edge / 安卓上的大多数浏览器
+              "push.services.mozilla.com",                                    # Firefox
+              "push.apple.com",                                               # Safari（iOS 16.4+ / macOS）
+              "notify.windows.com",                                           # 旧版 Edge
+              ) + tuple(h.strip().lower() for h in (os.environ.get("MANIFEST_PUSH_HOSTS") or "").split(",") if h.strip())
+MAX_DEVICES = 10        # 一个人最多留这么多台设备的订阅，再多就顶掉最早的
+
+
 def _valid_endpoint(ep: str) -> bool:
-    u = urlparse(ep)
-    return u.scheme == "https" and bool(u.netloc) and len(ep) <= 1000
+    try:
+        u = urlparse(ep)
+        host, port = (u.hostname or "").lower(), u.port
+    except ValueError:
+        return False
+    return (u.scheme == "https" and len(ep) <= 1000 and port in (None, 443)
+            and any(host == h or host.endswith("." + h) for h in PUSH_HOSTS))
 
 
 def subscribe(uid: str, sub: dict, ua: str = "") -> None:
@@ -161,12 +176,15 @@ def subscribe(uid: str, sub: dict, ua: str = "") -> None:
     if not _valid_endpoint(ep):
         raise ValueError("订阅信息不对")
     k = (sub or {}).get("keys") or {}
+    k = k if isinstance(k, dict) else {}
     with _lock:
         # 同一台设备换了账号登录：endpoint 归新账号
         _db().execute("""INSERT INTO sub(endpoint, uid, p256dh, auth, ua, created_at, fails) VALUES(?,?,?,?,?,?,0)
             ON CONFLICT(endpoint) DO UPDATE SET uid=excluded.uid, p256dh=excluded.p256dh, auth=excluded.auth,
             ua=excluded.ua, fails=0""", (ep, uid, str(k.get("p256dh") or "")[:200], str(k.get("auth") or "")[:100],
                                          (ua or "")[:200], iso()))
+        _db().execute("DELETE FROM sub WHERE uid=? AND endpoint NOT IN "
+                      "(SELECT endpoint FROM sub WHERE uid=? ORDER BY created_at DESC, rowid DESC LIMIT ?)", (uid, uid, MAX_DEVICES))
 
 
 def unsubscribe(uid: str, endpoint: str) -> None:

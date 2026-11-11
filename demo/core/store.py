@@ -54,6 +54,7 @@ DEFAULT_PROFILE = {
     "portrait": {},         # 「小光眼中的你」一句话 {text, by: digest|user, updated_at}
     "last_week_page": "",   # 笔记本：最近一次试着写定稿的那一周（周一的日期）
     "finds": [],            # 小光的发现：小光翻笔记本时注意到的事 [{id, text, evidence[], at}]（core/finds.py）
+    "finds_at": "",         # 上一次试着写「小光的发现」的时间：隔几天才写一次（以前没列在这里，set_profile 存不进去，结果每晚都写）
     "insight_fb": {},       # 小光的发现：TA 点的「像我」yes /「不太像」no，按发现 id
     "flow_end": {},         # 「显化你的愿望」「调整现有计划」答完那一下算好的结尾（小纸条和显化卡 / 调整方案），保存时照着它存，不再调模型（core/flows.py）
     "topic": {},            # 正在聊的点子话题 {id, at}：30 分钟没再聊就算结束（core/topics.py）

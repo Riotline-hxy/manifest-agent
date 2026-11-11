@@ -144,6 +144,10 @@ def too_many(key: str, limit: int = MAX_FAILS) -> bool:
 
 
 def note_fail(key: str) -> None:
+    if len(_attempts) > 5000:      # 有人拿一串不同的用户名 / 地址来撞：过期的记录清掉，表不会一直长
+        t = time.time()
+        for k in [k for k, xs in list(_attempts.items()) if not xs or t - xs[-1] >= WINDOW]:
+            _attempts.pop(k, None)
     _attempts.setdefault(key, []).append(time.time())
 
 

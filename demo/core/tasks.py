@@ -62,10 +62,20 @@ def _hm(t: str) -> tuple[int, int]:
     return h, m
 
 
+def _clock(t) -> str:
+    """校验并写成 HH:MM（「9:5」「 21:30 」都收成一样的写法，显示出来才整齐）。"""
+    h, m = _hm(t)
+    return f"{h:02d}:{m:02d}"
+
+
 def _days(days) -> list[int]:
     if isinstance(days, str):
         days = [x for x in days.replace("，", ",").split(",") if x.strip()]
-    out = sorted({int(x) for x in (days or []) if str(x).strip().isdigit() and 1 <= int(x) <= 7})
+    elif isinstance(days, (int, float)):       # 模型有时只给一个数字（「每周三」→ 3）
+        days = [int(days)]
+    elif not isinstance(days, (list, tuple, set)):
+        days = []
+    out = sorted({int(x) for x in days if str(x).strip().isdigit() and 1 <= int(x) <= 7})
     return out
 
 
@@ -153,8 +163,9 @@ def add(uid: str, title: str, *, kind: str = "remind", message: str = "", repeat
                     run_at += timedelta(days=1)
             if run_at <= ref:
                 raise ValueError("这个时间已经过去了")
+            time = f"{h:02d}:{m:02d}"
     else:
-        _hm(time)
+        time = _clock(time)
     t = {"id": new_id("t"), "uid": uid, "title": title, "kind": kind, "message": clip(message or "", 200),
          "repeat": repeat, "days": ",".join(str(x) for x in _days(days)), "time": time, "run_at": "",
          "enabled": 1, "source": source, "created_at": iso(), "last_run_at": "", "runs": 0}
@@ -210,8 +221,7 @@ def edit(uid: str, tid: str, patch: dict) -> dict | None:
     if patch.get("repeat") in REPEATS and patch["repeat"] != "once":
         t["repeat"] = patch["repeat"]
     if patch.get("time"):
-        _hm(patch["time"])
-        t["time"] = patch["time"]
+        t["time"] = _clock(patch["time"])
     if "days" in patch:
         t["days"] = ",".join(str(x) for x in _days(patch["days"]))
     if t["repeat"] != "once":
