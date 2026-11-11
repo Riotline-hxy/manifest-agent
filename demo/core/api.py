@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import academy, cheer, finds, weekly, growth, journey, kickstart, portrait, scenes, scheduler, tasks, topics, town
 from .store import Store
 
-VERSION = "3.20.6"
+VERSION = "3.21.0"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
