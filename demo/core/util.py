@@ -112,3 +112,25 @@ def fts_query(text: str, limit: int = 24) -> str | None:
 def clip(s: str, n: int) -> str:
     s = (s or "").strip()
     return s if len(s) <= n else s[: n - 1] + "…"
+
+
+DEFAULT_AGENT = "小光"
+
+
+def agent_name(p: dict | None) -> str:
+    """TA 给陪伴者起的名字（没起就是「小光」）。"""
+    return str((p or {}).get("agent_name") or "").strip() or DEFAULT_AGENT
+
+
+def named(obj, name: str):
+    """系统自己写的文案里（练习介绍、记忆分类、每日任务、动态、给模型的说明书……）把「小光」换成 TA 起的名字。
+    只用在系统文案上，不用在 TA 写的东西和聊天原话上。名字就是小光时原样返回。"""
+    if not name or name == DEFAULT_AGENT:
+        return obj
+    if isinstance(obj, str):
+        return obj.replace(DEFAULT_AGENT, name)
+    if isinstance(obj, list):
+        return [named(x, name) for x in obj]
+    if isinstance(obj, dict):
+        return {k: named(v, name) for k, v in obj.items()}
+    return obj

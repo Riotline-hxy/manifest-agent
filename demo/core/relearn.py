@@ -17,7 +17,7 @@ from datetime import date, timedelta
 
 from . import journey, llm
 from .store import Store
-from .util import clip, iso, now
+from .util import agent_name, clip, iso, now
 
 TITLE = "调整现有计划"
 LLM_TIMEOUT = 25
@@ -241,7 +241,7 @@ def revise(store: Store, a: dict, end: dict, text: str) -> dict:
                               f"这阵子的计划做起来：{a['feel'] or '（没说）'}\n\nTA 现在的计划：\n{_plan_text(plan)}\n\n"
                               f"上一版方案：{json.dumps(prev, ensure_ascii=False)}\nTA 的意见：{text}")
     if not out:
-        raise ValueError("小光没想出来，再说一次试试")
+        raise ValueError(f"{agent_name(store.profile())}没想出来，再说一次试试")
     see = clip(str(out.get("see") or "").strip(), 50) or end.get("say", "")
     changes = _changes(plan, out.get("changes"))
     return {**_public(see, changes, a), "ops": changes, "by_model": True}

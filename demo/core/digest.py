@@ -18,7 +18,7 @@ from datetime import timedelta
 from . import kickstart, llm, memory
 from .memory import KINDS
 from .store import Store
-from .util import clip, day_key, now
+from .util import agent_name, clip, day_key, now
 
 # 用户亲口要求记的、亲手确认的、建档写的，以及在点子结束页勾选保存的：夜里整理只有拿到原话依据才能改
 PROTECTED = {"chat:explicit", "confirmed", "onboarding", "scene:relearn", "scene:seven_steps_lite"}
@@ -35,7 +35,7 @@ PROMPT = """你在为「显化陪伴」应用做每天一次的记忆整理。�
 4. 推测（从行为推断、用户没直接说的）source 填 guess，最多 1 条，要谨慎。用户亲口说的 source 填 said。
 5. 已经记过的不要重复；补充或修正用 UPDATE 给出合并后的新文本。
 6. 标了 [长文资料] 的内容是用户粘贴的材料，不是他的经历，不要从中抽取个人信息。
-7. 另写一句 summary：这是陪伴者「小光」第二天对 TA 说的一句话，会出现在 TA 的首页上。
+7. 另写一句 summary：这是陪伴者「{name}」第二天对 TA 说的一句话，会出现在 TA 的首页上。
    一句话、≤40 字、第二人称，像朋友随口说起；只用材料里的事实，带一点自己的感受或注意到的细节
    （比如「昨天你说完还是去跑了，我挺替你高兴的」），不要写成流水账或总结报告，不说教，不用「不是……而是……」。
    以及最多 3 个值得记住的瞬间（每个 ≤20 字）。
@@ -70,7 +70,7 @@ def material(st: Store, day: str) -> dict:
             user_lines.append(m["content"])
             convo.append("用户：" + clip(m["content"], 400))
         elif m["role"] == "assistant" and m["content"]:
-            convo.append("小光：" + clip(m["content"], 160))
+            convo.append(agent_name(st.profile()) + "：" + clip(m["content"], 160))
     recs = [r for r in st.records(300) if r["day"] == day]
     done = [s for s in st.steps(300) if s["status"] == "done" and (s.get("done_at") or "")[:10] == day]
     added = [s for s in st.steps(300) if (s.get("created_at") or "")[:10] == day]
@@ -148,7 +148,7 @@ def run(st: Store, day: str | None = None, use_model: bool = True) -> dict:
     old_nb = (st.profile().get("notebook") or {}).get("text") or ""
     lines += ["", "## 笔记本（上一版）", old_nb or "（还没有，今天开始写）"]
 
-    out = llm.complete_json([{"role": "system", "content": PROMPT},
+    out = llm.complete_json([{"role": "system", "content": PROMPT.replace("{name}", agent_name(st.profile()))},
                              {"role": "user", "content": clip("\n".join(lines), 12000)}], timeout=90) if use_model else None
 
     applied, rejected, page = [], [], None

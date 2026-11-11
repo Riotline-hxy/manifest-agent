@@ -2,7 +2,7 @@
 // 买和放是一步：在商店点一样东西，再点一块空地。金币只在后端扣，同一次点击重发不会扣两次。
 // 手机上点一块地先出现预览，再点一次（或点「放在这里」）才真的放下，免得手滑。
 import { api } from "../api.js";
-import { state, setData, subscribe } from "../store.js";
+import { state, setData, subscribe, aname } from "../store.js";
 import { esc, icon, tile, toast, sheet, h, fmtDay } from "../ui.js";
 import { confetti } from "../fx.js";
 import { openRules } from "../rules.js";
@@ -48,7 +48,7 @@ export function renderTown(root) {
       <div class="tn-stats">${statsHTML(t, g)}</div>
       <section class="tn-scene card">
         <div class="tn-stage"></div>
-        <div class="tn-guide"><button class="tn-av" data-say aria-label="听小光说一句">${agentMini()}</button><p class="tn-bubble" aria-live="polite"></p></div>
+        <div class="tn-guide"><button class="tn-av" data-say aria-label="听${aname()}说一句">${agentMini()}</button><p class="tn-bubble" aria-live="polite"></p></div>
         <div class="tn-zoom"><button class="icon-btn sm" data-zoom="1.5" aria-label="放大">${icon("plus")}</button><button class="icon-btn sm" data-zoom="0.66" aria-label="缩小">${icon("minus")}</button></div>
         <div class="tn-mode" aria-live="polite"></div>
       </section>

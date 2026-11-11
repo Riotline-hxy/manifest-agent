@@ -13,7 +13,7 @@ from datetime import timedelta
 
 from . import llm
 from .store import Store
-from .util import clip, day_key, iso, now, parse_iso
+from .util import agent_name, clip, day_key, iso, now, parse_iso
 
 # (肯定语, 适合的愿望类别；general 对谁都合适)
 AFFIRMATIONS = [
@@ -47,7 +47,7 @@ AFFIRMATIONS = [
     ("我愿意给新的可能一个开始。", "freedom"),
 ]
 
-PROMPT = """你是陪伴型 agent「小光」。根据这个人最近 7 天真实发生的事，写一句给 TA 的话，放在「最近的你」下面。
+PROMPT = """你是陪伴型 agent「{name}」。根据这个人最近 7 天真实发生的事，写一句给 TA 的话，放在「最近的你」下面。
 要求：
 - 一句话，14–26 个字，第二人称，温和、具体，像朋友随口说的；
 - 只用材料里的事实，可以概括（比如「这周你三次先开口了」），不要编；
@@ -128,7 +128,7 @@ def refresh(uid: str, s: str | None = None) -> dict | None:
             return None
         p = st.profile()
         out = llm.complete_json([
-            {"role": "system", "content": PROMPT},
+            {"role": "system", "content": PROMPT.replace("{name}", agent_name(st.profile()))},
             {"role": "user", "content": (f"称呼：{p.get('nickname') or '（没说）'}\n最近 7 天：\n" + "\n".join("- " + clip(x, 80) for x in mat[:24]))},
         ], timeout=30)
         text = clip(str((out or {}).get("text") or "").strip(), 40)

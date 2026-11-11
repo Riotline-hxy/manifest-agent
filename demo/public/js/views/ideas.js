@@ -1,6 +1,6 @@
 // 点子：点一个，小光带你做一遍。上面一张「今日推荐」，下面按分组排成干净的列表（Muse 式）。
 // 每一项背后都是真实可玩的场景（或真实的一轮对话），不是展示图。
-import { state, go } from "../store.js";
+import { state, go, aname } from "../store.js";
 import { esc, icon, tile } from "../ui.js";
 import { mountBall } from "../ball.js";
 import { startScene } from "../scene.js";
@@ -25,7 +25,7 @@ export function renderIdeas(root) {
 
   root.innerHTML = `
     <div class="view-inner ideas">
-      <div class="page-head"><div><h1>点子</h1><p>不知道聊什么的时候，点一个，小光带你做一遍</p></div></div>
+      <div class="page-head"><div><h1>点子</h1><p>不知道聊什么的时候，点一个，${aname()}带你做一遍</p></div></div>
 
       <section class="feature card">
         <div class="ft-copy">

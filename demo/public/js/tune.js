@@ -4,7 +4,7 @@
 // 结尾两种：显化卡（小光的小纸条 + 卡片 + 会存的东西）；调整方案（一条条改动，能取消、能说一句重新调，「一键调整」）。
 // 存好以后回到对话（小光的那句话已经在里面）；「现在就去做」打开两分钟启动。
 import { api } from "./api.js";
-import { setData, go } from "./store.js";
+import { setData, go, aname } from "./store.js";
 import { esc, icon, toast } from "./ui.js";
 import { agentMini } from "./ball.js";
 import { openKick } from "./kick.js";
@@ -153,7 +153,7 @@ export function openTune(sceneId = "relearn", { wishId = "" } = {}) {
         return html;
       }, { wide: true, job: async () => (s.type === "cards" || s.type === "rows" ? await val(s.opts) : []) });
     } catch (e) {
-      toast(e.message || "小光没想出来，再试一次", "err");
+      toast(e.message || "" + aname() + "没想出来，再试一次", "err");
       frames.pop();
       return bar("", `<button class="tb-skip" data-retry>再试一次</button>`), dock.querySelector("[data-retry]").addEventListener("click", () => step(id));
     }

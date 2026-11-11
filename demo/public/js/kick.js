@@ -2,7 +2,7 @@
 // 页面沿用「一课」的骨架（进度条、小光 + 气泡、底栏）；调整路线 / 遇到困难用底部弹层，不跳到聊天。
 // 这一次的上下文在服务端（core/kickstart.py），结束时勾了「让小光记住这次体验」才写进《两分钟启动记忆》。
 import { api } from "./api.js";
-import { state, setData } from "./store.js";
+import { state, setData, aname } from "./store.js";
 import { esc, icon, sheet, h, toast } from "./ui.js";
 import { mountBall } from "./ball.js";
 import { confetti } from "./fx.js";
@@ -232,7 +232,7 @@ export async function openKick({ task = "", stepId = "" } = {}) {
         <button class="btn btn-main k-go" aria-label="发送">${icon("send")}</button></div>
       ${kind === "stuck" ? `<div class="k-alt"><button class="btn btn-quiet" data-skip>${icon("arrow")}先跳过这一步</button>
         <button class="btn btn-quiet" data-stop>${icon("moon")}今天先到这儿</button></div>` : ""}
-      <p class="k-wait" hidden>小光在想……</p>`;
+      <p class="k-wait" hidden>${aname()}在想……</p>`;
     const sh = sheet({ title: TALK[kind].title, sticker: TALK[kind].sticker, body: wrap });
     sh.panel.classList.add("kick-panel");
     sh.panel.previousElementSibling?.classList.add("kick-scrim");    // 弹层要盖在全屏的这一页上面
@@ -285,8 +285,8 @@ export async function openKick({ task = "", stepId = "" } = {}) {
         ${run.ctx?.step ? `<p class="kr-from">${icon("flag")}来自小步「${esc(run.ctx.step)}」</p>` : ""}
         <div class="kr-list">${review()}</div>
       </div>
-      <label class="kick-remember"><input type="checkbox"><span>让小光记住这次体验
-        ${found.map((f) => `<small>${icon("sparkles")}小光发现：${esc(f)}</small>`).join("")}</span></label>
+      <label class="kick-remember"><input type="checkbox"><span>让${aname()}记住这次体验
+        ${found.map((f) => `<small>${icon("sparkles")}${aname()}发现：${esc(f)}</small>`).join("")}</span></label>
       ${xp?.amount ? `<div class="rv-xp">${icon("bolt")}经验 +${xp.amount}${xp.coins ? ` · 金币 +${xp.coins}` : ""}</div>` : ""}`;
     buttons([
       ["继续做这件事", "btn-ghost btn-lg", run.finished ? more : () => showStep()],   // 中途停下的：接着做剩下的
@@ -325,7 +325,7 @@ export async function openKick({ task = "", stepId = "" } = {}) {
       if (out.state) setData(out.state);
       run = null;
       close();
-      if (out.saved) toast("记下了，小光会记得这次", "", "memory");
+      if (out.saved) toast("记下了，" + aname() + "会记得这次", "", "memory");
     } catch (e) {
       busy = false;
       toast(e.message || "没结束成，再试一次", "err");

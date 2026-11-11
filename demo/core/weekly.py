@@ -13,12 +13,12 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 from . import finds, llm
-from .util import clip, iso, now
+from .util import agent_name, clip, iso, now
 
 LABEL = {"rest": "休息日"}
 WD = "一二三四五六日"
 
-PROMPT = """你是陪伴者「小光」。这是你自己的笔记本，一周写一页。本子是你的，但 TA 会翻开看，所以对 TA 说「你」，说自己用「我」。
+PROMPT = """你是陪伴者「{name}」。这是你自己的笔记本，一周写一页。本子是你的，但 TA 会翻开看，所以对 TA 说「你」，说自己用「我」。
 下面是 TA 这一周的材料。把这一周零零散散的事想一想，写成一页。
 
 - title：这一页的小标题，≤12 字。从这一周里取一个具体的东西：一样东西、一句话、一个时刻
@@ -125,12 +125,12 @@ def write(st, week: str, final: bool = True) -> dict | None:
     text, corpus, things = material(st, week)
     if not things:
         return None
-    out = llm.complete_json([{"role": "system", "content": PROMPT}, {"role": "user", "content": clip(text, 14000)}], timeout=90)
+    out = llm.complete_json([{"role": "system", "content": PROMPT.replace("{name}", agent_name(st.profile()))}, {"role": "user", "content": clip(text, 14000)}], timeout=90)
     page = clean(out, corpus)
     if not page:
         return None
     st.save_week(week, page, final)
-    st.log("memory", f"小光把 {week[5:]} 那一周写进了笔记本：「{page['title']}」")
+    st.log("memory", f"{agent_name(st.profile())}把 {week[5:]} 那一周写进了笔记本：「{page['title']}」")
     return page
 
 

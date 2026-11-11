@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 
 from .store import Store
-from .util import clip
+from .util import agent_name, clip
 
 SKIP = "（跳过）"
 OTHER = "其他，我想自己说"
@@ -209,7 +209,7 @@ def _by_key(sid: str, a: list) -> dict:
 def review(store: Store, sid: str, a: list, run_id: str = "") -> dict:
     if sid == "meditation":
         return {"kind": "feel", "say": "刚刚的几分钟里，有没有什么让你想记住？", "choices": FEEL,
-                "ph": "写下刚才的感受，一句也好", "to": "小光会记住"}
+                "ph": "写下刚才的感受，一句也好", "to": f"{agent_name(store.profile())}会记住"}
     raise KeyError(sid)
 
 
@@ -247,7 +247,7 @@ def _meditation_note(store: Store, extra: str) -> dict:
         raise ValueError("写一句再保存吧")
     store.add_memory("冥想后的感受：" + text, "event", "scene:meditation")
     store.log("scene", "冥想后写下：" + clip(text, 30))
-    return {"reply": "", "wrote": [{"type": "memory", "label": "刚才的感受", "text": text, "where": "小光的记忆"}]}
+    return {"reply": "", "wrote": [{"type": "memory", "label": "刚才的感受", "text": text, "where": f"{agent_name(store.profile())}的记忆"}]}
 
 
 def _meditation_talk(answers: list) -> dict:

@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from . import academy, cheer, finds, weekly, growth, journey, kickstart, portrait, scenes, scheduler, tasks, topics, town
 from .store import Store
+from .util import agent_name, named
 
-VERSION = "3.21.0"
+VERSION = "3.21.1"
 
 # 「点子」：点一下就进入一个可体验的 Agent 场景。每一项都必须有真实可玩的
 # 后端状态机，不做纯展示的假卡片。
@@ -59,6 +60,11 @@ def bootstrap(st: Store) -> dict:
     g = growth.state(st)          # 会结算每日任务、交出「升级了」的一次性标记，所以先于读画像
     p = st.profile()
     read = st.read_ids()
+    nm = agent_name(p)            # 系统文案里的「小光」换成 TA 起的名字（TA 写的内容不动）
+    g["daily"]["tasks"] = named(g["daily"]["tasks"], nm)
+    about = portrait.about(st)
+    for c in about:
+        c["why"] = named(c["why"], nm)
     return {
         "profile": {k: v for k, v in p.items() if k not in ("last_proactive_at",)},
         "growth": g,
@@ -68,11 +74,11 @@ def bootstrap(st: Store) -> dict:
         "steps": st.steps(400),
         "records": st.records(400),
         "messages": st.messages(60),
-        "activity": st.activity(30),
+        "activity": [{**a, "text": named(a["text"], nm)} for a in st.activity(30)],
         "inbox": st.unseen_inbox(),
         "scene": st.scene_active(),
-        "scenes": scenes.catalog(),
-        "ideas": IDEAS,
+        "scenes": named(scenes.catalog(), nm),
+        "ideas": named(IDEAS, nm),
         "academy": [{**a, "read": a["id"] in read} for a in academy.catalog()],
         "prefs": preferences(p),
         "journey": journey.board(st),
@@ -82,7 +88,7 @@ def bootstrap(st: Store) -> dict:
         "scene_counts": {r[0]: r[1] for r in st.c.execute(
             "SELECT scene, COUNT(*) FROM scene_run WHERE status='done' GROUP BY scene")},
         "revisions": st.revisions(60),
-        "about": portrait.about(st),          # 我的空间 →「了解你」：六个大类
+        "about": about,                       # 我的空间 →「了解你」：六个大类
         "portrait": portrait.portrait(st),    # 小光眼中的你，一句话
         "notebook_weeks": weekly.view(st),    # 小光的笔记本：一周一页 + 这周到现在的碎片
         "finds": finds.view(st),              # 小光的发现（小光翻笔记本时注意到的事，core/finds.py）

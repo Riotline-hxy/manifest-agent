@@ -1,5 +1,6 @@
 // 动效与庆祝：彩纸、经验和金币飞入、数字滚动、升级的全屏庆祝。
 // 升级来自服务端的一次性标记（growth.level_up），只会在真的升级时出现一次，不是前端自己演出来的。
+import { aname } from "./store.js";
 import { esc } from "./ui.js";
 import { itemArt, COIN_SVG } from "./town.js";
 import { visionSVG, catOf } from "./journey.js";
@@ -138,7 +139,7 @@ function showCleared(d, done) {
     <div class="clr-art" style="color:${cat.color}">${visionSVG(d.category)}</div>
     <div class="cel-kicker">一段路走完了</div>
     <h2>「${esc(d.title)}」的小步都做完了</h2>
-    <p>${d.done > 1 ? `${d.done} 步，都是你自己走完的。` : ""}要和小光想想接下来几步吗？</p>
+    <p>${d.done > 1 ? `${d.done} 步，都是你自己走完的。` : ""}要和${aname()}想想接下来几步吗？</p>
     <div class="cel-acts"><button class="btn btn-ghost btn-lg" data-ok>之后再说</button><button class="btn btn-main btn-lg" data-go>想想新的小步</button></div>`, "cleared");
   setTimeout(() => confetti(innerWidth / 2, innerHeight * 0.38, 90), 300);
   o.querySelector("[data-ok]").addEventListener("click", () => close(o, done));

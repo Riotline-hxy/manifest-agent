@@ -10,7 +10,7 @@ const KIND = {
   task: ["clock", "var(--c-sky)"], journey: ["camera", "var(--c-pink)"], town: ["home", "var(--c-mint)"], daily: ["gift", "var(--c-lemon)"],
 };
 const WEEK = "日一二三四五六";
-const big = (a) => ["town", "scene", "daily"].includes(a.kind) || /^(到达|开启了一段旅程|和小光一起规划)/.test(a.text || "");
+const big = (a) => ["town", "scene", "daily"].includes(a.kind) || /^(到达|开启了一段旅程|和.{1,8}一起规划)/.test(a.text || "");
 const hm = (iso) => (iso || "").slice(11, 16);
 const weekday = (day) => "周" + WEEK[new Date(day + "T12:00:00").getDay()];
 

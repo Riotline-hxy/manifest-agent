@@ -3,7 +3,7 @@
 // 下面：日历「走过的日子」（周 / 月）+ 选中那天的详情。小步可以拖进日历，或者点日历按钮选一天。
 // 页面订阅数据：面板、两分钟启动、偷懒、小光在对话里改了计划，这里都会就地更新，不跳回顶部。
 import { api } from "../api.js";
-import { state, setData, go, xpNote, subscribe } from "../store.js";
+import { state, setData, go, xpNote, subscribe, aname } from "../store.js";
 import { esc, toast, confirmSheet, icon, tile, sheet, h } from "../ui.js";
 import { flyGain, burstAt, confetti } from "../fx.js";
 import { mountBall, celebrate } from "../ball.js";
@@ -86,11 +86,11 @@ function pageHTML(M, quiet) {
       <section class="card pd-card" aria-live="polite"></section>
     </div>
     ${insight ? `<div class="pl-more"><section class="card j-insight">
-        <div class="sec-title">${icon("sparkles")}小光的小发现 <span class="pill">猜的，你说了算</span></div>
+        <div class="sec-title">${icon("sparkles")}${aname()}的小发现 <span class="pill">猜的，你说了算</span></div>
         <p class="j-guess">${esc(insight.text)}</p>
         <div class="j-answers">${[["yes", "像我"], ["partly", "有一部分"], ["no", "不太像"], ["skip", "跳过"]].map(([a, l]) =>
           `<button class="btn btn-sm ${a === "yes" ? "btn-main" : "btn-ghost"}" data-answer="${a}" data-insight="${esc(insight.id)}">${l}</button>`).join("")}</div>
-        <small class="muted">选「像我」或「有一部分」，小光会把它记成对你的了解。</small></section></div>` : ""}
+        <small class="muted">选「像我」或「有一部分」，${aname()}会把它记成对你的了解。</small></section></div>` : ""}
   </div>`;
 }
 
@@ -105,7 +105,7 @@ function carouselHTML(M) {
     ${n > 1 ? `<div class="pw-nav"><button class="icon-btn sm" data-pw="-1" aria-label="上一个愿望">${icon("back")}</button>
       <span class="pw-dots">${Array.from({ length: n }, (_, i) => `<button class="pw-dot" data-pw-i="${i}" aria-label="${i < M.wishes.length ? `看「${esc(M.wishes[i].title)}」` : "开启新愿望"}"></button>`).join("")}</span>
       <button class="icon-btn sm" data-pw="1" aria-label="下一个愿望">${icon("arrow")}</button></div>` : ""}
-    <span class="pw-ball" role="button" tabindex="0" aria-label="和小光聊聊这条路" aria-expanded="false"></span>
+    <span class="pw-ball" role="button" tabindex="0" aria-label="和${aname()}聊聊这条路" aria-expanded="false"></span>
     <div class="pw-say" hidden></div>
   </section>`;
 }
@@ -262,7 +262,7 @@ function stepsHTML(M, resting) {
     <div class="ps-list">
       ${M.todo.length ? group("今天", G.today) + group("之后", G.later) + group(any ? "还没安排" : "", G.none)
         : `<p class="muted ps-none">现在没有待做的小步。</p>`}
-      ${cleared.map((w) => `<button class="ps-clear" data-think="${esc(w.id)}" style="--jc:${catOf(w.category).color}">${icon("checkc")}<span>「${esc(w.title)}」的小步都做完了</span><b>和小光想想下一步${icon("arrow")}</b></button>`).join("")}
+      ${cleared.map((w) => `<button class="ps-clear" data-think="${esc(w.id)}" style="--jc:${catOf(w.category).color}">${icon("checkc")}<span>「${esc(w.title)}」的小步都做完了</span><b>和${aname()}想想下一步${icon("arrow")}</b></button>`).join("")}
     </div>
     ${M.todo.length && !any ? `<p class="ps-tip">${fine ? "把小步拖到下面的日历里，或者点日历按钮，给它选一天。" : "点日历按钮，给小步选一天。"}</p>` : ""}
     ${dropped.length ? `<details class="j-dropped"><summary>先放一放的 ${dropped.length} 件</summary>
@@ -431,7 +431,7 @@ function afterSchedule(out, s, kind) {
 // 站点（里程碑）：点开看它的日子，确认到达
 function msWhen(m, today) {
   if (m.status === "done") return `${md(m.done_at.slice(0, 10))} 到达`;
-  if (!m.due_day) return "还没定日子，想定的话可以跟小光说";
+  if (!m.due_day) return "还没定日子，想定的话可以跟" + aname() + "说";
   const n = diffDays(m.due_day, today);
   return `计划 ${md(m.due_day)} 到 · ${n > 0 ? `还有 ${n} 天` : n === 0 ? "就是今天" : `过了 ${-n} 天，不着急`}`;
 }
@@ -660,7 +660,7 @@ function renderStart(root, J) {
     <section class="card j-startcard">
       <div class="j-start-art">${figureSVG()}</div>
       <h2>你最想靠近哪一种自己？</h2>
-      <p class="muted">选一个方向，定一个想实现的日子。之后小光会陪你把路拆开，你每做一件事，日历上就多一个小圆点。</p>
+      <p class="muted">选一个方向，定一个想实现的日子。之后${aname()}会陪你把路拆开，你每做一件事，日历上就多一个小圆点。</p>
       ${catGrid("")}
     </section></div>`;
   root.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => {

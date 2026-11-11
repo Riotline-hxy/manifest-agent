@@ -1,12 +1,12 @@
 // 我的空间：档案 · 了解你（小光眼中的你、「小光记得的」入口、小光的发现）· 夜里整理（小光的笔记本，一周一页）· 时间线 · 设置。
 // 点子里的练习不封在这里；这里只看结果（记忆、设置里的陪伴偏好），随时改。
 import { api } from "../api.js";
-import { state, setData, go } from "../store.js";
+import { state, setData, go, aname } from "../store.js";
 import { esc, toast, sheet, h, confirmSheet, fmtDay, icon, tile } from "../ui.js";
 import { burstAt } from "../fx.js";
 import { mountBall, lookPicture, currentLook } from "../ball.js";
 import { lookName } from "../jelly.js";
-import { openLookSheet } from "../look.js";
+import { openLookSheet, openNameSheet } from "../look.js";
 import { townSVG, builtCount } from "../town.js";
 import { timelineHTML, nowIso } from "../timeline.js";
 import { THEMES, applyTheme, themeOf } from "../theme.js";
@@ -77,18 +77,18 @@ function memoryTab(body, root) {
   const total = about.reduce((n, c) => n + c.items.filter((i) => !i.fixed).length, 0);
   body.innerHTML = `
     <section class="card portrait">${tile("sparkles", "var(--c-violet)", 46)}
-      <div class="pt-main"><div class="pt-k">小光眼中的你</div>
+      <div class="pt-main"><div class="pt-k">${aname()}眼中的你</div>
         <div class="pt-t">${esc(pt.text || "")}</div>
-        <div class="pt-m">${pt.by === "user" ? "你写的 · 小光会照这个认识你" : pt.by === "early" ? (pt.days >= 7 ? "下次夜里整理时，小光会试着写一句" : "认识满一周后，小光每晚整理时会写一句") : `认识第 ${pt.days} 天 · 每晚整理时更新`}</div></div>
+        <div class="pt-m">${pt.by === "user" ? "你写的 · " + aname() + "会照这个认识你" : pt.by === "early" ? (pt.days >= 7 ? "下次夜里整理时，" + aname() + "会试着写一句" : "认识满一周后，" + aname() + "每晚整理时会写一句") : `认识第 ${pt.days} 天 · 每晚整理时更新`}</div></div>
       ${pt.by === "early" ? "" : `<button class="icon-btn" data-pt-edit title="改这句话">${icon("edit")}</button>`}</section>
     <button class="card known" data-known>
       <span class="kn-dots">${about.map((c) => `<i style="--tile:${c.color}">${icon(c.icon)}</i>`).join("")}</span>
-      <span class="kn-main"><b>小光记得的关于你</b><small>${total} 件事<span class="kn-long">，分成六类 · 看看对不对、改一改</span>${guesses.length ? `<span class="kn-wait-m"> · ${guesses.length} 件等你点头</span>` : ""}</small></span>
+      <span class="kn-main"><b>${aname()}记得的关于你</b><small>${total} 件事<span class="kn-long">，分成六类 · 看看对不对、改一改</span>${guesses.length ? `<span class="kn-wait-m"> · ${guesses.length} 件等你点头</span>` : ""}</small></span>
       ${guesses.length ? `<span class="kn-wait">${guesses.length} 件等你点头</span>` : ""}
       <span class="row-go">${icon("arrow")}</span></button>
-    <div class="sec-title fd-title">小光的发现<span class="more">${fds.length ? "它慢慢注意到的事" : ""}</span></div>
+    <div class="sec-title fd-title">${aname()}的发现<span class="more">${fds.length ? "它慢慢注意到的事" : ""}</span></div>
     ${fds.length ? `<div class="fds">${fds.map(fdCard).join("")}</div>`
-      : `<div class="fd-empty card">${tile("sparkles", "var(--c-lemon)", 40)}<div><b>小光还在留意</b>
+      : `<div class="fd-empty card">${tile("sparkles", "var(--c-lemon)", 40)}<div><b>${aname()}还在留意</b>
           <p>多聊几天、多记几件小事，它会把注意到的、你自己可能都没发现的事，写在这里。</p></div></div>`}`;
 
   body.querySelector("[data-known]").addEventListener("click", () => knownSheet(root));
@@ -111,18 +111,18 @@ function knownSheet(root) {
   const total = about.reduce((n, c) => n + c.items.filter((i) => !i.fixed).length, 0);
   const body = h("div", { class: "known-sheet" });
   body.innerHTML = `
-    ${guesses.length ? `<div class="pick-k">小光猜的，等你点头</div>
+    ${guesses.length ? `<div class="pick-k">${aname()}猜的，等你点头</div>
       ${guesses.map((g) => `<div class="kn-guess"><span>${esc(g.text)}</span>
         <button class="btn btn-sm btn-good" data-act="confirm" data-id="${esc(g.id)}">对</button>
         <button class="btn btn-sm btn-ghost" data-act="reject" data-id="${esc(g.id)}">不太对</button></div>`).join("")}` : ""}
     <div class="pick-k">${guesses.length ? "六类" : "分成六类，点开能看全、能改"}</div>
     <div class="kn-cats">${about.map((c) => `<button class="kn-cat" data-cat="${esc(c.id)}">${tile(c.icon, c.color, 34)}
-      <span class="kc-main"><b>${esc(c.name)}</b><small>${esc(c.items[0]?.text || "还没有，点开告诉小光一件")}</small></span>
+      <span class="kc-main"><b>${esc(c.name)}</b><small>${esc(c.items[0]?.text || "还没有，点开告诉" + aname() + "一件")}</small></span>
       <span class="kc-n num">${c.items.length || ""}</span></button>`).join("")}</div>
     <button class="kn-cat kn-notes" data-notes>${tile("book", "var(--c-violet)", 34)}
-      <span class="kc-main"><b>笔记本里整理好的要点</b><small>${nb.text ? "小光聊天时靠它记得你，你也可以直接改" : "聊过几天以后，小光会开始整理"}</small></span></button>
+      <span class="kc-main"><b>笔记本里整理好的要点</b><small>${nb.text ? "" + aname() + "聊天时靠它记得你，你也可以直接改" : "聊过几天以后，" + aname() + "会开始整理"}</small></span></button>
     <button class="all-link" data-all>${icon("list")}按时间看全部 ${total} 件事和修订记录</button>`;
-  const s = sheet({ title: "小光记得的关于你", sticker: "heart", body });
+  const s = sheet({ title: "" + aname() + "记得的关于你", sticker: "heart", body });
   body.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => { s.close(); catSheet(b.dataset.cat, root); }));
   body.querySelector("[data-notes]").addEventListener("click", () => { s.close(); notesSheet(root); });
   body.querySelector("[data-all]").addEventListener("click", () => { s.close(); allSheet(root); });
@@ -147,8 +147,8 @@ function notesSheet(root) {
   const nb = state.data.profile?.notebook || {};
   const body = h("div", { class: "notes-sheet" });
   const view = () => {
-    body.innerHTML = `<p class="why">${nb.updated_at ? `${esc(fmtDay(nb.updated_at))}${nb.by === "user" ? " · 你改过" : " · 夜里整理时更新"} · ` : ""}小光聊天时靠这些记得你。哪里不对，直接改。</p>
-      ${nb.text ? `<div class="nb-rows">${nbRows(nb.text)}</div>` : `<p class="muted">还没有内容。聊过几天以后，小光会在这里整理关于你的事。</p>`}`;
+    body.innerHTML = `<p class="why">${nb.updated_at ? `${esc(fmtDay(nb.updated_at))}${nb.by === "user" ? " · 你改过" : " · 夜里整理时更新"} · ` : ""}${aname()}聊天时靠这些记得你。哪里不对，直接改。</p>
+      ${nb.text ? `<div class="nb-rows">${nbRows(nb.text)}</div>` : `<p class="muted">还没有内容。聊过几天以后，${aname()}会在这里整理关于你的事。</p>`}`;
   };
   view();
   const s = sheet({ title: "整理好的要点", sticker: "book", body, footer: [h("button", { class: "btn btn-ghost", onclick: edit }, "改一改")] });
@@ -158,7 +158,7 @@ function notesSheet(root) {
     s.panel.querySelector(".sheet-foot, footer")?.replaceChildren(
       h("button", { class: "btn btn-ghost", onclick: () => { s.close(); notesSheet(root); } }, "取消"),
       h("button", { class: "btn btn-main", onclick: async () => {
-        try { setData(await api.notebook(body.querySelector("textarea").value)); s.close(); toast("改好了，小光会照这个记"); renderSpace(root); }
+        try { setData(await api.notebook(body.querySelector("textarea").value)); s.close(); toast("改好了，" + aname() + "会照这个记"); renderSpace(root); }
         catch (e) { toast(e.message, "err"); }
       } }, "保存"));
   }
@@ -174,8 +174,8 @@ function catSheet(cid, root) {
       <small>${esc(i.src)}${i.day ? ` · ${esc(i.day.slice(5))}` : ""}${i.was ? ` · 原来是 <s>${esc(i.was)}</s>` : ""}</small></div>
       ${i.fixed ? "" : `<button class="icon-btn" data-edit="${esc(i.id)}" title="改">${icon("edit")}</button>
         <button class="icon-btn" data-forget="${esc(i.id)}" title="忘掉">${icon("trash")}</button>`}</div>`).join("")
-      || `<p class="muted" style="margin:6px 0 4px">这一类还没有。写一件告诉小光吧。</p>`}
-    <div class="sheet-add"><input class="field" maxlength="120" placeholder="告诉小光一件"><button class="btn btn-main" data-add>写进去</button></div>`;
+      || `<p class="muted" style="margin:6px 0 4px">这一类还没有。写一件告诉${aname()}吧。</p>`}
+    <div class="sheet-add"><input class="field" maxlength="120" placeholder="告诉${aname()}一件"><button class="btn btn-main" data-add>写进去</button></div>`;
   const s = sheet({ title: c.name, sticker: c.icon, body });
   const again = () => { s.close(); refreshAnd(root, () => catSheet(cid, root)); };
   body.querySelector("[data-add]").addEventListener("click", async () => {
@@ -225,16 +225,16 @@ function editMem(m, cid, root) {
 function findSheet(f, i, root) {
   const body = h("div", { class: "find-sheet" });
   body.innerHTML = `<div class="fd big" style="--fc:${FD_COLORS[i % FD_COLORS.length]}"><span class="fd-mark" aria-hidden="true">“</span>
-      <p class="fd-t">${esc(f.text)}</p><span class="fd-m">${esc(mdOf(f.at))}，小光翻笔记本时注意到的</span></div>
+      <p class="fd-t">${esc(f.text)}</p><span class="fd-m">${esc(mdOf(f.at))}，${aname()}翻笔记本时注意到的</span></div>
     ${(f.evidence || []).length ? `<div class="panel"><div class="pk">它是从这几件事看出来的</div>${f.evidence.map((e) => `<div class="ev">${esc(e)}</div>`).join("")}</div>` : ""}`;
   const footer = [
     h("button", { class: "btn btn-ghost", onclick: () => save("no") }, "不太像"),
     h("button", { class: `btn ${f.fb === "yes" ? "btn-good" : "btn-main"}`, onclick: () => save("yes") }, f.fb === "yes" ? "你说过像" : "像我")];
-  const s = sheet({ title: "小光的发现", sticker: "sparkles", body, footer });
+  const s = sheet({ title: "" + aname() + "的发现", sticker: "sparkles", body, footer });
   async function save(fb) {
     try {
       setData(await api.discovery(f.id, fb));
-      s.close(); toast(fb === "yes" ? "小光记下了" : "好，这条收起来了，以后不往这边猜"); renderSpace(root);
+      s.close(); toast(fb === "yes" ? "" + aname() + "记下了" : "好，这条收起来了，以后不往这边猜"); renderSpace(root);
     } catch (e) { toast(e.message, "err"); }
   }
 }
@@ -243,8 +243,8 @@ function portraitSheet(pt, root) {
   const input = h("textarea", { class: "field", rows: "2", maxlength: "60" });
   input.value = pt.text || "";
   const s = sheet({
-    title: "小光眼中的你", sticker: "sparkles",
-    body: h("div", {}, h("p", { class: "muted", style: "margin:0 0 8px;font-size:13px" }, "写成你觉得像自己的样子。改过以后，夜里整理不会再覆盖；清空就交还给小光写。"), input),
+    title: "" + aname() + "眼中的你", sticker: "sparkles",
+    body: h("div", {}, h("p", { class: "muted", style: "margin:0 0 8px;font-size:13px" }, "写成你觉得像自己的样子。改过以后，夜里整理不会再覆盖；清空就交还给" + aname() + "写。"), input),
     footer: [h("button", { class: "btn btn-ghost", onclick: () => s.close() }, "取消"),
       h("button", { class: "btn btn-main", onclick: async () => {
         try { setData(await api.portrait(input.value.trim())); s.close(); toast("改好了"); renderSpace(root); }
@@ -268,12 +268,12 @@ function allSheet(root) {
     ${revs.length ? `<div class="pick-k" style="margin-top:16px">修订记录 · 每次改动都留着依据</div>
       ${revs.map((r) => `<div class="it"><div class="tx"><b>${r.new_text ? `<s>${esc(r.old_text || "")}</s> → ${esc(r.new_text)}` : `<s>${esc(r.old_text || "")}</s>（已删除）`}</b>
         <small>${esc(r.at.slice(5, 16).replace("T", " "))} · ${esc(r.reason?.startsWith("digest") ? "夜里整理" : REASON[r.reason] || r.reason || "")}${r.evidence ? `：「${esc(r.evidence)}」` : ""}</small></div></div>`).join("")}` : ""}
-    ${kicks.length ? `<div class="pick-k" style="margin-top:16px">两分钟启动记忆 · 你勾了「让小光记住」的</div>
+    ${kicks.length ? `<div class="pick-k" style="margin-top:16px">两分钟启动记忆 · 你勾了「让${aname()}记住」的</div>
       ${kicks.map((k) => `<div class="it"><div class="tx"><b>${esc(k.task || "")}</b><small>${esc(k.day || "")}</small></div>
         <button class="icon-btn" data-kick-forget="${esc(k.id)}" title="删掉">${icon("trash")}</button></div>`).join("")}` : ""}`;
   const s = sheet({ title: `全部 ${mems.length} 件事`, sticker: "list", body });
   body.querySelectorAll("[data-kick-forget]").forEach((b) => b.addEventListener("click", async () => {
-    if (!(await confirmSheet("删掉这次的启动记忆？", "会真正删除，小光以后查不到这一次了。", "删掉", "trash"))) return;
+    if (!(await confirmSheet("删掉这次的启动记忆？", "会真正删除，" + aname() + "以后查不到这一次了。", "删掉", "trash"))) return;
     try {
       const out = await api.kick("forget", { id: b.dataset.kickForget });
       if (out.state) setData(out.state);
@@ -308,7 +308,7 @@ function weekMem(week) {
   const end = new Date(d0(week).getTime() + 6 * 864e5).toISOString().slice(0, 10);
   const ops = (state.data.digests || []).filter((x) => x.day >= week && x.day <= end).flatMap((x) => x.ops || []);
   if (!ops.length) return "";
-  return `<details class="nb-mem"><summary>${icon("heart")}这一周，小光还记住了 ${ops.length} 件关于你的事</summary>
+  return `<details class="nb-mem"><summary>${icon("heart")}这一周，${aname()}还记住了 ${ops.length} 件关于你的事</summary>
     ${ops.map((o) => `<div class="chg"><span class="k">${o.op === "ADD" ? (o.status === "guess" ? "猜了一件" : "记住") : o.op === "UPDATE" ? "改了" : "忘掉"}</span>
       <span class="tx">${o.op === "UPDATE" ? `<s>${esc(o.old)}</s> → ` : ""}${esc(o.text || o.old)}</span></div>`).join("")}</details>`;
 }
@@ -335,7 +335,7 @@ function digestTab(body, root) {
     ? `<article class="nb-page card draft">${weekHTML(nw.draft, "这一周 · 写到一半，周日夜里还会改")}
         <div class="nb-act"><button class="btn btn-sm btn-ghost" data-run>${icon("edit")}按这周到现在，再写一版</button></div></article>`
     : `<section class="nb-now card">
-        <div class="nb-date"><b>这一周 · ${esc(cur ? weekRange(cur) : "")}</b><span>周日夜里，小光会把它写成一页</span></div>
+        <div class="nb-date"><b>这一周 · ${esc(cur ? weekRange(cur) : "")}</b><span>周日夜里，${aname()}会把它写成一页</span></div>
         ${scraps.length ? `<div class="nb-scraps">${scraps.map((x, i) => `<span class="scrap" style="--i:${i}">${icon(SCRAP_ICON[x.kind] || "star")}${esc(x.text)}</span>`).join("")}</div>
           <div class="nb-act"><button class="btn btn-sm btn-main" data-run>${icon("moon")}先把这周写下来</button></div>`
         : `<p class="nb-quiet">这周还很安静。记下一件小事、做完一个小步，都会先夹在这里。</p>`}
@@ -344,8 +344,8 @@ function digestTab(body, root) {
     <section class="night card">
       <div class="night-ball"></div>
       <div class="night-copy">
-        <h2>小光的笔记本</h2>
-        <p>一周一页。每个周日夜里，小光会把这一周零零散散的事想一想，写下来。</p>
+        <h2>${aname()}的笔记本</h2>
+        <p>一周一页。每个周日夜里，${aname()}会把这一周零零散散的事想一想，写下来。</p>
       </div>
     </section>
     ${thisWeek}
@@ -360,7 +360,7 @@ function digestTab(body, root) {
     const b = e.currentTarget;
     b.classList.add("off");
     ball.set("recall"); ball.pulse("spin");
-    toast("小光在想这一周……");
+    toast("" + aname() + "在想这一周……");
     try {
       const out = await api.weekDraft();
       setData(out);
@@ -383,8 +383,10 @@ function settingsTab(body, root) {
   const look = currentLook();
   const guest = state.user?.kind === "guest";
   body.innerHTML = `
-    <div class="sec-title set-sec">${icon("sparkles")}小光<span class="more">它怎么说话、什么时候来找你</span></div>
+    <div class="sec-title set-sec">${icon("sparkles")}${aname()}<span class="more">它怎么说话、什么时候来找你</span></div>
     <div class="settings card">
+      <div class="set-row">${tile("edit", "var(--c-sky)", 40)}<div class="sl"><b>它的名字</b><small>现在叫「${aname()}」</small></div>
+        <button class="btn btn-sm btn-ghost" data-agent-name>修改</button></div>
       <div class="set-row">${tile("heart", "var(--c-pink)", 40)}<div class="sl"><b>性格</b><small>说话的方式会跟着变，记得的事不变</small></div>
         ${seg("persona", [["gentle", "温柔"], ["clear", "有条理"], ["lively", "活泼"]], p.persona || "gentle")}</div>
       <div class="set-row">${tile("chat", "var(--c-violet)", 40)}<div class="sl"><b>陪伴偏好</b><small>${esc(prefLine(p))}</small></div>
@@ -392,12 +394,12 @@ function settingsTab(body, root) {
       <div class="set-row">${tile("letter", "var(--c-sky)", 40)}<div class="sl"><b>主动消息</b><small>23:00–08:00 不打扰 · <button class="set-link" data-proactive>让它现在说一句</button></small></div>
         ${seg("proactive", [["more", "多"], ["normal", "刚好"], ["less", "少"], ["off", "不要"]], p.proactive || "normal")}</div>
       <div class="set-row">${tile("palette", "var(--c-lemon)", 40)}<div class="sl"><b>外貌</b><small>${esc(lookName(look))}</small></div>
-        <button class="set-look" data-look aria-label="换小光的外貌"><span class="set-look-pic">${lookPicture(look)}</span><span>换一换</span></button></div>
+        <button class="set-look" data-look aria-label="换${aname()}的外貌"><span class="set-look-pic">${lookPicture(look)}</span><span>换一换</span></button></div>
     </div>
 
     <div class="sec-title set-sec">${icon("user")}我<span class="more">账号和这台手机</span></div>
     <div class="settings card">
-      <div class="set-row">${tile("chat", "var(--c-sky)", 40)}<div class="sl"><b>名字</b><small>小光叫你「${esc(p.nickname || state.user?.username || "你")}」${!guest ? ` · 登录用户名 ${esc(state.user?.username || "")}` : ""}</small></div>
+      <div class="set-row">${tile("chat", "var(--c-sky)", 40)}<div class="sl"><b>名字</b><small>${aname()}叫你「${esc(p.nickname || state.user?.username || "你")}」${!guest ? ` · 登录用户名 ${esc(state.user?.username || "")}` : ""}</small></div>
         <button class="btn btn-sm btn-ghost" data-name-edit2>修改</button></div>
       <div class="set-row">${tile("user", "var(--c-orange)", 40)}<div class="sl"><b>账号</b><small>${guest ? "现在是体验账号，注册后记录会一直留着" : `已登录：${esc(state.user?.username || "")}`}</small></div>
         <button class="btn btn-sm btn-ghost" data-account>${guest ? "注册 / 退出" : "退出登录"}</button></div>
@@ -421,6 +423,7 @@ function settingsTab(body, root) {
     save({ theme: t.id }, `换成「${t.name}」了`);
   }));
   body.querySelector("[data-look]").addEventListener("click", () => openLookSheet({ onSaved: () => renderSpace(root) }));
+  body.querySelector("[data-agent-name]").addEventListener("click", () => openNameSheet({ onSaved: () => renderSpace(root) }));
   body.querySelectorAll(".seg").forEach((sg) => sg.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => save({ [sg.dataset.key]: b.dataset.v }, "改好了"))));
   body.querySelector("[data-name-edit2]").addEventListener("click", () => nameSheet(root));
   body.querySelector("[data-prefs]").addEventListener("click", () => prefsSheet(root));
@@ -436,7 +439,7 @@ function settingsTab(body, root) {
   body.querySelector("[data-proactive]").addEventListener("click", async () => {
     const out = await api.proactiveNow();
     setData(out);
-    toast(out.sent ? "小光发了一句话，去对话里看看" : out.reason);
+    toast(out.sent ? "" + aname() + "发了一句话，去对话里看看" : out.reason);
     if (out.sent) go("chat");
   });
 }
@@ -457,7 +460,7 @@ function bindDevice(body) {
         await disablePush(); toast("这台设备不再收通知了"); draw();
       }));
     } else if (sup === "ok") {
-      note.textContent = "开了以后，网页关着也能收到小光的消息和提醒";
+      note.textContent = "开了以后，网页关着也能收到" + aname() + "的消息和提醒";
       acts.append(btn("开启", "btn-main", async (e) => {
         e.currentTarget.classList.add("off");
         const r = await enablePush();
@@ -518,7 +521,7 @@ function prefsSheet(root) {
     if (cur[k] && !list.some(([v]) => v === cur[k])) list.push([cur[k], cur[k]]);     // 自己改过的说法也留着
     return `<label class="lbl">${esc(label)}</label><div class="ob-chips">${list.map(([v, t]) =>
       `<button class="chip ${cur[k] === v ? "on" : ""}" data-k="${k}" data-v="${esc(v)}">${esc(t)}</button>`).join("")}</div>`;
-  }).join("") + `<p class="muted j-note">想被提醒，可以把「主动消息」调多一点，或者让小光帮你定一个例行任务。</p>` });
+  }).join("") + `<p class="muted j-note">想被提醒，可以把「主动消息」调多一点，或者让${aname()}帮你定一个例行任务。</p>` });
   body.querySelectorAll("[data-k]").forEach((b) => b.addEventListener("click", () => {
     const { k, v } = b.dataset;
     cur[k] = cur[k] === v ? "" : v;
@@ -536,7 +539,7 @@ function nameSheet(root) {
   const p = state.data.profile || {};
   const member = state.user?.kind === "member";
   const body = h("div", { class: "j-add", html: `
-    <label class="lbl">小光怎么叫你</label>
+    <label class="lbl">${aname()}怎么叫你</label>
     <input class="field" id="nNick" maxlength="20" value="${esc(p.nickname || "")}" placeholder="比如：林夏、小鱼">
     ${member ? `<label class="lbl">登录用户名 <span class="muted">（下次登录用这个）</span></label>
       <input class="field" id="nUser" maxlength="20" value="${esc(state.user.username || "")}">` : `<p class="muted j-note">体验账号还没有登录用户名，注册后就能设置。</p>`}` });

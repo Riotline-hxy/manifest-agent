@@ -1,6 +1,6 @@
 // 外貌：选一个推荐的样子，或者自己搭（形状 · 颜色 · 质感）。上面的小光可以点、可以看不同表情。
 import { api } from "./api.js";
-import { setData } from "./store.js";
+import { state, setData, aname } from "./store.js";
 import { sheet, h, toast, esc } from "./ui.js";
 import { mountBall, setAgentLook, currentLook, lookPicture } from "./ball.js";
 import { LOOKS, SHAPES, LOOK_SHAPES, THEMES, MATERIALS, XG_COLORS, parseLook, lookName } from "./jelly.js";
@@ -10,6 +10,32 @@ const pics = new Map();
 const pic = (id) => pics.get(id) || (pics.set(id, lookPicture(id)), pics.get(id));
 // 形状按钮上的小剪影
 const silhouette = (k) => `<svg viewBox="-140 -140 280 280" aria-hidden="true"><path d="M${SHAPES[k].P.map((p) => p[0].toFixed(0) + "," + (p[1] - 6).toFixed(0)).join("L")}Z"/></svg>`;
+
+// 给它改名字：侧边栏点名字、设置里「名字」那一行都打开这一张。改了以后它用新名字介绍自己，页面上写它名字的地方一起换。
+export function openNameSheet({ onSaved } = {}) {
+  const cur = aname();
+  const input = h("input", { class: "field", maxlength: "8", value: cur, placeholder: "小光", "aria-label": "它的名字" });
+  const body = h("div", { class: "j-add" },
+    h("label", { class: "lbl" }, "给它起个名字"), input,
+    h("p", { class: "muted j-note" }, "最多 8 个字。改了以后，它会用新名字和你说话，页面上写它名字的地方也会一起换。"));
+  const save = async () => {
+    const v = input.value.trim();
+    if (!v) return input.focus();
+    if (v === cur) return s.close();
+    try {
+      setData(await api.profile({ agent_name: v }));
+      s.close();
+      toast(`好，以后我就叫「${aname()}」了`);
+      onSaved?.(aname());
+    } catch (e) { toast(e.message, "err"); }
+  };
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); save(); } });
+  const s = sheet({ title: "它的名字", sticker: "edit", body, footer: [
+    h("button", { class: "btn btn-ghost", onclick: () => s.close() }, "取消"), h("button", { class: "btn btn-main", onclick: save }, "保存")] });
+  s.panel.classList.add("j-sheet");
+  setTimeout(() => input.select(), 60);
+  return s;
+}
 
 export function openLookSheet({ onSaved } = {}) {
   let look = currentLook(), tab = parseLook(look) && LOOKS.some((l) => l.id === look) ? "preset" : "diy";
@@ -45,7 +71,7 @@ export function openLookSheet({ onSaved } = {}) {
       lb.innerHTML = `
         <div class="lk-sec">形状</div>
         <div class="lk-shapes">${LOOK_SHAPES.map((k) => `<button class="${k === L.shape ? "on" : ""}" data-shape="${k}">${silhouette(k)}<span>${esc(SHAPES[k].n)}</span></button>`).join("")}</div>
-        <div class="lk-sec">颜色 <small>小光同款</small></div>
+        <div class="lk-sec">颜色 <small>经典</small></div>
         <div class="lk-sws">${sw(XG_COLORS)}</div>
         <div class="lk-sec">颜色 <small>更多</small></div>
         <div class="lk-sws">${sw(Object.keys(THEMES).filter((k) => !XG_COLORS.includes(k)))}</div>
@@ -73,10 +99,10 @@ export function openLookSheet({ onSaved } = {}) {
     s.close();
     if (look === currentLook()) return;
     setAgentLook(look);
-    try { setData(await api.profile({ agent_avatar_id: look })); toast("小光换好外貌了"); onSaved?.(look); }
+    try { setData(await api.profile({ agent_avatar_id: look })); toast("" + aname() + "换好外貌了"); onSaved?.(look); }
     catch (e) { toast(e.message, "err"); }
   } }, "就它了");
-  const s = sheet({ title: "小光的外貌", sticker: "sparkles", body, footer: [save], onClose: () => ball.destroy() });
+  const s = sheet({ title: "" + aname() + "的外貌", sticker: "sparkles", body, footer: [save], onClose: () => ball.destroy() });
   s.panel.classList.add("sheet-look");
   return s;
 }

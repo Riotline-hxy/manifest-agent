@@ -23,7 +23,7 @@ import threading
 from . import academy, acts, finds, growth, guide, journey, kickstart, llm, lookup, memory, nudges, router, tasks, topics, town, voice
 from .scenes import CHAT_HOW, SCENES
 from .store import Store
-from .util import clip, day_key, dumps, loads, now, parse_iso, tokens
+from .util import agent_name, clip, day_key, dumps, loads, now, parse_iso, tokens, named
 
 MAX_ROUNDS = 4
 EMOJI = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B50]")
@@ -410,7 +410,7 @@ def system_prompt(store: Store, retrieved: list[dict]) -> str:
     if cs:
         care.append("- 聊天时 TA 希望你：" + CHAT_HOW.get(cs, f"「{cs}」") + "。这是 TA 自己选的陪伴方式，平时按这个来；TA 说想换就换。")
     care = "".join(x + "\n" for x in care if x)
-    s = PERSONA.format(name=p.get("agent_name") or "小光", boundaries=bound, care=care, app_map=guide.MAP,
+    s = PERSONA.format(name=agent_name(p), boundaries=bound, care=care, app_map=named(guide.MAP, agent_name(p)),
                        voice=voice.render(p.get("persona") or "gentle", p.get("nickname") or ""))
     s += "\n## 你知道的（核心）\n" + (core_block(p, store) or "（还很少）")
     pins = store.pinned()
@@ -743,7 +743,7 @@ def run_tool(store: Store, name: str, args: dict, user_text: str = "", routed: s
     if name == "look_up":
         return lookup.look_up(store, str(args.get("area") or "plan"), str(args.get("query") or ""))
     if name == "app_guide":
-        return guide.guide(str(args.get("topic") or "overview"))
+        return named(guide.guide(str(args.get("topic") or "overview")), agent_name(store.profile()))
     if name == "search_memory":
         hits = store.search(str(args.get("query") or ""), k=5)
         return {"ok": True, "memories": [{"text": m["text"], "date": m["created_at"][:10]} for m in hits]}
@@ -1144,7 +1144,7 @@ def chat(store: Store, user_text: str, *, extract: bool = True, topic: str = "")
     try:
         for _round in range(MAX_ROUNDS + 1):
             calls, started, said = None, False, ""
-            tools = [t for t in TOOLS if t["function"]["name"] not in blocked] if _round < MAX_ROUNDS else None
+            tools = [t for t in named(TOOLS, agent_name(store.profile())) if t["function"]["name"] not in blocked] if _round < MAX_ROUNDS else None
             stream = llm.stream_chat(msgs, tools=tools)
             if _round == 0 and tools:
                 stream = _check_route(stream, rt, route, msgs, tools)

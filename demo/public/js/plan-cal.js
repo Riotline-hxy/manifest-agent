@@ -1,6 +1,7 @@
 // 蜕变计划的日历：小步排期、走过的日子、当天详情。
 // 只用 bootstrap 里的真实数据，不造日期或记录。小步的安排（scheduled_day）只是给自己的提醒：
 // 安排在今天以前、还没做的，当成「还没安排」——过去的日子里只显示真正做过的事，没有逾期。
+import { aname } from "./store.js";
 import { api } from "./api.js";
 import { esc, icon, sheet, h } from "./ui.js";
 import { catOf } from "./journey.js";
@@ -147,7 +148,7 @@ export function dayHTML(M, day) {
       ${m.photo ? `<img class="j-m-img" src="${esc(photoURL(m.photo, true))}" alt="" loading="lazy">` : ""}
       <p class="j-m-t">${esc(m.text)}</p>
       ${m.feeling ? `<p class="j-m-f">当时的感受：${esc(m.feeling)}</p>` : ""}
-      <div class="j-m-meta"><span class="pill"><i class="wdot"></i>${wishT(m.wish_id) || "瞬间"}</span>${m.mood ? `<span class="pill">${esc(m.mood)}</span>` : ""}${m.source === "chat" ? `<span class="pill">${icon("chat")}来自和小光的对话</span>` : m.source === "scene" ? `<span class="pill">${icon("sparkles")}显化你的愿望</span>` : ""}
+      <div class="j-m-meta"><span class="pill"><i class="wdot"></i>${wishT(m.wish_id) || "瞬间"}</span>${m.mood ? `<span class="pill">${esc(m.mood)}</span>` : ""}${m.source === "chat" ? `<span class="pill">${icon("chat")}来自和${aname()}的对话</span>` : m.source === "scene" ? `<span class="pill">${icon("sparkles")}显化你的愿望</span>` : ""}
         <span class="sp"></span><button class="btn btn-quiet btn-sm" data-edit>${icon("edit")}编辑</button><button class="btn btn-quiet btn-sm" data-del>${icon("trash")}删除</button></div>
     </article>`).join("");
   }

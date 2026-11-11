@@ -341,6 +341,8 @@ def profile(h, u, b, q):
     for k in ("traits", "boundaries"):
         if k in patch:
             patch[k] = [clip(str(x), 20) for x in (patch[k] or [])][:6]
+    if "agent_name" in patch:        # 它的名字：和建档时一样最多 8 个字，空着就是小光
+        patch["agent_name"] = clip(str(patch["agent_name"] or "").strip(), 8) or "小光"
     for k in ("chat_style", "energy_time"):   # 陪伴偏好：一句短话，空着就是没选
         if k in patch:
             patch[k] = clip(str(patch[k] or "").strip(), 30)

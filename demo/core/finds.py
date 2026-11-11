@@ -15,7 +15,7 @@ import re
 from datetime import timedelta
 
 from . import llm
-from .util import clip, iso, new_id, now, parse_iso
+from .util import agent_name, clip, iso, new_id, now, parse_iso
 
 KEEP = 12
 EVERY_DAYS = 3
@@ -28,7 +28,7 @@ NOT_BUT = re.compile(r"不是.{0,14}而是")
 QUOTE = re.compile(r"「([^」]{2,40})」")
 LABEL = {"rest": "休息日"}
 
-PROMPT = """你是陪伴者「小光」。夜里你翻着自己的笔记本，想写下一两件关于 TA 的、TA 自己可能都没注意到的事。
+PROMPT = """你是陪伴者「{name}」。夜里你翻着自己的笔记本，想写下一两件关于 TA 的、TA 自己可能都没注意到的事。
 这些会放在 TA 的「我的空间 → 了解你 → 小光的发现」里，是整个页面最想让 TA 看的部分：要让 TA 读完心里动一下，
 或者笑一下，觉得「你居然注意到了」。
 
@@ -203,7 +203,7 @@ def discover(st, force: bool = False) -> list[dict]:
     text, corpus, things = material(st)
     if things < MIN_THINGS and not force:
         return []
-    out = llm.complete_json([{"role": "system", "content": PROMPT}, {"role": "user", "content": clip(text, 14000)}], timeout=90)
+    out = llm.complete_json([{"role": "system", "content": PROMPT.replace("{name}", agent_name(st.profile()))}, {"role": "user", "content": clip(text, 14000)}], timeout=90)
     st.set_profile({"finds_at": iso()})
     if not out:
         return []

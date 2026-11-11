@@ -8,6 +8,10 @@ import { setKinds } from "./town.js";
 
 const listeners = new Set();
 
+// TA 给陪伴者起的名字，没起就是「小光」。界面上所有提到它的地方都用这个。
+// 名字是 TA 自己写的，最多 8 个字；去掉 HTML 里有特殊意义的几个字符，放进模板里就不用再转义。
+export const aname = () => String(state.data?.profile?.agent_name || "").replace(/[<>&"'`]/g, "").trim() || "小光";
+
 export const state = {
   ready: false,
   user: null,

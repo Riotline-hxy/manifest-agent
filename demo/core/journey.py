@@ -15,7 +15,7 @@ import re
 from datetime import date, timedelta
 
 from . import llm
-from .util import clip, day_key, iso, loads, dumps, new_id, now
+from .util import agent_name, clip, day_key, iso, loads, dumps, new_id, now
 
 CATEGORIES = {
     "calm": {"label": "心灵平静", "vision": "在忙碌中也能找到平静的片刻",
@@ -285,7 +285,7 @@ def _valid_day(day: str | None) -> str:
 
 # ---------------------------------------------------------------- 小光的小发现 ----
 
-INSIGHT_PROMPT = """你是显化陪伴 agent「小光」。读这个人在某个愿望下留下的真实瞬间，提出**一个**小发现。
+INSIGHT_PROMPT = """你是显化陪伴 agent「{name}」。读这个人在某个愿望下留下的真实瞬间，提出**一个**小发现。
 要求：
 - 必须基于下面列出的具体记录，至少引用其中一条的内容（可以转述），basis 写被引用记录的 id；
 - 用推测和提问的口吻（「你觉得……吗？」「会不会……？」），不下结论，不贴性格标签，不鸡血；
@@ -314,11 +314,11 @@ def make_insight(st, wish_id: str) -> dict:
         return {"insight": existing}
     ms = moments(st, wish_id, limit=24)
     if len(ms) < 4:
-        return {"insight": None, "reason": "再多留几个瞬间，小光才看得出点什么"}
+        return {"insight": None, "reason": f"再多留几个瞬间，{agent_name(st.profile())}才看得出点什么"}
     lines = "\n".join(f"- id={m['id']} {m['day']}：{m['text']}" + (f"（感受：{m['feeling']}）" if m["feeling"] else "")
                       for m in reversed(ms))
     out = llm.complete_json([
-        {"role": "system", "content": INSIGHT_PROMPT},
+        {"role": "system", "content": INSIGHT_PROMPT.replace("{name}", agent_name(st.profile()))},
         {"role": "user", "content": f"愿望：{w['title']}\n现在的我：{w['now_text'] or '（没写）'}\n向往的我：{w['vision_text']}\n\n记录：\n{lines}"},
     ], timeout=40)
     if not out or out.get("skip") or not out.get("text"):

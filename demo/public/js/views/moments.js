@@ -1,7 +1,7 @@
 // 瞬间：TA 留给自己的一个个瞬间（一句话，可以配一张照片），按月份贴成一面便利贴墙；有照片的像拍立得。
 // 上面一排可以按愿望筛、只看有照片的；点开一张看大图、编辑、删除。以前的「好消息」换成了这里。
 // 页面订阅数据：在计划页、对话里留下的瞬间，回到这里就是最新的。
-import { state, setData, subscribe, xpNote } from "../store.js";
+import { state, setData, subscribe, xpNote, aname } from "../store.js";
 import { esc, toast, icon, tile, sheet, h } from "../ui.js";
 import { burstAt, flyGain } from "../fx.js";
 import { catOf } from "../journey.js";
@@ -119,7 +119,7 @@ function detail(m, wishes) {
       <span class="pill">${icon("calendar")}${esc(md(m.day))}</span>
       ${w ? `<span class="pill mo-w" style="--tc:${catOf(w.category).color}"><i></i>${esc(w.title)}</span>` : ""}
       ${m.mood ? `<span class="pill">${esc(m.mood)}</span>` : ""}
-      ${m.source === "chat" ? `<span class="pill">${icon("chat")}和小光聊到的</span>` : ""}
+      ${m.source === "chat" ? `<span class="pill">${icon("chat")}和${aname()}聊到的</span>` : ""}
     </div>` });
   body.querySelector(".mo-big img")?.addEventListener("error", (e) => e.target.closest(".mo-big")?.remove());
   const s = sheet({ title: "这个瞬间", body, sticker: "camera", footer: [

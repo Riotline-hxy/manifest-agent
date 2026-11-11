@@ -2921,6 +2921,43 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self._tool_events(ev, "propose_moment"), [])
 
 
+    def test_renamed_companion_uses_its_name_everywhere(self):
+        """用户把小光改名叫「球」以后：系统文案（练习介绍、记忆分类、每日任务、动态、结尾的保存选项）、
+        给模型的说明书和工具说明、它自己写东西时的提示词，都用「球」；TA 自己写的内容不动。名字最多 8 个字。"""
+        from core import agent, digest, guide
+        c, uid = self.onboarded("rv_rename")
+        s, d = c.req("POST", "/api/profile", {"agent_name": "一个特别特别长的名字啊"})
+        self.assertEqual(d["profile"]["agent_name"], "一个特别特别长…")
+        s, d = c.req("POST", "/api/profile", {"agent_name": "  "})
+        self.assertEqual(d["profile"]["agent_name"], "小光")                        # 空着就回到小光
+        with Store(uid) as st:
+            st.add_memory("室友也叫小光", "identity", "chat:explicit")               # TA 自己写的内容
+            st.log("plan", "和小光一起规划了「健康作息」")                           # 改名前写下的动态
+        s, d = c.req("POST", "/api/profile", {"agent_name": "球"})
+        self.assertEqual((s, d["profile"]["agent_name"]), (200, "球"))
+        text = json.dumps({k: d[k] for k in ("ideas", "scenes", "about", "activity")}, ensure_ascii=False) + json.dumps(d["growth"]["daily"], ensure_ascii=False)
+        self.assertNotIn("小光", text.replace("室友也叫小光", ""))
+        self.assertIn("球按你的状态一键调整现有计划", text)
+        self.assertIn("和球一起规划了「健康作息」", text)
+        self.assertIn("室友也叫小光", [m["text"] for m in d["memories"]])           # TA 写的不改
+        with Store(uid) as st:
+            sp = agent.system_prompt(st, [])
+            self.assertIn("你是「球」", sp)
+            self.assertNotIn("小光", sp.replace("室友也叫小光", ""))
+            g = agent.run_tool(st, "app_guide", {"topic": "space"}, "我的空间里有什么")
+            self.assertNotIn("小光", g["text"].replace("改了以后，页面上写「小光」的地方", ""))
+            st.add_msg("user", "今天有点累")
+            self.fake.json_out = {"summary": "s", "highlights": [], "notebook": "", "portrait": "", "ops": []}
+            digest.run(st)
+            self.assertIn("陪伴者「球」", self.fake.seen_json[-1][0]["content"])
+        self.fake.turns = [[("text", "嗯。")]]
+        c.sse("你叫什么")
+        tools = json.dumps([m for m in self.fake.seen[-1] if m["role"] == "system"][:1], ensure_ascii=False)
+        self.assertIn("球", tools)
+        self.assertTrue(all("小光" not in json.dumps(t, ensure_ascii=False) for t in agent.named(agent.TOOLS, "球")))
+        self.assertIs(agent.named(guide.MAP, "小光"), guide.MAP)                  # 默认名字：原样，不多做一次替换
+
+
 class MemoryTest(unittest.TestCase):
     """记忆读写（2026-11-07）：写之前查重（mem0 的 ADD / UPDATE / NOOP），要点一直放在提示里（Letta 的 core block）。"""
 

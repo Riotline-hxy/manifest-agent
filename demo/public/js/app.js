@@ -1,6 +1,6 @@
 // 应用外壳：图标轨 / 主区 / 小光面板；主题与小光颜色；路由。
 import { api } from "./api.js";
-import { state, setData, go, subscribe } from "./store.js";
+import { state, setData, go, subscribe, aname } from "./store.js";
 import { esc, icon, tile, toast, sheet, h, fmtDay } from "./ui.js";
 import { countUp, burstAt, flyGain } from "./fx.js";
 import { applyTheme, agentColor, lookOf, THEMES, AGENT_COLORS, themeOf } from "./theme.js";
@@ -8,6 +8,7 @@ import { mountBall, setAgentColor, setAgentLook, agentMini, MOOD_TEXT, celebrate
 import { townSVG, napSVG, townHint, affordable, COIN_SVG } from "./town.js";
 import { catOf } from "./journey.js";
 import { renderGate } from "./views/gate.js";
+import { openNameSheet } from "./look.js";
 import { renderOnboarding } from "./views/onboarding.js";
 import { takeCarry, dropCarry } from "./views/trial.js";
 import { renderChat } from "./views/chat.js";
@@ -58,7 +59,7 @@ export function mount(el) {
       const before = state.data?.inbox?.length || 0;
       const data = await api.bootstrap();
       setData(data);
-      if ((data.inbox?.length || 0) > before) toast("小光给你留了一句话");
+      if ((data.inbox?.length || 0) > before) toast("" + aname() + "给你留了一句话");
     } catch {}
   });
   subscribe(() => {
@@ -136,7 +137,7 @@ function drawShell() {
     <div class="app ${panelWanted() ? "panel-open" : ""}">
       <nav class="rail" aria-label="主导航"></nav>
       <main class="main"><header class="topbar"></header><div class="view"></div></main>
-      <aside class="panel" aria-label="小光"></aside>
+      <aside class="panel" aria-label="${aname()}"></aside>
       <div class="m-scrim"></div>
       <nav class="m-drawer" aria-label="菜单"></nav>
     </div>`;
@@ -230,10 +231,10 @@ function drawTop() {
     <span class="title">${esc(TITLES[state.route] || "显伴")}</span>
     <span class="spacer"></span>
     <button class="stat coin" data-coin-target data-nav="town" aria-label="金币 ${g.coins ?? 0}，去我的小镇">${COIN_SVG}<span class="num" data-coin-num data-v="${shown}">${shown}</span>
-      <span class="tip"><b>金币 ${g.coins ?? 0}</b>用来在小镇里盖房子、种树、铺路。完成小步、习惯打卡、练习、留下瞬间和每日任务都会给；和小光聊天只给经验。</span></button>
+      <span class="tip"><b>金币 ${g.coins ?? 0}</b>用来在小镇里盖房子、种树、铺路。完成小步、习惯打卡、练习、留下瞬间和每日任务都会给；和${aname()}聊天只给经验。</span></button>
     <button class="stat lvst" data-xp-target data-nav="town" aria-label="等级 ${lv.lv}"><span class="lvl" style="--p:${Math.round(lv.pct * 100)}"><b>${lv.lv}</b></span><span class="sub">Lv</span>
       <span class="tip"><b>等级 ${lv.lv}</b>再 ${lv.to_next ?? 0} 经验升到 Lv ${lv.lv + 1}。今天 +${g.today?.total ?? 0} 经验。前几级很快，往后每级多一点；升级会解锁新建筑和更大的地。</span></button>
-    <button class="icon-btn ${open ? "on" : ""}" data-act="panel" title="${open ? "收起小光" : "打开小光"}">${icon("panel")}</button>`;
+    <button class="icon-btn ${open ? "on" : ""}" data-act="panel" title="${open ? "收起" + aname() + "" : "打开" + aname() + ""}">${icon("panel")}</button>`;
   setTimeout(() => countUp(top.querySelector("[data-coin-num]"), g.coins ?? 0), prev != null && Number(prev) !== g.coins ? 950 : 0);
   top.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => go("town")));
   top.querySelector("[data-act=panel]").addEventListener("click", () => togglePanel());
@@ -255,7 +256,7 @@ function drawPanel(rebuild = false) {
       <div class="panel-head">
         <button class="icon-btn close" data-act="close" title="收起">${icon("close")}</button>
         <div class="p-ball"></div>
-        <div class="nm">${esc(p.agent_name || "小光")}</div>
+        <button class="nm nm-edit" data-act="rename" title="给它改个名字" aria-label="给它改个名字"><span class="nm-t">${aname()}</span>${icon("edit")}</button>
         <div class="st"><i></i><span data-agent-status>${MOOD_TEXT["02"]}</span></div>
       </div>
       <div class="panel-tabs"><div class="tabs">${[["today", "今天"], ["daily", "每日任务"], ["log", "动态"]].map(([k, l]) =>
@@ -263,6 +264,8 @@ function drawPanel(rebuild = false) {
       <div class="panel-body"></div>`;
     panelBall = mountBall(panel.querySelector(".p-ball"), { size: 104 });
     panel.querySelector("[data-act=close]").addEventListener("click", () => togglePanel(false));
+    // 点名字改名：改完整页重画（对话页顶上的名字、输入框里的「给…发消息」都要换）
+    panel.querySelector("[data-act=rename]").addEventListener("click", () => openNameSheet({ onSaved: () => drawView() }));
     panel.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => {
       panelTab = b.dataset.tab;
       panel.querySelectorAll("[data-tab]").forEach((x) => x.classList.toggle("on", x === b));
@@ -271,6 +274,8 @@ function drawPanel(rebuild = false) {
     }));
     requestAnimationFrame(() => placeInd(panel.querySelector(".tabs")));
   }
+  const nmEl = panel.querySelector(".nm-t");
+  if (nmEl && nmEl.textContent !== aname()) nmEl.textContent = aname();   // 改了名字：面板不用整个重画
   drawPanelBody(panel);
 }
 
@@ -358,7 +363,7 @@ function drawPanelBody(panel) {
       <div class="sec-title p-sec">愿望的小步</div>
       <div class="wg-wrap">${wishStepsHTML(d)}</div>
       ${routinesHTML(d)}
-      ${guesses.map((m) => `<div class="p-card"><div class="k">小光猜的，对吗？</div><div class="t">${esc(m.text)}</div>
+      ${guesses.map((m) => `<div class="p-card"><div class="k">${aname()}猜的，对吗？</div><div class="t">${esc(m.text)}</div>
         <div class="guess-acts"><button class="btn btn-sm btn-good" data-confirm="${esc(m.id)}">对</button>
         <button class="btn btn-sm btn-ghost" data-reject="${esc(m.id)}">不太对</button></div></div>`).join("")}`;
   } else if (panelTab === "daily") {
@@ -439,7 +444,7 @@ function openThemeSheet() {
     body.innerHTML = `
       <div class="sec-title">氛围</div>
       <div class="theme-grid">${THEMES.map((t) => themeCard(t, t.id === cur)).join("")}</div>
-      <div class="sec-title" style="margin-top:22px">小光的颜色</div>
+      <div class="sec-title" style="margin-top:22px">${aname()}的颜色</div>
       <div class="swatches">${AGENT_COLORS.map((c) => `<button class="swatch ${c === col ? "on" : ""}" data-color="${c}" style="background:${c}" aria-label="${c}"></button>`).join("")}</div>`;
     body.querySelectorAll("[data-theme-id]").forEach((b) => b.addEventListener("click", () => save({ theme: b.dataset.themeId, agent_hue: "" })));
     body.querySelectorAll("[data-color]").forEach((b) => b.addEventListener("click", () => save({ agent_hue: b.dataset.color })));
@@ -452,7 +457,7 @@ function openThemeSheet() {
     try { setData(await api.profile(patch)); } catch (e) { toast(e.message, "err"); }
   };
   draw();
-  sheet({ title: "氛围与小光的颜色", sticker: "palette", body, footer: [] });
+  sheet({ title: "氛围与" + aname() + "的颜色", sticker: "palette", body, footer: [] });
 }
 
 // ---------------------------------------------------------------- 视图 ----

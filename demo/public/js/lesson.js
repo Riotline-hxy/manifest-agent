@@ -4,6 +4,7 @@
 // 结束有三种：答完就写的场景是完成页（经验数字滚动上来）；两个「聊聊」是「这次聊到的」，勾选、改一改，再保存；
 // 冥想是「有没有什么让你想记住」。冥想（calm）的节奏慢一点：话一行一行出来，选了就往下走，有背景音乐。
 
+import { aname } from "./store.js";
 import { esc, icon, tile, toast } from "./ui.js";
 import { mountBall, lookPicture } from "./ball.js";
 import { confetti, countUp } from "./fx.js";
@@ -463,7 +464,7 @@ export function runLesson({ kicker = "", start, answer, review: rvApi, music, on
       go.classList.add("off");
       try {
         const res = await rvApi.save([], ta.value.trim());
-        toast("记下了，小光会记住", "", "memory");
+        toast("记下了，" + aname() + "会记住", "", "memory");
         close({ ...res, review: true, stay: true });
       } catch (e) {
         saving = false;

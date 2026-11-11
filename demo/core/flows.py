@@ -13,6 +13,7 @@ import json
 
 from . import manifest_flow, relearn
 from .store import Store
+from .util import agent_name, named
 
 FLOWS = {"seven_steps_lite": manifest_flow, "relearn": relearn}
 
@@ -54,11 +55,14 @@ def step(store: Store, run_id: str, kind: str, answers: dict, text: str = "") ->
         raise ValueError("先看看方案，再说哪里不对")
     end = relearn.revise(store, a, cache["end"], text)
     store.set_profile({"flow_end": {**cache, "end": end}})      # 之后「一键调整」照这一版改
-    return _public(end)
+    return _public(end, store)
 
 
-def _public(end: dict) -> dict:
-    return {k: end.get(k) for k in ("say", "letter", "intro", "card", "changes", "keeps", "acts", "now")}
+def _public(end: dict, store: Store | None = None) -> dict:
+    out = {k: end.get(k) for k in ("say", "letter", "intro", "card", "changes", "keeps", "acts", "now")}
+    if store is not None:      # 「让小光记着」这类说法用 TA 起的名字
+        out["keeps"] = named(out["keeps"], agent_name(store.profile()))
+    return out
 
 
 def finish(store: Store, run_id: str, answers: dict) -> dict:
@@ -74,7 +78,7 @@ def finish(store: Store, run_id: str, answers: dict) -> dict:
     store.update_scene(run_id, 1, [a], "done")
     if run["status"] == "open":
         store.log("scene", f"做完「{mod.TITLE}」")
-    return _public(end)
+    return _public(end, store)
 
 
 def save(store: Store, run_id: str, keys: list) -> dict:

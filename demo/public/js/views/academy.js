@@ -1,7 +1,7 @@
 // 心灵学堂：团队审核的只读内容。卡片是「书」（读），和点子的列表（做）区分开；
 // 文章页是安静的阅读版式。小光只能解释，不能改写。
 import { api } from "../api.js";
-import { state, go, refresh } from "../store.js";
+import { state, go, refresh, aname } from "../store.js";
 import { esc, icon, tile } from "../ui.js";
 
 const CH = { "认识自己": "var(--c-violet)", "显化方法": "var(--c-orange)", "中断与复原": "var(--c-sky)", "身心练习": "var(--c-mint)", "使用说明": "var(--c-coral)" };
@@ -16,7 +16,7 @@ export function renderAcademy(root) {
   }
   root.innerHTML = `
     <div class="view-inner wide academy">
-      <div class="page-head"><div><h1>心灵学堂</h1><p>团队整理、审核的内容 · 小光只读、只解释，不改写</p></div><span class="spacer"></span>
+      <div class="page-head"><div><h1>心灵学堂</h1><p>团队整理、审核的内容 · ${aname()}只读、只解释，不改写</p></div><span class="spacer"></span>
         <span class="pill good">${icon("checkc")}已读 ${items.filter((a) => a.read).length}/${items.length}</span></div>
       ${chapters.map((c, ci) => `<section class="section"><div class="sec-title">${esc(c.k)}</div>
         <div class="shelf">${c.list.map((a, i) => `<button class="book" data-art="${esc(a.id)}" style="--bk:${CH[a.chapter] || "var(--accent)"};--i:${ci * 3 + i}">
@@ -52,7 +52,7 @@ export async function renderArticle(root) {
         <div class="src">${icon("shield")}来源：${esc(a.source)}</div>
       </article>
       <div class="article-acts">
-        <button class="btn btn-main btn-lg" data-ask>${icon("chat")}让小光讲给我听</button>
+        <button class="btn btn-main btn-lg" data-ask>${icon("chat")}让${aname()}讲给我听</button>
         <button class="btn btn-ghost btn-lg" data-back>继续逛</button>
       </div>
     </div>`;

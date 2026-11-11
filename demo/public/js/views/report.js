@@ -2,7 +2,7 @@
 // 「播放回顾」是全屏故事模式（一页一个瞬间，数字会滚动），最后是分享预览。
 // 数据不足时诚实说，不凑故事。
 import { api } from "../api.js";
-import { state } from "../store.js";
+import { state, aname } from "../store.js";
 import { esc, toast, sheet, h, icon, tile } from "../ui.js";
 import { confetti, countUp } from "../fx.js";
 import { photoURL } from "../moments.js";
@@ -59,7 +59,7 @@ function draw(root, r) {
 
       ${r.empty ? `<div class="empty"><h3>这 ${r.period} 天的记录还不够</h3><p>报告不会凭空编故事。多聊几句、留几个瞬间再来。</p></div>` : `
       <section class="letter card">
-        <div class="lt-k">小光写给你</div>
+        <div class="lt-k">${aname()}写给你</div>
         <p class="letter-text">${esc(n.text)}</p>
         <div class="lt-sign">—— ${esc(r.facts.agent || "小光")}</div>
       </section>
@@ -120,7 +120,7 @@ function slides(r) {
   if (firstGood) out.push({ tone: "c", html: `${firstGood.photo ? `<div class="s-art s-photo"><img src="${esc(photoURL(firstGood.photo, true))}" alt=""></div>` : ""}<div class="s-k">第一个瞬间</div><h2 class="quote">「${esc(firstGood.title)}」</h2><p>${esc(firstGood.text)}</p>` });
   if (theme) out.push({ tone: "d", html: `<div class="s-k">你留下的瞬间里，反复出现的是</div><h2 class="huge">${esc(theme.title)}</h2><p>它也许比你以为的更重要。</p>` });
   if (r.surprise) out.push({ tone: "e", html: `<div class="s-k">你可能没注意到</div><h2 class="mid">${esc(r.surprise)}</h2>` });
-  if (n.text) out.push({ tone: "f", html: `<div class="s-k">小光写给你</div><p class="s-letter">${esc(n.text)}</p>` });
+  if (n.text) out.push({ tone: "f", html: `<div class="s-k">${aname()}写给你</div><p class="s-letter">${esc(n.text)}</p>` });
   out.push({ tone: "a", end: true, html: `<div class="s-art town">${art}</div><h2>下一段，<br>不用更快。</h2><p>想留个纪念，可以做一张只公开你选的内容的分享卡。</p>
     <div class="s-acts"><button class="btn btn-main btn-lg" data-s-share>做分享卡</button><button class="btn btn-ghost btn-lg" data-s-close>回到报告</button></div>` });
   return out;
@@ -163,7 +163,7 @@ function play(r) {
 function share(r) {
   const n = r.narrative || {};
   const rows = [
-    { id: "letter", label: "小光写的那段话", sub: n.title || "", on: true },
+    { id: "letter", label: "" + aname() + "写的那段话", sub: n.title || "", on: true },
     ...r.nodes.map((x) => ({ id: "n-" + x.label, label: `${x.label}：${x.title}`, sub: x.kind === "moment" ? "含具体内容，默认不公开" : "", on: x.kind !== "moment" })),
     ...(r.surprise ? [{ id: "surprise", label: "「你可能没注意到的」", sub: r.surprise, on: true }] : []),
     { id: "numbers", label: `数字：${r.facts.moments} 个瞬间 · ${r.facts.done} 个小步 · ${r.xp} 经验`, sub: "不含任何具体内容", on: true },
@@ -183,7 +183,7 @@ function share(r) {
           r.nodes.forEach((x) => on.includes("n-" + x.label) && lines.push(`· ${x.label}：${x.title}`));
           if (on.includes("surprise") && r.surprise) lines.push("", r.surprise);
           if (on.includes("numbers")) lines.push("", `${r.period} 天：${r.facts.moments} 个瞬间 · ${r.facts.done} 个小步 · ${r.xp} 经验`);
-          lines.push("", "—— 来自显伴 · 小光");
+          lines.push("", "—— 来自显伴 · " + aname() + "");
           try { await navigator.clipboard.writeText(lines.join("\n")); toast("文字版已复制", "", "letter"); }
           catch { toast("复制失败", "err"); }
           s.close();
