@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="mist">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>聊聊现在的你 · 方案 B 聊着来</title>
+<link rel="stylesheet" href="../../demo/public/css/fonts.css">
+<link rel="stylesheet" href="../../demo/public/css/base.css">
+<link rel="stylesheet" href="../../demo/public/css/components.css">
+<link rel="stylesheet" href="../../demo/public/css/lesson.css">
+<link rel="stylesheet" href="../../demo/public/css/chat.css">
+<link rel="stylesheet" href="tune.css">
+<script src="icons.js"></script>
+<script src="shared.js"></script>
+<script src="ends.js"></script>
+</head>
+<body>
+<div class="tune-b">
+  <div class="tb-top">
+    <button class="tb-x" aria-label="重新开始">×</button>
+    <div class="grow"><b>聊聊现在的你</b><small>说说现在的你，我们从这里开始</small></div>
+    <div class="tb-dots"></div>
+  </div>
+  <div class="tb-thread"><div class="thread-in"><div class="msgs"></div></div></div>
+  <div class="tb-dock"><div class="tb-dock-in"></div></div>
+</div>
+
+<script>
+const T = TUNE, S = T.steps, N = S.length;
+const ans = {};
+let token = 0, first = 0;
+const $ = (s) => document.querySelector(s);
+const list = $(".msgs"), thread = $(".tb-thread"), dock = $(".tb-dock-in");
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const down = () => requestAnimationFrame(() => { thread.scrollTo({ top: thread.scrollHeight, behavior: "smooth" }); });
+
+function dots(now) { $(".tb-dots").innerHTML = S.map((s, i) => `<i class="${ans[s.key] ? "on" : ""} ${i === now ? "now" : ""}"></i>`).join(""); }
+function me(text) { list.insertAdjacentHTML("beforeend", `<div class="msg user"><div class="bub">${esc(text)}</div></div>`); down(); }
+async function xg(html, { mood = "idle", wide = false, think = 0 } = {}) {
+  const t = token;
+  list.insertAdjacentHTML("beforeend", `<div class="msg assistant ${wide ? "wide" : ""}"><span class="mini">${mascot(mood)}</span><div class="col"><div class="bub"><span class="thinking"><i></i><i></i><i></i></span></div></div></div>`);
+  down();
+  await wait(think || 480 + Math.min(html.replace(/<[^>]+>/g, "").length, 50) * 7);
+  if (t !== token) return null;
+  const row = list.lastElementChild;
+  row.querySelector(".col").innerHTML = html.startsWith("<") ? html : `<div class="bub">${html}</div>`;
+  down();
+  return row;
+}
+const dockSkip = (fn) => { dock.innerHTML = `<span class="tb-hint">点一张就好</span><button class="tb-skip">先跳过</button>`; dock.querySelector(".tb-skip").onclick = fn; };
+
+async function askStep(i) {
+  const s = S[i];
+  dots(i);
+  dock.innerHTML = "";
+  const head = i === 0 ? `${esc(T.intro)}<br>${esc(s.q)}` : esc(s.q);
+  const row = await xg(`<div class="bub">${head}</div><div class="ils ${s.opts.length === 3 ? "three" : ""}">${s.opts.map((o, k) =>
+    `<button class="il" data-v="${o.v}" style="--i:${k}">${ill(o.ill)}<span><b>${esc(o.label)}</b><small>${esc(o.hint)}</small></span></button>`).join("")}</div>`, { wide: true });
+  if (!row) return;
+  const cards = row.querySelector(".ils");
+  cards.querySelectorAll(".il").forEach((b) => b.addEventListener("click", () => pick(i, b.dataset.v, cards)));
+  dockSkip(() => pick(i, null, cards));
+}
+
+async function pick(i, v, cards) {
+  const s = S[i], o = v && optOf(s, v);
+  dock.innerHTML = "";
+  if (o) { ans[s.key] = v; cards.querySelector(`[data-v="${v}"]`).classList.add("on"); }
+  cards.classList.add("dim");
+  me(o ? o.label : "先跳过");
+  dots(i);
+  await xg(o ? esc(o.react) : "好，这个先放着。", { mood: o ? "happy" : "idle" });
+  if (i + 1 < N) askStep(i + 1); else ending();
+}
+
+async function ending() {
+  dots(-1);
+  const e = endOf(ans);
+  const dir = optOf(S[1], ans.dir || "wish");
+  const isWish = (ans.dir || "wish") === "wish";
+  const wishName = isWish ? T.wish : e.wish;
+  const acc = optOf(S[3], ans.accomp), st = optOf(S[0], ans.state);
+  if (!(await xg(esc(e.see), { mood: "happy", think: 1300 }))) return;
+  const row = await xg(`<div class="bub">我们从这一步开始？挑一个：</div>
+    <div class="firsts">${e.steps.map((x, k) => `<button class="first ${k === first ? "on" : ""}" data-i="${k}" style="--i:${k}">${ill(dir.ill)}
+      <span><b>${esc(x.title)}</b><small>${esc(x.why)}</small></span><i>${k === first ? icon("check") : ""}</i></button>`).join("")}</div>
+    <div class="keeps">
+      <label class="keep"><input type="checkbox" checked><span>第一小步：<b class="k-step">${esc(e.steps[first].title)}</b></span><small>计划 · 今天</small></label>
+      <label class="keep"><input type="checkbox" checked><span>愿望「${esc(wishName)}」${isWish ? "" : `<em class="new">新</em>`}</span><small>计划</small></label>
+      ${st ? `<label class="keep"><input type="checkbox" checked><span>最近：${esc(st.label)}</span><small>记忆</small></label>` : ""}
+      ${acc ? `<label class="keep"><input type="checkbox" checked><span>陪你的方式：${esc(acc.label)}</span><small>设置</small></label>` : ""}
+    </div>
+    <div class="tb-acts"><button class="btn btn-good" data-go>存好，开始吧</button><button class="btn btn-ghost" data-now>现在就做第一步</button></div>`, { wide: true });
+  if (!row) return;
+  row.querySelectorAll(".first").forEach((b) => b.addEventListener("click", () => {
+    first = +b.dataset.i;
+    row.querySelectorAll(".first").forEach((x, k) => { x.classList.toggle("on", k === first); x.querySelector("i").innerHTML = k === first ? icon("check") : ""; });
+    row.querySelector(".k-step").textContent = e.steps[first].title;
+  }));
+  dock.innerHTML = `<div class="tb-composer"><span>还有什么想让我先知道的？（可以不写）</span><i>${icon("send")}</i></div>`;
+  row.querySelector("[data-go]").onclick = () => done(row, e, wishName, false);
+  row.querySelector("[data-now]").onclick = () => done(row, e, wishName, true);
+}
+
+async function done(row, e, wishName, now) {
+  row.querySelector(".tb-acts").outerHTML = `<p class="tb-hint" style="margin:10px 0 0">${icon("check")} 存好了</p>`;
+  row.querySelectorAll(".first, .keep input").forEach((x) => x.setAttribute("disabled", ""));
+  const step = e.steps[first].title;
+  me(now ? "现在就做第一步" : "存好，开始吧");
+  if (now) await xg(`好，那现在就开始～<div class="kick-stub" style="margin-top:8px">这里会打开「两分钟启动」，任务已经填好：「${esc(step)}」</div>`, { mood: "happy" });
+  else await xg(`加好了，在「今天」里就能看到它。<div class="plan-mini" style="margin-top:8px"><div class="pm-w">${icon("flag")}${esc(wishName)}</div><div class="pm-s"><i></i>${esc(step)}<em>今天</em></div></div>`, { mood: "happy" });
+  dock.innerHTML = `<div class="tb-composer"><span>给小光发消息</span><i>${icon("send")}</i></div><button class="tb-skip" data-again>再来一遍</button>`;
+  dock.querySelector("[data-again]").onclick = start;
+}
+
+async function start() {
+  token++;
+  for (const k in ans) delete ans[k];
+  first = 0;
+  list.innerHTML = "";
+  dock.innerHTML = "";
+  askStep(0);
+}
+$(".tb-x").onclick = start;
+start();
+</script>
+</body>
+</html>

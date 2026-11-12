@@ -1,0 +1,1031 @@
+"""Route table and handlers. Each handler: (handler, user, body, query) ->
+(status, json[, headers]) or None if it streamed the response itself.
+`user` is None only on public routes; otherwise it is the session's user and
+the only source of the user id.
+"""
+from __future__ import annotations
+
+from core import academy, acts, admin, portrait, auth, digest, flows, metrics, photos, webpush, growth, journey, kickstart, llm, onboarding, report, scenes, scheduler, tasks, town, trial
+from core import memory as mem
+from core.store import Store
+from core.util import clip, day_key, iso
+from core.api import VERSION, ApiError, bootstrap, public_user
+
+
+def health(h, u, b, q):
+    return 200, {"ok": True, "version": VERSION, "model": llm.config()["model"],
+                 "llm_key": bool(llm.api_key()), "time": iso()}
+
+
+def me(h, u, b, q):
+    cur = auth.session_user(h._token())
+    return 200, {"user": public_user(cur) if cur else None}
+
+
+def _logged_in(h, user: dict, status=200):
+    token = auth.new_session(user["id"])
+    return status, {"user": public_user(user)}, {"Set-Cookie": h._set_cookie(token)}
+
+
+def register(h, u, b, q):
+    cur = auth.session_user(h._token())
+    if cur and cur["kind"] == "guest":  # upgrade in place; keeps everything the guest did
+        return 200, {"user": public_user(auth.claim_guest(cur["id"], b.get("username"), b.get("password")))}
+    metrics.bump("signup")
+    return _logged_in(h, auth.register(b.get("username"), b.get("password")), 201)
+
+
+def login(h, u, b, q):
+    return _logged_in(h, auth.login(b.get("username"), b.get("password"), h._ip()))
+
+
+def guest(h, u, b, q):
+    key = "guest:" + h._ip()
+    if auth.too_many(key):
+        raise ApiError(429, "体验账号创建太频繁，稍后再试")
+    auth.note_fail(key)  # counts creations per IP
+    user = auth.create_guest()
+    with Store(user["id"]) as st:
+        if b.get("seed", True):
+            onboarding.seed_guest(st)
+        else:
+            st.set_profile({"created_at": iso()})
+    return _logged_in(h, user, 201)
+
+
+def trial_chat(h, u, b, q):
+    """首页引导式体验：不建账号，历史由前端带着。"""
+    key = "trial:" + h._ip()
+    if auth.too_many(key, 40):
+        raise ApiError(429, "聊得有点快，歇一会儿再试")
+    auth.note_fail(key)
+    try:
+        return 200, trial.chat(b.get("goal"), b.get("history"), bool(b.get("finish")), bool(b.get("smaller")))
+    except ValueError as e:
+        raise ApiError(400, str(e))
+
+
+# ---- 推送（网页关着也能收到小光的消息） ----
+def push_key(h, u, b, q):
+    return 200, {"key": webpush.keys()["pub"], "devices": len(webpush.subs(u["id"]))}
+
+
+def push_subscribe(h, u, b, q):
+    try:
+        webpush.subscribe(u["id"], b.get("subscription") or {}, h.headers.get("User-Agent") or "")
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    return 200, {"ok": True, "devices": len(webpush.subs(u["id"]))}
+
+
+def push_unsubscribe(h, u, b, q):
+    webpush.unsubscribe(u["id"], str(b.get("endpoint") or ""))
+    return 200, {"ok": True, "devices": len(webpush.subs(u["id"]))}
+
+
+def push_latest(h, u, b, q):
+    """service worker 被叫醒后来取要显示的那句话：最新一条没看过的主动消息 / 提醒。"""
+    with Store(u["id"]) as st:
+        p = st.profile()
+        items = st.unseen_inbox()
+        item = items[-1] if items else None
+        return 200, {"title": p.get("agent_name") or "小光", "text": item["text"] if item else "",
+                     "id": item["id"] if item else "", "cue": item["cue"] if item else ""}
+
+
+def push_test(h, u, b, q):
+    if not webpush.subs(u["id"]):
+        raise ApiError(400, "这台设备还没开启通知")
+    with Store(u["id"]) as st:
+        name = st.profile().get("agent_name") or "小光"
+        item = st.push_inbox(f"通知开好了。以后我想你、或者提醒到点了，就算网页关着也会在这里叫你。——{name}", "test")
+    out = webpush.notify(u["id"], ttl=600, urgency="high")
+    return 200, {**out, "inbox_id": item["id"]}
+
+
+# ---- 管理后台（只读；登录用 MANIFEST_ADMIN_KEY，cookie 与用户会话分开） ----
+def _admin(h):
+    if not admin.key():
+        raise ApiError(404, "后台未开启")
+    if not admin.check_token(h._token(admin.COOKIE)):
+        raise ApiError(401, "请先登录后台")
+
+
+def admin_login(h, u, b, q):
+    if not admin.key():
+        raise ApiError(404, "后台未开启：在服务器 .env 里设置 MANIFEST_ADMIN_KEY")
+    k = "admin:" + h._ip()
+    if auth.too_many(k, 5) or auth.too_many("admin:*", 30):     # 第二道：不分来源，全站十分钟内最多错 30 次
+        raise ApiError(429, "试太多次了，十分钟后再来")
+    if not admin.check_key(b.get("key")):
+        auth.note_fail(k)
+        auth.note_fail("admin:*")
+        raise ApiError(401, "口令不对")
+    return 200, {"ok": True}, {"Set-Cookie": h._admin_cookie(admin.make_token())}
+
+
+def admin_logout(h, u, b, q):
+    return 200, {"ok": True}, {"Set-Cookie": h._admin_cookie(None)}
+
+
+def admin_overview(h, u, b, q):
+    _admin(h)
+    try:
+        days = int((q.get("days") or ["30"])[0])
+    except ValueError:
+        days = 30
+    return 200, admin.overview(days)
+
+
+def admin_users(h, u, b, q):
+    _admin(h)
+    return 200, {"users": admin.users()}
+
+
+def admin_user(h, u, b, q):
+    _admin(h)
+    r = admin.user(str((q.get("id") or [""])[0]))
+    if not r:
+        raise ApiError(404, "没有这个用户")
+    return 200, r
+
+
+def admin_delete(h, u, b, q):
+    """删一个用户；confirm 必须等于用户名（体验账号用 id），防手滑。"""
+    _admin(h)
+    uid = str(b.get("id") or "")
+    target = auth.get_user(uid)
+    if not target:
+        raise ApiError(404, "没有这个用户")
+    if str(b.get("confirm") or "") != (target["username"] or uid):
+        raise ApiError(400, "确认内容不对")
+    admin.delete_user(uid)
+    return 200, {"ok": True}
+
+
+def admin_user_growth(h, u, b, q):
+    _admin(h)
+    r = admin.growth_detail(str((q.get("id") or [""])[0]))
+    if not r:
+        raise ApiError(404, "没有这个用户")
+    return 200, r
+
+
+def admin_adjust(h, u, b, q):
+    """给一个用户加减经验、金币。必须写原因，留记录。"""
+    _admin(h)
+    try:
+        return 200, admin.adjust(str(b.get("id") or ""), b.get("xp"), b.get("coins"), str(b.get("reason") or ""), h._ip())
+    except ValueError as e:
+        raise ApiError(400, str(e))
+
+
+def admin_llm(h, u, b, q):
+    _admin(h)
+    return 200, admin.llm_state()
+
+
+def admin_llm_switch(h, u, b, q):
+    """切换小光用的模型和思考档：先真跑一次，通了才切。"""
+    _admin(h)
+    try:
+        return 200, admin.llm_switch(str(b.get("provider") or ""), str(b.get("model") or ""), str(b.get("effort") or ""), h._ip())
+    except ValueError as e:
+        raise ApiError(400, str(e))
+
+
+def admin_town(h, u, b, q):
+    _admin(h)
+    return 200, town.admin_catalog()
+
+
+def admin_town_save(h, u, b, q):
+    """改小镇里各样东西的价格、解锁等级、上下架；所有人立刻生效。"""
+    _admin(h)
+    try:
+        return 200, admin.town_save(b.get("items") or {}, h._ip())
+    except ValueError as e:
+        raise ApiError(400, str(e))
+
+
+def admin_log(h, u, b, q):
+    _admin(h)
+    return 200, {"entries": admin.log_entries("", 100)}
+
+
+def admin_purge_guests(h, u, b, q):
+    """一次删掉所有体验账号（旧版首页建的，带示例数据）。"""
+    _admin(h)
+    ids = admin.guest_ids()
+    if str(b.get("confirm") or "") != f"删除 {len(ids)} 个体验账号":
+        raise ApiError(400, "确认内容不对")
+    n = sum(1 for uid in ids if admin.delete_user(uid))
+    return 200, {"ok": True, "deleted": n}
+
+
+def rename(h, u, b, q):
+    user = auth.rename(u["id"], str(b.get("username") or ""))
+    with Store(u["id"]) as st:
+        st.log("profile", "你改了登录用户名")
+    return 200, {"user": public_user(user)}
+
+
+def logout(h, u, b, q):
+    cur = auth.session_user(h._token())
+    if cur and b.get("endpoint"):  # 这台设备不再收这个账号的推送
+        webpush.unsubscribe(cur["id"], str(b["endpoint"]))
+    auth.end_session(h._token())
+    return 200, {"ok": True}, {"Set-Cookie": h._set_cookie(None)}
+
+
+def boot(h, u, b, q):
+    with Store(u["id"]) as st:
+        if not st.profile().get("created_at"):
+            st.set_profile({"created_at": iso()})
+        return 200, {"user": public_user(u), "onboarding": onboarding.QUESTIONS, **bootstrap(st)}
+
+
+def onboard(h, u, b, q):
+    with Store(u["id"]) as st:
+        try:
+            onboarding.apply(st, b.get("answers") or {})
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        p = st.profile()
+        carry = b.get("carry") if isinstance(b.get("carry"), dict) else {}
+        first = clip(str(carry.get("step") or ""), 40).strip()
+        metrics.bump("onboard")
+        if first:
+            metrics.bump("trial_signup")
+        for text in (carry.get("remember") or [])[:3]:
+            text = clip(str(text), 40).strip()
+            if text:
+                st.add_memory(text, "identity", "confirmed")
+        if first:
+            st.add_step(first, why=clip(str(carry.get("why") or ""), 60), wish=p.get("intent_primary") or "")
+            st.log("plan", "体验时定下的一小步：" + first)
+            st.add_msg("assistant", f"我是{p['agent_name']}，刚才我们聊过的我都记着。你想靠近「{p['intent_primary']}」，"
+                                    f"今天就先做「{first}」。做完了跟我说一声，没做成也来说说，我们再调。", {"onboarding": True})
+        else:
+            todo = [x["title"] for x in reversed(st.steps(10)) if x["status"] == "todo"]
+            if todo:     # 建档时定了愿望和小步
+                text = f"我是{p['agent_name']}。「{p['intent_primary']}」这条路，我陪你一起走。第一小步是「{todo[0]}」，做完了跟我说一声。今天想先聊点什么？"
+            elif p.get("intent_primary"):
+                text = f"我是{p['agent_name']}。你想靠近「{p['intent_primary']}」，我们不急，先从今天能做的最小一步开始。今天有什么想跟我说的吗？"
+            else:
+                text = f"我是{p['agent_name']}。不急着定目标，想到了随时跟我说。今天过得怎么样？"
+            st.add_msg("assistant", text, {"onboarding": True})
+        return 200, bootstrap(st)
+
+
+def onboard_plan(h, u, b, q):
+    """建档时的「第一个愿望」：和首页体验一样聊几轮，最后小光把它拆成一条路给用户勾。
+    这时画像还没保存，前端把刚在其他入口选的说话方式、称呼等一起带过来。"""
+    key = "plan:" + u["id"]
+    if auth.too_many(key, 40):
+        raise ApiError(429, "聊得有点快，歇一会儿再试")
+    auth.note_fail(key)
+    a = b.get("about") if isinstance(b.get("about"), dict) else {}
+    lst = lambda k: [clip(str(x), 12) for x in (a.get(k) or [])[:3] if str(x).strip()] if isinstance(a.get(k), list) else []
+    bits = []
+    if str(a.get("nickname") or "").strip():
+        bits.append(f"TA 希望你叫 TA「{clip(str(a['nickname']).strip(), 12)}」。")
+    tone = {"gentle": "温柔，先接住情绪再说事", "clear": "有条理，帮 TA 把事情理清楚", "lively": "轻松活泼，偶尔逗 TA 笑"}.get(a.get("persona"))
+    if tone:
+        bits.append(f"你的说话方式：{tone}。")
+    if lst("traits"):
+        bits.append("TA 觉得自己：" + "、".join(lst("traits")) + "。")
+    if lst("boundaries"):
+        bits.append("TA 不希望被：" + "、".join(lst("boundaries")) + "。")
+    try:
+        return 200, trial.plan(b.get("goal"), b.get("history"), bool(b.get("finish")), " ".join(bits), bool(b.get("revise")))
+    except ValueError as e:
+        raise ApiError(400, str(e))
+
+
+def chat(h, u, b, q):
+    h.sse_chat(u, b)
+
+
+PROFILE_FIELDS = {"nickname", "agent_name", "agent_hue", "agent_avatar_id", "intent_primary", "intent_why",
+                  "schedule_hint", "traits", "mbti_hint", "boundaries", "proactive",
+                  "care_style", "pace", "theme", "persona", "custom_moods",
+                  "chat_style", "energy_time"}
+PROFILE_TEXT = {"nickname", "agent_name", "agent_hue", "agent_avatar_id", "intent_primary", "intent_why", "schedule_hint",
+                "mbti_hint", "proactive", "care_style", "pace", "theme", "persona", "chat_style", "energy_time"}
+
+
+def profile(h, u, b, q):
+    patch = {k: v for k, v in b.items() if k in PROFILE_FIELDS}
+    for k in PROFILE_TEXT & set(patch):      # 这些都是一句短话：别的类型（对象、数组）存进去会让以后每次组装提示词都出错
+        if not isinstance(patch[k], str):
+            raise ApiError(400, "格式不对")
+    if "pace" in patch and patch["pace"] not in ("gentle", "steady"):
+        raise ApiError(400, "偏好不对")
+    if "proactive" in patch and patch["proactive"] not in ("more", "normal", "less", "off"):
+        raise ApiError(400, "频率不对")
+    if "care_style" in patch and patch["care_style"] not in ("", "nudge", "analyze", "quiet"):
+        raise ApiError(400, "偏好不对")
+    if "persona" in patch and patch["persona"] not in ("gentle", "clear", "lively"):
+        raise ApiError(400, "没有这种性格")
+    if "custom_moods" in patch:
+        patch["custom_moods"] = [str(x).strip()[:8] for x in (patch["custom_moods"] or []) if str(x).strip()][:8]
+    if "theme" in patch and patch["theme"] not in onboarding.THEMES:
+        raise ApiError(400, "没有这个氛围")
+    if "agent_hue" in patch and patch["agent_hue"] not in onboarding.AGENT_COLORS | {""}:
+        raise ApiError(400, "没有这个颜色")
+    if "agent_avatar_id" in patch:
+        patch["agent_avatar_id"] = onboarding.norm_look(patch["agent_avatar_id"])   # 旧页面还可能发下架的形状
+        if not onboarding.valid_look(patch["agent_avatar_id"]):
+            raise ApiError(400, "没有这个外貌")
+    for k in ("traits", "boundaries"):
+        if k in patch:
+            patch[k] = [clip(str(x), 20) for x in (patch[k] or [])][:6]
+    if "agent_name" in patch:        # 它的名字：和建档时一样最多 8 个字，空着就是小光
+        patch["agent_name"] = clip(str(patch["agent_name"] or "").strip(), 8) or "小光"
+    for k in ("chat_style", "energy_time"):   # 陪伴偏好：一句短话，空着就是没选
+        if k in patch:
+            patch[k] = clip(str(patch[k] or "").strip(), 30)
+    for k, v in list(patch.items()):
+        if isinstance(v, str):
+            patch[k] = clip(v, 60)
+    with Store(u["id"]) as st:
+        st.set_profile(patch)
+        if patch:
+            st.log("profile", "你修改了画像")
+        return 200, bootstrap(st)
+
+
+def memory(h, u, b, q):
+    act = b.get("action")
+    with Store(u["id"]) as st:
+        m = st.get_memory(str(b.get("id") or "")) if b.get("id") else None
+        if act != "add" and not m:
+            raise ApiError(404, "没有这条记忆")
+        text = clip(str(b.get("text") or ""), 120).strip()
+        if act in ("confirm", "reject", "edit"):
+            st.bump("memory_fix")
+        if act == "confirm":
+            st.update_memory(m["id"], status="active")
+            st.c.execute("UPDATE memory SET source='confirmed' WHERE id=?", (m["id"],))
+            st.log("memory", "你确认了：" + m["text"])
+        elif act in ("reject", "forget"):
+            st.delete_memory(m["id"], reason="user_" + act)
+            mem.scrub_notebook(st, m["text"])     # 笔记本里说这件事的那半句也拿掉：删了就真的不再提
+            st.log("memory", ("你说不对，删掉了：" if act == "reject" else "按你说的忘掉了：") + m["text"])
+        elif act == "edit":
+            if not text:
+                raise ApiError(400, "内容不能为空")
+            if text != m["text"]:
+                st.update_memory(m["id"], text=text, status="active", reason="user_edit")
+                st.c.execute("UPDATE memory SET source='confirmed' WHERE id=?", (m["id"],))
+                mem.scrub_notebook(st, m["text"])
+                st.log("memory", "你改了一条记忆：" + text)
+            if b.get("cat") in portrait.CAT_IDS:
+                st.set_cat(m["id"], b["cat"])
+        elif act == "add":
+            if not text:
+                raise ApiError(400, "内容不能为空")
+            cat = b.get("cat") if b.get("cat") in portrait.CAT_IDS else ""
+            kind = {"effort": "intent", "likes": "preference", "rules": "boundary", "recent": "event"}.get(cat, "identity")
+            st.add_memory(text, kind, "confirmed", cat=cat)
+            st.log("memory", "你亲手写下：" + text)
+        else:
+            raise ApiError(400, "未知操作")
+        return 200, bootstrap(st)
+
+
+def portrait_api(h, u, b, q):
+    """「小光眼中的你」那一句：TA 改了就以 TA 的为准，夜里整理不再覆盖。清空就交还给小光。"""
+    text = clip(str(b.get("text") or ""), 60).strip()
+    with Store(u["id"]) as st:
+        st.set_profile({"portrait": {"text": text, "by": "user", "updated_at": iso()} if text else {}})
+        st.log("memory", "你改了小光眼中的你：" + text if text else "让小光重新写「小光眼中的你」")
+        return 200, bootstrap(st)
+
+
+def insight_api(h, u, b, q):
+    """「小光的发现」：像我 / 不太像。不太像的不再出现。"""
+    fid, fb = str(b.get("id") or ""), str(b.get("fb") or "")
+    if fb not in ("yes", "no", ""):
+        raise ApiError(400, "bad fb")
+    with Store(u["id"]) as st:
+        p = st.profile()
+        known = {f.get("id") for f in p.get("finds") or [] if isinstance(f, dict)} | {f["id"] for f in portrait.insights(st)}
+        cur = dict(p.get("insight_fb") or {})
+        if fid not in known and fid not in cur:      # 只认真有的那几条发现：不让随便一个字符串写进画像
+            raise ApiError(404, "没有这条发现")
+        cur[fid] = fb
+        st.set_profile({"insight_fb": cur})
+        return 200, bootstrap(st)
+
+
+def step(h, u, b, q):
+    act = b.get("action")
+    with Store(u["id"]) as st:
+        result = {}
+        if act == "add":
+            title = clip(str(b.get("title") or ""), 40).strip()
+            if not title:
+                raise ApiError(400, "写一下这一步是什么")
+            try:
+                day = journey.schedule_day(b.get("day"))
+            except ValueError as e:
+                raise ApiError(400, str(e))
+            wid = str(b.get("wish_id") or "")
+            if wid and not journey.get_wish(st, wid):
+                raise ApiError(404, "没有这个愿望")
+            st.add_step(title, why=str(b.get("why") or ""), wish=st.profile().get("intent_primary") or "",
+                        wish_id=wid, scheduled_day=day)
+            st.log("plan", "你加了一小步：" + title)
+        elif act == "schedule":
+            try:
+                day = journey.schedule_day(b.get("day"))
+            except ValueError as e:
+                raise ApiError(400, str(e))
+            s = st.schedule_step(str(b.get("id") or ""), day)
+            if not s:
+                raise ApiError(404, "这一步不在待办里")
+            st.log("plan", (f"把「{s['title']}」安排到 {int(day[5:7])}月{int(day[8:10])}日" if day else f"「{s['title']}」先不安排日子"))
+        elif act == "done":
+            s = st.complete_step(str(b.get("id") or ""))
+            if not s:
+                raise ApiError(404, "这一步不在待办里")
+            result["xp"] = growth.award(st, "action", ref="step:" + s["id"], note="完成：" + s["title"])
+            st.log("plan", "完成了：" + s["title"])
+            result["cleared"] = journey.steps_cleared(st, s)   # 这个愿望的小步都做完了：前端弹一张鼓励
+        elif act in ("todo", "drop"):
+            s = st.set_step(str(b.get("id") or ""), "todo" if act == "todo" else "dropped")
+            if not s:
+                raise ApiError(404, "没有这一步")
+            st.log("plan", ("放回待办：" if act == "todo" else "先放一放：") + s["title"])
+        else:
+            raise ApiError(400, "未知操作")
+        return 200, {**result, **bootstrap(st)}
+
+
+def record(h, u, b, q):
+    """偷懒日（rest，可以撤销）。好消息 2026-11 下线，换成了「瞬间」（/api/moment）。"""
+    type_ = b.get("type")
+    if type_ == "good":
+        raise ApiError(400, "好消息已经换成「瞬间」了，去瞬间页留一个吧")
+    if type_ != "rest":
+        raise ApiError(400, "类型不对")
+    with Store(u["id"]) as st:
+        if b.get("undo"):
+            with st.lock:
+                gone = st.c.execute("DELETE FROM record WHERE type='rest' AND day=?", (day_key(),)).rowcount
+            restored = journey.rest_restore(st) if gone else 0
+            st.log("rest", "今天不偷懒了")
+            return 200, {"rest_plan": {"restored": restored}, **bootstrap(st)}
+        text = clip(str(b.get("text") or ""), 200).strip() or "今天偷个懒"
+        if st.c.execute("SELECT 1 FROM record WHERE type='rest' AND day=?", (day_key(),)).fetchone():
+            return 200, {"xp": None, **bootstrap(st)}
+        r = st.add_record("rest", text)
+        xp = None
+        postponed = journey.rest_postpone(st)   # 今天安排的小步挪到明天
+        daily = growth.settle_daily(st)         # 每日任务里行动那项先暂停，另外两件做到了就能拿全勤
+        if daily:
+            xp = {"ok": True, "amount": 0, "coins": sum(d["coins"] for d in daily), "daily": daily}
+        st.log("rest", "今天偷个懒：" + text.replace("今天偷个懒：", ""))
+        return 200, {"xp": xp, "record": r, "rest_plan": {"postponed": postponed}, **bootstrap(st)}
+
+def habit_api(h, u, b, q):
+    act = b.get("action")
+    out = {}
+    with Store(u["id"]) as st:
+        try:
+            if act == "add":
+                out["habit"] = journey.add_habit(st, str(b.get("wish_id") or ""), str(b.get("title") or ""),
+                                                 str(b.get("freq") or "daily"), b.get("per_week") or 3)
+            elif act in ("check", "uncheck"):
+                day = journey._valid_day(b.get("day"))    # 奖励按「习惯 + 这一天」只算一次：用校验过的日期，不用请求里原样的字符串
+                hb, created = journey.check_habit(st, str(b.get("id") or ""), day, undo=act == "uncheck")
+                if created:
+                    out["xp"] = growth.award(st, "action", ref=f"habit:{hb['id']}:{day}", note="打卡：" + hb["title"])
+            elif act in ("skip", "unskip"):
+                journey.skip_habit(st, str(b.get("id") or ""), undo=act == "unskip")
+            elif act == "ease":
+                hb = next((x for x in journey.habits(st) if x["id"] == str(b.get("id") or "")), None)
+                if not hb:
+                    raise ApiError(404, "没有这个习惯")
+                down = journey.ease_habit(hb)
+                if not down:
+                    raise ApiError(400, "已经是每周 1 次了，可以先收起它")
+                journey.edit_habit(st, hb["id"], {"freq": down[0], "per_week": down[1]})
+                st.log("plan", f"把「{hb['title']}」调轻了：{journey.freq_text({'freq': down[0], 'per_week': down[1]})}")
+                out["eased"] = journey.freq_text({"freq": down[0], "per_week": down[1]})
+            elif act == "edit":
+                if not journey.edit_habit(st, str(b.get("id") or ""), b):
+                    raise ApiError(404, "没有这个习惯")
+            else:
+                raise ApiError(400, "未知操作")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, {**out, **bootstrap(st)}
+
+
+def milestone_api(h, u, b, q):
+    act = b.get("action")
+    out = {}
+    with Store(u["id"]) as st:
+        try:
+            if act == "add":
+                out["milestone"] = journey.add_milestone(st, str(b.get("wish_id") or ""), str(b.get("title") or ""), b.get("due_day"))
+            elif act in ("done", "todo", "edit", "delete"):
+                patch = dict(b)
+                if act in ("done", "todo"):
+                    patch["status"] = act
+                if act == "delete":
+                    patch["delete"] = True
+                m = journey.edit_milestone(st, str(b.get("id") or ""), patch)
+                if not m:
+                    raise ApiError(404, "没有这个里程碑")
+                if act == "done":
+                    out["xp"] = growth.award(st, "action", ref="ms:" + m["id"], note="到达：" + m["title"])
+            else:
+                raise ApiError(400, "未知操作")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, {**out, **bootstrap(st)}
+
+
+def task_api(h, u, b, q):
+    act = b.get("action")
+    uid = u["id"]
+    out = {}
+    try:
+        if act == "add":
+            out["task"] = tasks.add(uid, str(b.get("title") or ""), kind=str(b.get("kind") or "remind"),
+                                    message=str(b.get("message") or ""), repeat=str(b.get("repeat") or "once"),
+                                    time=str(b.get("time") or ""), days=b.get("days"), in_minutes=b.get("in_minutes"),
+                                    date=str(b.get("date") or ""), source="user")
+        elif act in ("on", "off"):
+            if not tasks.set_enabled(uid, str(b.get("id") or ""), act == "on"):
+                raise ApiError(404, "没有这个任务")
+        elif act == "edit":
+            if not tasks.edit(uid, str(b.get("id") or ""), b):
+                raise ApiError(404, "没有这个任务")
+        elif act == "delete":
+            if not tasks.delete(uid, str(b.get("id") or "")):
+                raise ApiError(404, "没有这个任务")
+        else:
+            raise ApiError(400, "未知操作")
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    with Store(uid) as st:
+        if act == "add":
+            st.log("task", f"安排了例行任务：{out['task']['title']}（{out['task']['when']}）")
+        return 200, {**out, **bootstrap(st)}
+
+
+def pulse(h, u, b, q):
+    """页面开着时每 30 秒问一次：有没有新的提醒 / 小光的消息。只读两个计数，很轻。"""
+    with Store(u["id"]) as st:
+        r = st.c.execute("SELECT COUNT(*), MAX(created_at) FROM inbox WHERE seen=0").fetchone()
+        last = st.c.execute("SELECT id, content, meta FROM msg WHERE role='assistant' ORDER BY created_at DESC LIMIT 1").fetchone()
+    return 200, {"unseen": r[0], "latest": r[1] or "", "last_msg": last["id"] if last else ""}
+
+
+def act_api(h, u, b, q):
+    """聊天里小光做过的一件事（core/acts.py）：撤销，或者记下待确认的结果（留下了 / 不用 / 加进计划了）。"""
+    with Store(u["id"]) as st:
+        try:
+            i = int(b.get("i"))
+        except (TypeError, ValueError):
+            raise ApiError(400, "bad index")
+        op = str(b.get("op") or "")
+        out = acts.set_state(st, str(b.get("msg_id") or ""), i, str(b.get("state") or ""), do_undo=op == "undo")
+        if not out["ok"]:
+            raise ApiError(409, out["error"])
+        return 200, {"act": out["act"], **bootstrap(st)}
+
+
+def plan_apply(h, u, b, q):
+    with Store(u["id"]) as st:
+        try:
+            made = journey.apply_plan(st, str(b.get("wish_id") or ""), b)
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, {"made": {k: len(v) for k, v in made.items()}, **bootstrap(st)}
+
+
+def scene_start(h, u, b, q):
+    with Store(u["id"]) as st:
+        try:
+            if b.get("resume"):
+                return 200, scenes.resume(st, str(b["resume"]))
+            return 200, scenes.start(st, str(b.get("scene") or ""))
+        except KeyError:
+            raise ApiError(404, "没有这个场景")
+
+
+def scene_answer(h, u, b, q):
+    raw = b.get("text")
+    if isinstance(raw, list):     # 多选
+        value = [clip(str(x), 60) for x in raw[:8] if str(x).strip()]
+    else:
+        value = clip(str(raw or ""), 300).strip()
+    if not value:
+        raise ApiError(400, "写一句也行")
+    with Store(u["id"]) as st:
+        run = st.get_scene(str(b.get("run_id") or ""))
+        if not run or run["status"] != "open":
+            raise ApiError(404, "这个场景已经结束了")
+        if run["scene"] not in scenes.SCENES:     # 已经下架的练习（说清想要的）：做到一半的直接结束
+            st.update_scene(run["id"], run["step"], [], "abandoned")
+            raise ApiError(404, "这个练习已经下架了")
+        review = scenes.is_review(run["scene"])
+        q = scenes.resume(st, run["id"])["step"]["q"]
+        out = scenes.answer(st, run["id"], value)
+        # 答完就写的场景：问答放进同一条对话里。先确认再存的场景：用户点保存之前，回答不进对话、不进记忆
+        if not review:
+            st.add_msg("assistant", q, {"scene": run["scene"]})
+            st.add_msg("user", value if isinstance(value, str) else "、".join(value), {"scene": run["scene"]})
+        if out["done"]:
+            if not review:
+                st.add_msg("assistant", out["summary"], {"scene_done": True, "wrote": [w["label"] for w in out["wrote"]]})
+            out["xp"] = growth.award(st, "practice", ref="scene:" + run["id"],
+                                     note="完成练习：" + scenes.SCENES[run["scene"]]["title"])
+            out["state"] = bootstrap(st)
+        return 200, out
+
+
+def scene_save(h, u, b, q):
+    """结束页「保存选中的内容」：只写勾选的那几项（文字用用户改过的）。冥想结束页的「记下感受」「和你聊聊」也走这里。"""
+    items = [x for x in (b.get("items") or []) if isinstance(x, dict)] if isinstance(b.get("items"), list) else []
+    with Store(u["id"]) as st:
+        try:
+            out = scenes.save(st, str(b.get("run_id") or ""), items, str(b.get("extra") or ""), talk=bool(b.get("talk")))
+        except KeyError:
+            raise ApiError(404, "这次的练习找不到了")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, {**out, "state": bootstrap(st)}
+
+
+def scene_discard(h, u, b, q):
+    """结束页「返回对话」：这次的回答不留。"""
+    with Store(u["id"]) as st:
+        rid = str(b.get("run_id") or "")
+        scenes.discard(st, rid)
+        if (st.profile().get("flow_end") or {}).get("run") == rid:
+            st.set_profile({"flow_end": {}})     # 算好的结尾（小纸条、调整方案）也不留
+        return 200, {"ok": True}
+
+
+FLOW_LLM = {"step", "finish"}
+
+
+def flow_api(h, u, b, q):
+    """显化你的愿望 / 调整现有计划（core/flows.py）：开始 / 一步（调模型）/ 答完 / 保存。问题都在前端。"""
+    act = str(b.get("action") or "")
+    if act in FLOW_LLM:
+        key = "flow:" + u["id"]
+        if auth.too_many(key, 60):
+            raise ApiError(429, "点得有点快，歇一会儿再试")
+        auth.note_fail(key)
+    rid = str(b.get("run_id") or "")
+    with Store(u["id"]) as st:
+        try:
+            if act == "start":
+                return 200, flows.start(st, str(b.get("scene") or ""), str(b.get("wish_id") or ""))
+            if act == "step":
+                return 200, flows.step(st, rid, str(b.get("kind") or ""), b.get("answers") if isinstance(b.get("answers"), dict) else {},
+                                       str(b.get("text") or ""))
+            if act == "finish":
+                first = (st.get_scene(rid) or {}).get("status") == "open"
+                out = flows.finish(st, rid, b.get("answers") if isinstance(b.get("answers"), dict) else {})
+                if first:     # 练习经验答完就给，存不存都算；在结尾改了答案再答完，不重复给
+                    run = st.get_scene(rid)
+                    out["xp"] = growth.award(st, "practice", ref="scene:" + rid, note="完成练习：" + scenes.SCENES[run["scene"]]["title"])
+                    out["state"] = bootstrap(st)
+                return 200, out
+            if act == "save":
+                keys = [str(k) for k in b.get("keys") or [] if isinstance(k, str)][:6] if isinstance(b.get("keys"), list) else []
+                out = flows.save(st, rid, keys)
+                return 200, {**out, "state": bootstrap(st)}
+        except KeyError:
+            raise ApiError(404, "这次的练习找不到了")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        raise ApiError(400, "未知操作")
+
+
+def kick_home(h, u, b, q):
+    """两分钟启动：最近做过的事、没做完的那一次。"""
+    with Store(u["id"]) as st:
+        return 200, kickstart.home(st)
+
+
+KICK_LLM = {"start", "answer", "adjust", "stuck", "more"}
+
+
+def kick_api(h, u, b, q):
+    """两分钟启动的每一步：开始 / 回答三问 / 完成或跳过这一步 / 调整路线 / 遇到困难 / 继续 / 结束 / 中途关掉 / 删掉一条记忆。"""
+    act = str(b.get("action") or "")
+    if act in KICK_LLM:
+        key = "kick:" + u["id"]
+        if auth.too_many(key, 60):
+            raise ApiError(429, "点得有点快，歇一会儿再试")
+        auth.note_fail(key)
+    rid = str(b.get("run_id") or "")
+    with Store(u["id"]) as st:
+        try:
+            if act == "start":
+                out = kickstart.start(st, str(b.get("task") or ""), str(b.get("mode") or "default"), str(b.get("step_id") or ""))
+            elif act == "answer":
+                out = kickstart.answer(st, rid, b.get("answers") if isinstance(b.get("answers"), dict) else {})
+            elif act in ("done", "skip"):
+                out = kickstart.advance(st, rid, act)
+            elif act in ("adjust", "stuck"):
+                out = kickstart.feedback(st, rid, act, str(b.get("text") or ""))
+            elif act == "more":
+                out = kickstart.more(st, rid)
+            elif act == "finish":
+                out = kickstart.finish(st, rid, bool(b.get("remember")))
+            elif act == "close":
+                out = kickstart.close(st, rid)
+            elif act == "forget":
+                out = kickstart.forget(st, str(b.get("id") or ""))
+            else:
+                raise ApiError(400, "未知操作")
+        except KeyError:
+            raise ApiError(404, "这次启动已经结束了")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        if act in ("finish", "forget") or out.get("xp"):
+            out["state"] = bootstrap(st)
+        return 200, out
+
+
+def scene_cancel(h, u, b, q):
+    with Store(u["id"]) as st:
+        run = st.scene_active()
+        if run:
+            st.update_scene(run["id"], run["step"], [] if scenes.is_review(run["scene"]) else run["answers"], "abandoned")
+        return 200, {"ok": True}
+
+
+def proactive_now(h, u, b, q):
+    """Demo trigger: run the scheduler for this user now, ignoring the idle rule."""
+    with Store(u["id"]) as st:
+        out = scheduler.deliver(st, force=True)
+        return 200, {**out, **bootstrap(st)}
+
+
+def inbox_seen(h, u, b, q):
+    with Store(u["id"]) as st:
+        st.mark_inbox_seen()
+        return 200, {"ok": True}
+
+
+def growth_get(h, u, b, q):
+    with Store(u["id"]) as st:
+        return 200, growth.state(st)
+
+
+def town_get(h, u, b, q):
+    with Store(u["id"]) as st:
+        return 200, town.state(st)
+
+
+def town_api(h, u, b, q):
+    """我的小镇：买并放下 / 挪位置（仓库里的放出来也是它）/ 收进仓库 / 改名 / 看过欢迎。金币只在后端算。"""
+    act = b.get("action")
+    out = {}
+    with Store(u["id"]) as st:
+        try:
+            if act == "buy":
+                out["built"] = town.buy(st, str(b.get("kind") or ""), b.get("x"), b.get("y"), str(b.get("nonce") or ""), b.get("rot") or 0)
+            elif act in ("move", "place"):
+                out["moved"] = town.move(st, str(b.get("id") or ""), b.get("x"), b.get("y"), b.get("rot"))
+            elif act == "store":
+                out["stored"] = town.store_item(st, str(b.get("id") or ""))
+            elif act == "rename":
+                out["name"] = town.rename(st, str(b.get("name") or ""))
+            elif act == "welcome_seen":
+                town.welcome_seen(st)
+            else:
+                raise ApiError(400, "未知操作")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, {**out, **bootstrap(st)}
+
+
+def digest_now(h, u, b, q):
+    """Run today's nightly memory pass now (the scheduler does it at 03:00 for yesterday)."""
+    with Store(u["id"]) as st:
+        out = digest.run(st)
+        return 200, {"digest": out, **bootstrap(st)}
+
+
+def week_draft(h, u, b, q):
+    """「先把这周写下来」：小光用这周到现在的事写一版草稿，周日夜里再重写成定稿。"""
+    from core import weekly
+    with Store(u["id"]) as st:
+        page = weekly.write(st, weekly.week_key(), final=False)
+        return 200, {"page": page, **bootstrap(st)}
+
+
+def notebook(h, u, b, q):
+    """用户可以直接改小光的笔记本；改过的版本夜里整理时会在它的基础上继续写。"""
+    text = clip(str(b.get("text") or "").strip(), 1600)
+    with Store(u["id"]) as st:
+        st.set_profile({"notebook": {"text": text, "updated_at": iso(), "by": "user"}})
+        st.log("memory", "你改了小光的笔记本")
+        return 200, bootstrap(st)
+
+
+def academy_list(h, u, b, q):
+    with Store(u["id"]) as st:
+        read = st.read_ids()
+        items = [{**a, "read": a["id"] in read} for a in academy.catalog()]
+    return 200, {"articles": items}
+
+
+def academy_get(h, u, b, q):
+    article = academy.get(str((q.get("id") or [""])[0]))
+    if not article:
+        raise ApiError(404, "没有这篇文章")
+    with Store(u["id"]) as st:
+        st.mark_read(article["id"])
+    return 200, {"article": article}
+
+
+def wish_api(h, u, b, q):
+    act = b.get("action")
+    with Store(u["id"]) as st:
+        try:
+            if act == "add":
+                journey.add_wish(st, str(b.get("title") or ""), str(b.get("category") or ""),
+                                 str(b.get("now_text") or ""), str(b.get("vision_text") or ""), scene=str(b.get("scene") or ""),
+                                 target_day=b.get("target_day") or None)
+            elif act == "edit":
+                if not journey.edit_wish(st, str(b.get("id") or ""), b):
+                    raise ApiError(404, "没有这个愿望")
+            elif act == "select":
+                if not journey.get_wish(st, str(b.get("id") or "")):
+                    raise ApiError(404, "没有这个愿望")
+                st.set_profile({"current_wish": b["id"]})
+            else:
+                raise ApiError(400, "未知操作")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, bootstrap(st)
+
+
+def moment_api(h, u, b, q):
+    act = b.get("action")
+    out = {}
+    with Store(u["id"]) as st:
+        try:
+            if act == "add":
+                m = journey.add_moment(st, str(b.get("wish_id") or ""), str(b.get("text") or ""),
+                                       str(b.get("feeling") or ""), str(b.get("mood") or ""), b.get("day"),
+                                       source="chat" if b.get("source") == "chat" else "user", photo=str(b.get("photo") or ""))
+                out["moment"] = m
+                out["xp"] = growth.award(st, "good", ref="moment:" + m["id"], note="留下一个瞬间")
+            elif act == "edit":
+                if not journey.edit_moment(st, str(b.get("id") or ""), b):
+                    raise ApiError(404, "没有这条记录")
+            elif act == "delete":
+                if not journey.delete_moment(st, str(b.get("id") or "")):
+                    raise ApiError(404, "没有这条记录")
+            else:
+                raise ApiError(400, "未知操作")
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, {**out, **bootstrap(st)}
+
+
+def photo_upload(h, u, b, q):
+    """瞬间的照片：手机上压好的大图和小图（base64），存下来，返回 id；挂到瞬间上要再调 /api/moment。"""
+    with Store(u["id"]) as st:
+        try:
+            return 200, {"photo": photos.save(st, b.get("data"), b.get("thumb"))}
+        except ValueError as e:
+            raise ApiError(400, str(e))
+
+
+def photo_get(h, u, b, q):
+    """只给本人看自己的照片；id 是随机的，所以可以长缓存。"""
+    pid = str((q.get("id") or [""])[0])
+    small = (q.get("s") or ["0"])[0] == "1"
+    with Store(u["id"]) as st:
+        f = photos.path(st, pid, small)
+        if not f:
+            raise ApiError(404, "没有这张照片")
+        data = f.read_bytes()
+    h._headers(200, photos.MIME.get(f.suffix.lstrip("."), "application/octet-stream"), len(data),
+               {"Cache-Control": "private, max-age=31536000, immutable"})
+    h.end_headers()
+    h.wfile.write(data)
+    return None
+
+
+def wish_insight(h, u, b, q):
+    with Store(u["id"]) as st:
+        try:
+            if b.get("answer"):
+                out = journey.answer_insight(st, str(b.get("insight_id") or ""), str(b["answer"]))
+            else:
+                out = journey.make_insight(st, str(b.get("id") or ""))
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return 200, {**out, **bootstrap(st)}
+
+
+def report_get(h, u, b, q):
+    try:
+        days = int((q.get("days") or ["14"])[0])
+    except ValueError:
+        days = 14
+    days = 30 if days >= 30 else 14
+    fast = (q.get("fast") or ["0"])[0] == "1"
+    with Store(u["id"]) as st:
+        if fast:
+            st.bump("report_open")
+        return 200, report.build(st, days, with_letter=not fast)
+
+
+def export(h, u, b, q):
+    """Data portability: everything we store about you, as JSON."""
+    with Store(u["id"]) as st:
+        return 200, {"user": public_user(u), "exported_at": iso(), **bootstrap(st),
+                     "records": st.records(100000),
+                     "all_moments": journey.moments(st, limit=100000),   # 全部瞬间（照片只带 id，图片文件不在导出里）
+                     "memories": st.memories(limit=10000), "messages": st.messages(10000),
+                     "kick_memory": kickstart.entries(st, limit=10000)}
+
+
+ROUTES = {
+    ("GET", "/api/health"): (health, False),
+    ("GET", "/api/auth/me"): (me, False),
+    ("POST", "/api/auth/register"): (register, False),
+    ("POST", "/api/auth/login"): (login, False),
+    ("POST", "/api/auth/guest"): (guest, False),
+    ("POST", "/api/trial/chat"): (trial_chat, False),
+    ("POST", "/api/onboard/plan"): (onboard_plan, True),
+    ("GET", "/api/push/key"): (push_key, True),
+    ("POST", "/api/push/subscribe"): (push_subscribe, True),
+    ("POST", "/api/push/unsubscribe"): (push_unsubscribe, True),
+    ("GET", "/api/push/latest"): (push_latest, True),
+    ("POST", "/api/push/test"): (push_test, True),
+    ("POST", "/api/admin/login"): (admin_login, False),
+    ("GET", "/api/admin/llm"): (admin_llm, False),
+    ("POST", "/api/admin/llm"): (admin_llm_switch, False),
+    ("POST", "/api/admin/logout"): (admin_logout, False),
+    ("GET", "/api/admin/overview"): (admin_overview, False),
+    ("GET", "/api/admin/users"): (admin_users, False),
+    ("GET", "/api/admin/user"): (admin_user, False),
+    ("POST", "/api/admin/user/delete"): (admin_delete, False),
+    ("POST", "/api/admin/guests/delete"): (admin_purge_guests, False),
+    ("GET", "/api/admin/user/growth"): (admin_user_growth, False),
+    ("POST", "/api/admin/user/adjust"): (admin_adjust, False),
+    ("GET", "/api/admin/town"): (admin_town, False),
+    ("POST", "/api/admin/town"): (admin_town_save, False),
+    ("GET", "/api/admin/log"): (admin_log, False),
+    ("POST", "/api/auth/logout"): (logout, False),
+    ("POST", "/api/auth/rename"): (rename, True),
+    ("GET", "/api/bootstrap"): (boot, True),
+    ("POST", "/api/onboard"): (onboard, True),
+    ("POST", "/api/chat"): (chat, True),
+    ("POST", "/api/profile"): (profile, True),
+    ("POST", "/api/memory"): (memory, True),
+    ("POST", "/api/step"): (step, True),
+    ("POST", "/api/photo"): (photo_upload, True),
+    ("GET", "/api/photo"): (photo_get, True),
+    ("POST", "/api/record"): (record, True),
+    ("POST", "/api/scene/start"): (scene_start, True),
+    ("POST", "/api/scene/answer"): (scene_answer, True),
+    ("POST", "/api/scene/cancel"): (scene_cancel, True),
+    ("POST", "/api/scene/save"): (scene_save, True),
+    ("POST", "/api/scene/discard"): (scene_discard, True),
+    ("POST", "/api/flow"): (flow_api, True),
+    ("GET", "/api/kick"): (kick_home, True),
+    ("POST", "/api/kick"): (kick_api, True),
+    ("POST", "/api/proactive/now"): (proactive_now, True),
+    ("POST", "/api/inbox/seen"): (inbox_seen, True),
+    ("GET", "/api/growth"): (growth_get, True),
+    ("GET", "/api/town"): (town_get, True),
+    ("POST", "/api/town"): (town_api, True),
+    ("POST", "/api/memory/digest"): (digest_now, True),
+    ("POST", "/api/wish"): (wish_api, True),
+    ("POST", "/api/moment"): (moment_api, True),
+    ("POST", "/api/habit"): (habit_api, True),
+    ("POST", "/api/milestone"): (milestone_api, True),
+    ("POST", "/api/plan/apply"): (plan_apply, True),
+    ("POST", "/api/act"): (act_api, True),
+    ("POST", "/api/portrait"): (portrait_api, True),
+    ("POST", "/api/insight"): (insight_api, True),
+    ("POST", "/api/task"): (task_api, True),
+    ("POST", "/api/notebook"): (notebook, True),
+    ("POST", "/api/notebook/week"): (week_draft, True),
+    ("GET", "/api/pulse"): (pulse, True),
+    ("POST", "/api/wish/insight"): (wish_insight, True),
+    ("GET", "/api/academy"): (academy_list, True),
+    ("GET", "/api/academy/article"): (academy_get, True),
+    ("GET", "/api/report"): (report_get, True),
+    ("GET", "/api/export"): (export, True),
+}

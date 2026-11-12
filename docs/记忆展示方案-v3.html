@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>「小光眼中的你」v3 · 一种卡片</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0d3528; --card: rgba(255,255,255,.06); --card-hover: rgba(255,255,255,.09); --line: rgba(255,255,255,.09); --line-2: rgba(255,255,255,.17);
+    --text: #f4f1e6; --text-2: rgba(244,241,230,.74); --text-3: rgba(244,241,230,.5); --text-4: rgba(244,241,230,.3);
+    --accent: #f7cb4d; --accent-ink: #3b2a00; --mint: #4fd1a5;
+    /* 整页只有这几个尺寸 */
+    --gap: 10px; --pad: 16px; --radius: 18px;
+    --eyebrow: 12px; --title: 15.5px; --h1: 22px; --h2: 15px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0a2a20; color: var(--text); font: 500 14px/1.6 "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
+  .wrap { max-width: 1560px; margin: 0 auto; padding: 32px 28px 60px; }
+  h1.doc { font-size: 24px; margin: 0 0 6px; }
+  .lead { color: var(--text-2); max-width: 1000px; margin: 0 0 22px; }
+  .spec { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 12px; margin-bottom: 28px; }
+  .s { background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; font-size: 12.5px; color: var(--text-2); }
+  .s b { display: block; color: var(--text); font-size: 13.5px; margin-bottom: 4px; }
+  .cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
+  .cols > section { min-width: 0; }
+  .cap { font-size: 11.5px; font-weight: 900; color: var(--text-3); margin: 0 2px 8px; }
+
+  /* ---------- 手机里的页面 ---------- */
+  .phone { background: var(--bg); border: 1px solid var(--line-2); border-radius: 28px; padding: 22px 16px 24px; }
+  .bar { display: flex; align-items: center; height: 28px; margin-bottom: 18px; }
+  .back { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--line-2); display: grid; place-items: center; color: var(--text-2); font-size: 15px; }
+  .bar .ttl { flex: 1; text-align: center; font-weight: 800; font-size: 15px; margin-right: 28px; }
+  .h1 { font-size: var(--h1); font-weight: 900; margin: 0 4px 4px; }
+  .sub { font-size: 13px; color: var(--text-3); margin: 0 4px 22px; }
+  .h2 { font-size: var(--h2); font-weight: 900; margin: 22px 4px 10px; display: flex; align-items: baseline; }
+  .h2:first-of-type { margin-top: 0; }
+  .h2 small { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--text-3); }
+
+  /* 唯一的卡片：一行小字 + 一行大字 + 箭头 */
+  .card { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: var(--radius); padding: 14px var(--pad); margin-bottom: var(--gap); }
+  .card .in { flex: 1; min-width: 0; }
+  .card .e { font-size: var(--eyebrow); color: var(--text-3); font-weight: 700; margin-bottom: 3px; display: flex; align-items: center; gap: 6px; }
+  .card .t { font-size: var(--title); font-weight: 800; line-height: 1.45; }
+  .card .go { flex: none; color: var(--text-4); font-size: 18px; line-height: 1; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .card.wait .t { color: var(--text-2); }
+
+  /* 详情页：同样的字号，图和按钮只在这里出现 */
+  .q { font-size: 13px; color: var(--text-3); margin: 0 4px 6px; }
+  .ans { font-size: 20px; font-weight: 900; line-height: 1.5; margin: 0 4px 18px; }
+  .panel { background: var(--card); border-radius: var(--radius); padding: var(--pad); margin-bottom: var(--gap); }
+  .panel .e { font-size: var(--eyebrow); color: var(--text-3); font-weight: 700; margin-bottom: 10px; }
+  .chart { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; align-items: end; height: 96px; }
+  .chart i { display: block; border-radius: 6px; background: rgba(255,255,255,.12); }
+  .chart i.hi { background: var(--mint); }
+  .xl { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; font-size: 11px; color: var(--text-3); text-align: center; margin-top: 6px; }
+  .ev { font-size: 13px; color: var(--text-2); line-height: 1.8; }
+  .ev div { display: flex; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+  .ev div:first-child { border-top: 0; padding-top: 0; }
+  .ev span:first-child { flex: none; width: 64px; color: var(--text-3); }
+  .acts { display: flex; gap: 10px; margin-top: 18px; }
+  .btn { flex: 1; text-align: center; font-size: 14px; font-weight: 800; padding: 11px 0; border-radius: 14px; box-shadow: inset 0 0 0 1.5px var(--line-2); color: var(--text-2); }
+  .btn.main { background: var(--accent); color: var(--accent-ink); box-shadow: 0 3px 0 #b8901f; }
+  .note { font-size: 12px; color: var(--text-3); text-align: center; margin-top: 12px; }
+  .item { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); font-size: 14.5px; font-weight: 700; }
+  .item:first-child { border-top: 0; padding-top: 2px; }
+  .item small { display: block; font-size: 12px; color: var(--text-3); font-weight: 600; }
+  .item .x { margin-left: auto; color: var(--text-4); font-size: 13px; }
+  .add { color: var(--text-3); font-size: 13.5px; font-weight: 700; padding: 12px 0 2px; border-top: 1px solid var(--line); }
+
+  .foot { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 28px; }
+  .box { background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px; }
+  .box h3 { margin: 0 0 8px; font-size: 15px; }
+  .box ul { margin: 0; padding-left: 18px; color: var(--text-2); font-size: 13px; }
+  .box li { margin: 4px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  td, th { text-align: left; padding: 6px; border-top: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--text-3); font-weight: 800; border-top: 0; }
+  @media (max-width: 1200px) { .cols { grid-template-columns: 1fr 1fr; } .spec, .foot { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 class="doc">「小光眼中的你」v3 · 整页只有一种卡片</h1>
+  <p class="lead">学滚雪球「洞察」的做法：列表页上所有东西都是同一张卡（一行小字 + 一行大字 + 箭头），不放图、不放按钮、不放进度圈。图表、依据、「像我 / 不太像」、修改，全部放到点进去的详情页里，详情页也只用一种版式。信息可以很多，但每一屏只有一种形状。</p>
+
+  <div class="spec">
+    <div class="s"><b>一种卡片</b>小字说状态或类别（「已发现 · 来自 9 次打卡」「正在积累」「在意的人」），大字说内容。还没发现的写成问题，发现了写成答案，卡片长得一模一样。</div>
+    <div class="s"><b>三组，顺序固定</b>关于你 → 发现 → 小光的笔记本。每组一个小标题，组内只有卡片。新用户的「发现」全是问题卡，也整整齐齐。</div>
+    <div class="s"><b>只有这几个尺寸</b>卡片间距 10、内边距 16、圆角 18；字号只有 12（小字）、15.5（卡片大字）、15（组标题）、22（页标题）。颜色只有一个强调色，用在「新」的小圆点和详情页的主按钮上。卡片大字不超过 16 个字，所以每张卡一样高。</div>
+  </div>
+
+  <div class="cols">
+    <!-- 列表页：第 10 天 -->
+    <section>
+      <div class="cap">列表页 · 用了 10 天</div>
+      <div class="phone">
+        <div class="bar"><span class="back">‹</span><span class="ttl">我的空间</span></div>
+        <div class="h1">小光眼中的你</div>
+        <div class="sub">从你说的话和做的事里，慢慢认识你。</div>
+
+        <div class="h2">关于你</div>
+        <div class="card"><div class="in"><div class="e">在努力</div><div class="t">敢开口说英语</div></div><span class="go">›</span></div>
+        <div class="card"><div class="in"><div class="e">在意的人</div><div class="t">阿琪，你的室友</div></div><span class="go">›</span></div>
+        <div class="card"><div class="in"><div class="e">口味</div><div class="t">爱糖醋排骨，不吃香菜</div></div><span class="go">›</span></div>
+
+        <div class="h2">发现<small>1 / 6</small></div>
+        <div class="card"><div class="in"><div class="e"><span class="dot"></span>新发现 · 来自 9 次打卡</div><div class="t">周三晚上，是你一周里最有劲的时候</div></div><span class="go">›</span></div>
+        <div class="card wait"><div class="in"><div class="e">正在积累 · 还差 2 次两分钟启动</div><div class="t">卡住我的，通常是什么？</div></div><span class="go">›</span></div>
+        <div class="card wait"><div class="in"><div class="e">正在积累 · 还差 3 个小步</div><div class="t">放了很久的事，真做起来要多久？</div></div><span class="go">›</span></div>
+        <div class="card wait"><div class="in"><div class="e">正在积累 · 还差 5 件小确幸</div><div class="t">做完哪些事，我心情会变好？</div></div><span class="go">›</span></div>
+
+        <div class="h2">小光的笔记本</div>
+        <div class="card"><div class="in"><div class="e">昨晚更新</div><div class="t">小光写下的，关于你的事</div></div><span class="go">›</span></div>
+        <div class="card"><div class="in"><div class="e">11 条</div><div class="t">管理全部记忆</div></div><span class="go">›</span></div>
+      </div>
+    </section>
+
+    <!-- 列表页：第 40 天 -->
+    <section>
+      <div class="cap">列表页 · 用了 40 天</div>
+      <div class="phone">
+        <div class="bar"><span class="back">‹</span><span class="ttl">我的空间</span></div>
+        <div class="h1">小光眼中的你</div>
+        <div class="sub">一个开头前会想很多、一旦开头就停不下来的人。</div>
+
+        <div class="h2">关于你</div>
+        <div class="card"><div class="in"><div class="e">在努力</div><div class="t">敢开口说英语，已经开过两次口</div></div><span class="go">›</span></div>
+        <div class="card"><div class="in"><div class="e">在意的人</div><div class="t">阿琪、妈妈</div></div><span class="go">›</span></div>
+        <div class="card"><div class="in"><div class="e">口味</div><div class="t">爱糖醋排骨和甜的，不吃香菜</div></div><span class="go">›</span></div>
+        <div class="card"><div class="in"><div class="e">小规矩</div><div class="t">别聊体重；累的时候先陪着</div></div><span class="go">›</span></div>
+
+        <div class="h2">发现<small>4 / 6</small></div>
+        <div class="card"><div class="in"><div class="e"><span class="dot"></span>新发现 · 来自 5 个小步</div><div class="t">拖了很久的事，平均 4 分钟做完</div></div><span class="go">›</span></div>
+        <div class="card"><div class="in"><div class="e">你说像 · 来自 6 次两分钟启动</div><div class="t">卡住你的，多半是「怕做不好」</div></div><span class="go">›</span></div>
+        <div class="card"><div class="in"><div class="e">你说像 · 来自 27 次打卡</div><div class="t">周三晚上，是你一周里最有劲的时候</div></div><span class="go">›</span></div>
+        <div class="card"><div class="in"><div class="e">来自 14 件小确幸</div><div class="t">吃到好吃的那天，你记的开心事最多</div></div><span class="go">›</span></div>
+        <div class="card wait"><div class="in"><div class="e">正在积累 · 还差 6 个瞬间</div><div class="t">哪些事做完，最让我有成就感？</div></div><span class="go">›</span></div>
+        <div class="card wait"><div class="in"><div class="e">正在积累 · 还差 2 周</div><div class="t">我说过要坚持的，坚持得怎么样？</div></div><span class="go">›</span></div>
+
+        <div class="h2">小光的笔记本</div>
+        <div class="card"><div class="in"><div class="e">昨晚更新</div><div class="t">小光写下的，关于你的事</div></div><span class="go">›</span></div>
+        <div class="card"><div class="in"><div class="e">38 条</div><div class="t">管理全部记忆</div></div><span class="go">›</span></div>
+      </div>
+    </section>
+
+    <!-- 详情：一个发现 -->
+    <section>
+      <div class="cap">点进一个「发现」</div>
+      <div class="phone">
+        <div class="bar"><span class="back">‹</span><span class="ttl">发现</span></div>
+        <div class="q">一周中，我什么时候最有劲？</div>
+        <div class="ans">周三晚上，是你一周里最有劲的时候。</div>
+        <div class="panel"><div class="e">最近 4 周，每天打卡和完成小步的次数</div>
+          <div class="chart"><i style="height:30%"></i><i style="height:42%"></i><i class="hi" style="height:100%"></i><i style="height:38%"></i><i style="height:22%"></i><i style="height:14%"></i><i style="height:30%"></i></div>
+          <div class="xl"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div></div>
+        <div class="panel"><div class="e">小光是怎么看出来的</div>
+          <div class="ev"><div><span>依据</span><span>27 次打卡里，9 次在周三，多数在晚上 8 点以后</span></div>
+            <div><span>对比</span><span>其他日子平均 3 次</span></div>
+            <div><span>可以试试</span><span>把难一点的小步放在周三晚上</span></div></div></div>
+        <div class="acts"><span class="btn main">像我</span><span class="btn">不太像</span></div>
+        <div class="note">点「像我」，小光以后会按这个来安排；点「不太像」，这条就不再出现。</div>
+      </div>
+    </section>
+
+    <!-- 详情：关于你 -->
+    <section>
+      <div class="cap">点进「关于你」的一项</div>
+      <div class="phone">
+        <div class="bar"><span class="back">‹</span><span class="ttl">口味</span></div>
+        <div class="q">小光记得的</div>
+        <div class="ans">爱糖醋排骨和甜的，不吃香菜。</div>
+        <div class="panel">
+          <div class="item">糖醋排骨<small style="margin-left:6px">喜欢 · 你说过 3 次</small><span class="x">✕</span></div>
+          <div class="item">甜的<small style="margin-left:6px">喜欢</small><span class="x">✕</span></div>
+          <div class="item">香菜<small style="margin-left:6px">不吃 · 你让我记住的</small><span class="x">✕</span></div>
+          <div class="item">寿司<small style="margin-left:6px">以前喜欢，最近吃腻了</small><span class="x">✕</span></div>
+          <div class="add">＋ 告诉小光一件</div>
+        </div>
+        <div class="note">点 ✕ 就忘掉这一件。上面那句话会在今晚重新写。</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="foot">
+    <div class="box">
+      <h3>和 v2 比，改了什么</h3>
+      <ul>
+        <li>列表页从 6 种组件（渐变横幅、表格卡、带图卡、进度圈、链接行、按钮）变成 1 种卡片。</li>
+        <li>图表、依据、「像我 / 不太像」、编辑都挪进详情页；详情页也只有一种版式：问题 → 答案 → 一两个面板 → 按钮。</li>
+        <li>「一句话总结」不再是一个单独的横幅，就是页标题下面那一行小字（第 7 天前写「从你说的话和做的事里，慢慢认识你。」）。</li>
+        <li>没解锁的发现照样是卡片，写成问题（和滚雪球一样），所以新用户的页面也是整整齐齐的一列。</li>
+        <li>笔记本和「管理全部记忆」也是同样的卡片，不再是另一种链接样式。</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>上线时先放哪几个「发现」</h3>
+      <table>
+        <tr><th>问题</th><th>解锁门槛</th></tr>
+        <tr><td>一周中，我什么时候最有劲？</td><td>打卡 + 完成小步满 12 次</td></tr>
+        <tr><td>卡住我的，通常是什么？</td><td>两分钟启动满 3 次</td></tr>
+        <tr><td>放了很久的事，真做起来要多久？</td><td>放过 3 天以上又完成的小步满 3 个</td></tr>
+        <tr><td>做完哪些事，我心情会变好？</td><td>小确幸满 10 件</td></tr>
+        <tr><td>哪些事做完，最让我有成就感？</td><td>瞬间满 8 个</td></tr>
+        <tr><td>我说过要坚持的，坚持得怎么样？</td><td>有习惯满 3 周</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</body>
+</html>

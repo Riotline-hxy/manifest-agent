@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="mist">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>许个愿 · 让愿望落地（第二版）</title>
+<link rel="stylesheet" href="../../demo/public/css/fonts.css">
+<link rel="stylesheet" href="../../demo/public/css/base.css">
+<link rel="stylesheet" href="../../demo/public/css/components.css">
+<link rel="stylesheet" href="../../demo/public/css/tune.css">
+<script src="icons.js"></script>
+<script src="shared.js"></script>
+<script src="ill2.js"></script>
+<script src="flows_ends2.js"></script>
+<style>
+  body { overflow: auto; height: auto; }
+  .doc { max-width: 1180px; margin: 0 auto; padding: 34px 26px 90px; }
+  .doc > h1 { font-size: 28px; margin: 0 0 8px; }
+  .lead { color: var(--text-2); max-width: 920px; margin: 0; line-height: 1.85; font-size: 15px; }
+  .themes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 18px 0 6px; font-size: 13px; font-weight: 800; color: var(--text-3); }
+  .themes button { height: 32px; padding: 0 14px; border-radius: 99px; border: 1.5px solid var(--line-2); background: var(--surface); font-size: 13px; font-weight: 800; }
+  .themes button.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  h2.part { font-size: 21px; margin: 52px 0 6px; }
+  .part-sub { color: var(--text-2); margin: 0 0 18px; font-size: 14.5px; line-height: 1.8; max-width: 940px; }
+  .card.pad { padding: 20px 22px; }
+  .tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .tbl th, .tbl td { text-align: left; padding: 10px 10px; border-top: 1px solid var(--line); vertical-align: top; line-height: 1.65; }
+  .tbl th { color: var(--text-3); font-weight: 800; border-top: 0; font-size: 12.5px; }
+  .tbl td:first-child { font-weight: 800; white-space: nowrap; color: var(--text-2); }
+  .big { font-size: 18px; font-weight: 900; margin: 0 0 14px; }
+  .big em { font-style: normal; color: var(--accent); }
+  .frames { display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap; }
+  .lbl { font-size: 12px; font-weight: 900; color: var(--text-3); letter-spacing: .04em; margin: 0 0 8px; }
+  .phone { width: 390px; height: 800px; border-radius: 34px; border: 9px solid #1d1b24; overflow: hidden; background: var(--bg); box-shadow: 0 20px 50px -24px rgba(0,0,0,.45); }
+  .phone iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .side { flex: 1; min-width: 320px; max-width: 700px; }
+  .steps { display: grid; gap: 8px; }
+  .st { display: grid; grid-template-columns: 54px 1fr; gap: 12px; align-items: start; padding: 12px 14px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+  .st .ill { width: 54px; height: 36px; }
+  .st b { display: block; font-size: 14.5px; }
+  .st span { display: block; font-size: 13px; color: var(--text-2); line-height: 1.65; margin-top: 2px; }
+  .branch { margin: 14px 0 8px 2px; font-size: 13px; font-weight: 900; color: var(--text-3); letter-spacing: .04em; }
+  .open { display: inline-block; margin: 0 0 10px; font-size: 13px; font-weight: 800; color: var(--accent); }
+  .tree { font-size: 13.5px; line-height: 1.9; color: var(--text-2); padding: 14px 18px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+  .tree b { color: var(--text); }
+  details.pr { margin-top: 10px; }
+  details.pr summary { cursor: pointer; font-size: 14px; font-weight: 800; color: var(--accent); }
+  pre.prompt { margin: 10px 0 0; white-space: pre-wrap; font: inherit; font-size: 13.5px; line-height: 1.85; padding: 16px 18px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+  .ex { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 10px; margin-top: 12px; }
+  .ex .card { padding: 12px 14px; font-size: 13.5px; line-height: 1.7; }
+  .ex small { display: block; color: var(--text-3); font-weight: 800; font-size: 12px; margin-bottom: 4px; }
+  .ex b { display: block; }
+  .ex span { display: block; color: var(--text-2); }
+  ul.tight { margin: 8px 0 0; padding-left: 20px; line-height: 1.85; font-size: 14px; color: var(--text-2); }
+  ul.tight b { color: var(--text); }
+  .note { font-size: 12.5px; color: var(--text-3); margin-top: 8px; line-height: 1.7; }
+  @media (max-width: 900px) { .side { min-width: 0; } }
+</style>
+</head>
+<body>
+<div class="doc">
+  <h1>许个愿 · 让愿望落地（第二版）</h1>
+  <p class="lead">按上一版的意见重新排了问题和流程，v3.15.0 已经上线（说明在 docs/点子改版-许个愿和让愿望落地.md）。这两个原型里小光的话和 AI 给的建议，是用现在的小光（DeepSeek flash，温柔）预先跑好的。</p>
+  <div class="themes">主题：<span id="themes"></span></div>
+
+  <h2 class="part">这一版改了什么</h2>
+  <div class="card pad"><ul class="tight" style="margin:0">
+    <li><b>回到 B 的样子：</b>顶栏是标题、一句副标题和进度点，不再放显化七步那一行（顺序对不上，放着反而奇怪）。</li>
+    <li><b>问题连成一条线：</b>每一题都接着上一题的答案问，读下来像一段对话，不再是一个个独立的练习。去掉了「闭眼三秒」「念出来」「交出担心」这些仪式步骤。</li>
+    <li><b>结尾不再拼句子：</b>卡片上放 TA 自己选的和写的；小光那句话不复述卡片上的内容，只说自己真心的一句。</li>
+    <li><b>落地不带方向：</b>不再给 TA 安排「如果……就……」，改成 TA 自己说这周怎么样、哪一件、想怎么调，小光只在 TA 要「改小一点」「加一件」时给两个建议。</li>
+    <li><b>每一题都能自己写：</b>最后一张卡片都是「我自己写」；AI 给的建议旁边都有「不用了」，也都能跳过。</li>
+    <li><b>能反悔：</b>底下左边一直有「上一步」；前面答过的题，点另一张卡片就从那一题重新走，后面的都撤掉。结尾也能上一步。</li>
+    <li><b>卡片对齐：</b>一行两张时标题在同一高度；「换个时间」的提示缩成「定个固定的时候」。</li>
+  </ul></div>
+
+  <h2 class="part">一、分工</h2>
+  <p class="big">许个愿管 <em>「信」</em>，让愿望落地管 <em>「做」</em>。</p>
+  <div class="card pad">
+    <table class="tbl">
+      <tr><th></th><th>许个愿</th><th>让愿望落地</th></tr>
+      <tr><td>一句话</td><td>说出想要的，看见它实现的那一天；或者看看已经走过的路，给它添点信心</td><td>看看这周做得怎么样，把卡住的那一件调到做得成</td></tr>
+      <tr><td>背后的方法</td><td>显化里的愿景和见证；「最好的自己」想象；未来的自己给现在的自己留一句话</td><td>回看；微习惯（改小一点）；执行意图（挂在每天都会经过的时刻，加提醒）；自我关怀（停一停不算放弃）</td></tr>
+      <tr><td>收获</td><td>一张愿望卡（愿望、那一天的样子、未来的你说的话），放在蜕变计划里</td><td>「这周的打算」：改了哪一件、怎么改的，直接改进蜕变计划</td></tr>
+      <tr><td>不做</td><td>不加小步、不改计划</td><td>不建愿望、不讨论愿望本身</td></tr>
+      <tr><td>多久一次</td><td>立新愿、或者想放弃的时候</td><td>一周一次，或者卡住的时候</td></tr>
+      <tr><td>AI</td><td>只在最后调一次</td><td>只在 TA 要建议时调一次（改小一点 / 加一件）；结尾的话是写好的</td></tr>
+    </table>
+  </div>
+
+  <h2 class="part">二、许个愿</h2>
+  <p class="part-sub">开场问：许一个新愿，还是给已有的愿望再添点信心。</p>
+  <div class="frames">
+    <div><p class="lbl">手机 390 · 可以点</p><div class="phone"><iframe data-src="许个愿.html"></iframe></div>
+      <a class="open" data-open href="许个愿.html" target="_blank">单独打开 →</a></div>
+    <div class="side">
+      <p class="branch">新的愿望：哪一块 → 具体想要 → 那一天 → 未来的你说（4 题）</p>
+      <div class="steps" id="wishNew"></div>
+      <p class="branch">已有的愿望：看看走过的路 → 最有感觉的一刻 → 现在的心情 → 留一句话（3 题）</p>
+      <div class="steps" id="wishKeep"></div>
+    </div>
+  </div>
+
+  <h2 class="part">三、让愿望落地</h2>
+  <p class="part-sub">第一题下面先放这周的样子（习惯打卡的进度、放着没动的小步、下一个里程碑），TA 自己说感觉怎么样，后面跟着 TA 的回答走。</p>
+  <div class="frames">
+    <div><p class="lbl">手机 390 · 可以点</p><div class="phone"><iframe data-src="让愿望落地.html"></iframe></div>
+      <a class="open" data-open href="让愿望落地.html" target="_blank">单独打开 →</a></div>
+    <div class="side">
+      <p class="branch">这周感觉怎么样？（2～4 题，看 TA 怎么答）</p>
+      <div class="tree">
+        <b>有点卡</b> → 是哪一件？ → 想怎么调它？<br>
+        　　改小一点 → AI 给两个更小的版本（或者「不用改了」、自己定）<br>
+        　　换个时间 → 起床后 / 午饭后 / 下课或下班后 / 睡前 / 自己写；结尾多一行「每天 22:00 提醒我」，默认不勾<br>
+        　　这周先停一停 · 我想这样调……（自己写）<br>
+        <b>太满了</b> → 先放下哪一件？ → 想怎么调它？（同上）<br>
+        <b>顾不上</b> → 只留一件最想保住的 → 把它改小一点，其余这周先停一停<br>
+        <b>挺顺的</b> → 再加一点（AI 给两个这周能做的新小步）/ 保持现在就好<br>
+        <b>我自己写</b> → 跟着「有点卡」那条走<br>
+        选的是小步（不是习惯）时，结尾多一个「现在就做」，直接打开两分钟启动。
+      </div>
+      <p class="branch">结尾：这周的打算</p>
+      <ul class="tight">
+        <li>一张卡片列出这周改了什么（「「每周跟读 3 次」先改成「每周跟读1次，只读2分钟」」），勾选「改到蜕变计划里」才改。</li>
+        <li>小光那句话按 TA 走的那条路写好了，不调模型（「小一点，这周就做得成。」「停一停不算退，下周再接上。」）。</li>
+        <li>选了「保持现在就好」或者「不用改了」，就不出卡片，小光说一句就结束。</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 class="part">四、提示词和真模型的结果</h2>
+  <details class="pr" open><summary>许个愿 · 新的愿望（结尾调一次）</summary><pre class="prompt" id="pNew"></pre><div class="ex" id="exNew"></div></details>
+  <details class="pr"><summary>许个愿 · 已有的愿望（结尾调一次）</summary><pre class="prompt" id="pKeep"></pre><div class="ex" id="exKeep"></div></details>
+  <details class="pr"><summary>让愿望落地 · 改小一点 / 加一件（TA 要建议时调一次）</summary><pre class="prompt" id="pSmall"></pre><pre class="prompt" id="pAdd"></pre><div class="ex" id="exLand"></div></details>
+  <p class="note">试跑：临时用户「阿青」，温柔性格，愿望「敢开口说英语」。第一轮「改小一点」给小步「约 Mia 周末练口语」配了「先跟读 2 次」，和这件事无关；提示词加了「两个都必须还是这件事本身」以后重跑，变成「先给Mia发条消息问问」。</p>
+
+  <h2 class="part">五、对照四个标准</h2>
+  <div class="card pad"><table class="tbl">
+    <tr><td>直观简洁</td><td>3～4 题；每题一张图一句话；没有术语、没有七步标签；进度点一眼看出还剩几题。</td></tr>
+    <tr><td>轻松易用</td><td>点一张卡就往下走；每题都能跳过、都能自己写；AI 的建议旁边有「不用了」；勾了的才存。</td></tr>
+    <tr><td>懂用户</td><td>用 TA 自己的记录：走了几天、做完的小步、留下的瞬间、这周的打卡进度；后面的问题跟着前面的答案变；有点远了、顾不上，小光先接住，不催。</td></tr>
+    <tr><td>收获清晰可见</td><td>许个愿留下一张愿望卡（愿望、那一天、未来的你说的话），放在蜕变计划里；落地留下「这周的打算」，计划直接改好，需要的话有提醒。</td></tr>
+  </table></div>
+</div>
+
+<script>
+const THEMES = [["mist", "雾"], ["paper", "纸"], ["peach", "桃"], ["forest", "森林"], ["midnight", "夜"]];
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.getElementById("themes").innerHTML = THEMES.map(([k, l]) => `<button class="${k === t ? "on" : ""}" data-t="${k}">${l}</button>`).join("");
+  document.querySelectorAll("[data-t]").forEach((b) => b.onclick = () => setTheme(b.dataset.t));
+  document.querySelectorAll("iframe[data-src]").forEach((f) => { f.src = `${f.dataset.src}?theme=${t}`; });
+  document.querySelectorAll("a[data-open]").forEach((a) => { a.href = a.getAttribute("href").split("?")[0] + `?theme=${t}`; });
+}
+setTheme(new URLSearchParams(location.search).get("theme") || "mist");
+const row = ([i, title, why]) => `<div class="st">${ill(i)}<div><b>${title}</b><span>${why}</span></div></div>`;
+document.getElementById("wishNew").innerHTML = [
+  ["life", "想让生活的哪一块变好？", "五个方向，也能自己写。"],
+  ["newwish", "具体一点，你想要的是……", "按刚才选的方向给几个例子，点一个或者自己写。"],
+  ["sunrise", "如果它真的实现了，那一天会有什么不一样？", "按方向给三个画面（「举手说话不再心跳加速」），也能自己写。这就是显化里的「看见它」。"],
+  ["proud", "到那时，你最想对现在的自己说什么？", "未来的自己留一句话（「别急，你会走到的」），比「对自己说一句」自然，也更有力量。"],
+].map(row).join("");
+document.getElementById("wishKeep").innerHTML = [
+  ["wish", "「敢开口说英语」已经走了 23 天", "不提问：做完几个小步、打卡几次，再摘一句 TA 自己写过的话。"],
+  ["steadyfeel", "这一路，最让你有感觉的是哪一刻？", "卡片是 TA 自己做完的小步和留下的瞬间，也能自己写。"],
+  ["happy", "现在想起这个愿望，你心里……", "还是很想要 / 更想要了 / 有点远了 / 说不清。选「有点远了」，小光把 TA 当初写的样子拿出来，说它还在那儿。"],
+  ["drift", "给接着往前走的自己，留一句话吧", "几句现成的，或者自己写。"],
+].map(row).join("");
+const pre = (s) => s;
+document.getElementById("pNew").textContent = PROMPTS.new;
+document.getElementById("pKeep").textContent = PROMPTS.keep;
+document.getElementById("pSmall").textContent = PROMPTS.smaller;
+document.getElementById("pAdd").textContent = PROMPTS.add;
+const AREA = { body: "身体与作息", study: "学习与成长", people: "关系与表达", mood: "心情与内在", life: "生活与自由" };
+const WANTS = { body: ["每天 12 点前睡"], people: ["敢在课上发言"], mood: ["少一点焦虑", "对自己温柔一点"], life: ["存下一笔旅行基金"] };
+document.getElementById("exNew").innerHTML = ["people|0|0", "body|0|0", "mood|1|2", "life|0|0"].map((k) => {
+  const e = ENDS.new[k], [a] = k.split("|");
+  return `<div class="card"><small>${AREA[a]}</small><b>${esc(e.title)}</b><span>那一天：${esc(e.day)}</span><span>小光：${esc(e.say)}</span></div>`;
+}).join("");
+const MO = { g1: "录了 30 秒自我介绍", g2: "课上用英语提问", g3: "和 Mia 聊了十分钟" }, HE = { still: "还是很想要", more: "更想要了", far: "有点远了", unsure: "说不清" };
+document.getElementById("exKeep").innerHTML = ["g2|still", "g1|far", "g3|more", "g2|unsure"].map((k) => {
+  const [m, h] = k.split("|");
+  return `<div class="card"><small>最有感觉：${MO[m]} · 心里：${HE[h]}</small><b>${esc(ENDS.keep[k].say)}</b></div>`;
+}).join("");
+const IT = { h1: "每天背 20 个单词", h2: "每周跟读 3 次", s1: "约 Mia 周末练口语（小步）" };
+document.getElementById("exLand").innerHTML = Object.entries(ENDS.smaller).map(([k, v]) =>
+  `<div class="card"><small>改小一点 ·「${IT[k]}」</small>${v.map((t) => `<span>· ${esc(t)}</span>`).join("")}</div>`).join("")
+  + `<div class="card"><small>挺顺的，再加一件</small>${ENDS.add.wish.map((t) => `<span>· ${esc(t)}</span>`).join("")}</div>`;
+</script>
+</body>
+</html>

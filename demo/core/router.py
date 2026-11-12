@@ -1,0 +1,129 @@
+"""每轮回复之前的一次小判断：TA 这一句是不是明确要小光**现在**做一件事。
+
+是的话，小光这一轮第一次调用模型时就被要求先调这个工具（tool_choice），
+这样「嘴上说记下了 / 删掉了，其实没调工具」就不会发生。不是、判断不了、或者超时，就照常让模型自己决定。
+
+只挑「TA 自己说了就直接做」的那几种；含糊的、需要先问的、只是情绪，一律返回空——那些交给主对话去问。
+「提议留成一个瞬间」（propose_moment）不在这里：那是小光自己的主意，不是 TA 让做的事。以前放在这里时，
+路由会把一句带过的小开心（「抢到最后一份糖醋排骨」）也判成值得留、强制弹出提议卡；交给主对话自己判断，
+该提议的（和愿望有关的具体行动和感受）照样会提议。2026-11-11 用真实模型对照过，见 docs/交付前审查-2026-11-11.md。
+
+2026-11-12 试过整个去掉：DeepSeek Flash 自己判断时，打卡、改设置、更正记忆、改还没加进计划的提议这几类常常不调工具，
+还会嘴上说「已经帮你改好啦」（真实模型评测 216 格里少过了 16 格）。所以留着，并且：
+  - 「小光刚问要不要留成瞬间、TA 说好」由代码直接判断（agent.forced_tool），不问路由；
+  - 第一轮最多等它 ROUTER_WAIT 秒，等不到就照常往下走；
+  - MANIFEST_ROUTER=0 可以关掉（只建议做对比时用）。
+"""
+from __future__ import annotations
+
+import re
+
+from . import journey, llm
+from .util import clip
+
+MOMENT_OFFER = re.compile(r"(要不要|想不想|要我帮你)[^。？?！!\n]{0,14}留成(一个)?瞬间")     # 小光在问要不要留（只是讲到「瞬间」这个功能不算）
+# 整句就是一个简短的同意（「好呀」「可以，留着吧」）。「对了我今天还去跑步了」这种开头像同意、其实在说别的，不算
+YES = re.compile(r"(好|好的|好呀|好啊|好吧|嗯+|对|对的|对呀|是的|可以|行|要|要的|当然|ok|okay|留|留着|留下)"
+                 r"[呀啊吧啦哦嗯的～~!！。.，, ]*(留着吧?|留下吧?|留吧|记下吧?|存下吧?|就这样)?[呀啊吧啦哦～~!！。.]*", re.I)
+
+ACTIONS = {
+    "log_lazy_day": "TA 说今天想躺平 / 休息 / 偷懒 / 什么都不干（只说累、焦虑、烦，不算）；或者说今天不偷懒了",
+    "complete_step": "TA 说做完了计划里某个待做的小步：说的事要和下面「待做的小步」里的某一条对得上；对不上就不是它",
+    "checkin_habit": "TA 说今天做了某个习惯里的事（今天去健身了、背完单词了）",
+    "remember": "TA 明确让你记住一件关于 TA 的事（「记一下」「记住」「别忘了」）",
+    "correct_memory": "TA 更正关于自己的一件事实（「我现在不喜欢 X 了」「交换的学校换成澳洲了」「那条不对」）。这是改记忆，不是改计划",
+    "update_notebook": "TA 让你往你的笔记本里加、改、删",
+    "schedule_task": "TA 让你到点提醒 TA，或者定时做一件事（「每天十点提醒我」）",
+    "edit_task": "TA 让你关掉、打开、删掉、改时间一个已有的提醒 / 定时任务",
+    "edit_plan": "TA 点名删除、修改、新增、找回计划里的愿望 / 里程碑 / 习惯 / 小步（「把 X 删了」哪怕带着「做不到」也是它），"
+                 "说要新开一个愿望（「我想做个新愿望，是健身」），明确要加一个习惯或小步（「帮我加个每周跑步两次」），"
+                 "说某个习惯太难、想调低频率或先停一停，或者说到达了某个里程碑。"
+                 "要改的东西得在上面的计划里：还在「小光刚提议、还没加进计划」里的，不是它",
+    "propose_plan": "TA 想调整小光刚提议、还没加进计划的那套安排里的几项（「这个小步太麻烦」「习惯少一点」「换一个」）",
+    "start_scene": "TA 点名要现在做一个练习：冥想、放松、感恩、两分钟启动、显化你的愿望、调整现有计划",
+    "look_up": "TA 问金币、经验、等级怎么来、有多少，或者小镇、每日任务的规则和数字",
+    "update_settings": "TA 要改设置或起名：怎么称呼 TA、你的名字或性格、小镇的名字（「小镇就叫 X 吧」）、主动消息多少、别催我、多来找我、提醒频率、页面氛围",
+}
+
+PROMPT = """你在帮陪伴 App 里的 AI 朋友「小光」做一个判断：TA 这一句，是不是明确要小光现在就替 TA 做一件事。
+
+能直接做的事（TA 自己说了才算）：
+{actions}
+
+一句话对得上不止一种时：TA 做了计划里的事（待做的小步、习惯里的事）优先选 complete_step / checkin_habit，先把做了的事记上。
+
+这些都返回空，交给小光自己去聊或者先问：
+- TA 说得含糊（「这两个好像重复了」「帮我精简一下」），没点名要怎么改
+- TA 只是在说情绪：累、难过、焦虑、烦（除非 TA 自己说了要休息 / 要做练习）
+- 请小光帮忙规划、出主意、给建议
+- 随口提到的事（「宿舍养了只猫」），没让记
+- 闲聊、打招呼、问问题（问金币等级小镇除外）
+- 小光帮不上的事（写代码、查天气）
+如果小光上一句提议了一件事，TA 这一句说「好 / 可以 / 嗯 / 留吧」，就是同意：
+「要不要把它留成一个瞬间？」→ edit_plan；「要我帮你记下来吗？」→ remember；「要不要试试两分钟启动 / 冥想」→ start_scene；提议过的修改 → edit_plan。
+小光刚提议了一套安排、TA 还没加进计划，TA 说「都可以 / 就这样 / 挺好 / 加进去吧」→ 返回空：TA 自己在卡片上点「加进计划」，不用再出一版。
+
+TA 的愿望：{wishes}
+计划里的习惯：{habits}
+待做的小步：{steps}
+小光刚提议、还没加进计划的安排：{pending}
+小光上一句：{prev}
+TA 这一句：{text}
+
+只输出 JSON：{{"tool": "上面的工具名，或者空字符串"}}"""
+
+
+def context(store) -> dict:
+    """路由要看的几样东西。在主线程里读完（数据库连接不跨线程用），判断本身放到后台线程。"""
+    last = next((m for m in reversed(store.messages(6)) if m["role"] == "assistant" and m["content"]), None)
+    asked = bool(last) and (bool(MOMENT_OFFER.search(last["content"])) or any(
+        isinstance(a, dict) and a.get("ask") == "moment" and not a.get("state") for a in (last.get("meta") or {}).get("acts") or []))
+    return {
+        "uid": store.uid,
+        "wishes": [w["title"] for w in journey.wishes(store)],
+        "habits": [h["title"] for h in journey.habits(store)][:10],
+        "steps": [s["title"] for s in store.steps() if s["status"] == "todo"][:8],
+        "prev": last["content"] if last else "",
+        "pending": pending_plan(store),
+        "moment_asked": asked,      # 小光上一句刚问过「要不要留成一个瞬间」
+    }
+
+
+def pending_plan(store) -> list[str]:
+    """最近几条回复里，还没点「加进计划 / 先不加」的那套提议里的各项。"""
+    for m in reversed(store.messages(8)):
+        for a in (m.get("meta") or {}).get("acts") or []:
+            if isinstance(a, dict) and a.get("type") == "ask" and a.get("ask") == "plan" and not a.get("state"):
+                p = a.get("plan") or {}
+                return [i.get("title") or "" for k in ("milestones", "habits", "steps") for i in p.get(k) or [] if isinstance(i, dict)][:9]
+    return []
+
+
+def decide(ctx: dict, user_text: str, timeout: float = 8) -> str:
+    # 小光上一句刚问过「要不要留成一个瞬间」：TA 说好就是存下（不用再问模型，更不该再弹一张提议卡）；
+    # TA 没接、说了别的，这一轮也不再提议第二次。
+    t = (user_text or "").strip()
+    if ctx.get("moment_asked") and YES.fullmatch(t):
+        return "edit_plan"
+    try:
+        prompt = PROMPT.format(
+            actions="\n".join(f"- {k}：{v}" for k, v in ACTIONS.items()),
+            wishes="、".join(ctx["wishes"]) or "（还没有）",
+            habits="、".join(ctx["habits"]) or "（没有）", steps="、".join(ctx["steps"]) or "（没有）",
+            pending="、".join(ctx.get("pending") or []) or "（没有）",
+            prev=clip(ctx["prev"], 120) or "（没有）", text=clip(user_text, 300))
+        out = llm.complete_json([{"role": "user", "content": prompt}], timeout=timeout, reasoning="none") or {}   # 路由要快：永远不思考
+    except Exception as e:  # 判断失败就照常聊，不影响回复
+        print("[router] failed:", e)
+        return ""
+    tool = out.get("tool") if isinstance(out, dict) else ""
+    if not (isinstance(tool, str) and tool in ACTIONS):
+        return ""
+    # 没有待做的小步 / 没有习惯，就不可能「完成哪一步」「打哪个卡」：别逼着小光去调一个注定找不到的工具
+    if (tool == "complete_step" and not ctx["steps"]) or (tool == "checkin_habit" and not ctx["habits"]) or (tool == "propose_plan" and not ctx.get("pending")):
+        return ""
+    return tool
+
+
+def pick(store, user_text: str, timeout: float = 8) -> str:
+    return decide(context(store), user_text, timeout)

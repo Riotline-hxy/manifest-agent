@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="mist">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>让愿望落地 · 原型</title>
+<link rel="stylesheet" href="../../demo/public/css/fonts.css">
+<link rel="stylesheet" href="../../demo/public/css/base.css">
+<link rel="stylesheet" href="../../demo/public/css/components.css">
+<link rel="stylesheet" href="../../demo/public/css/chat.css">
+<link rel="stylesheet" href="../../demo/public/css/tune.css">
+<link rel="stylesheet" href="flow.css">
+<script src="icons.js"></script>
+<script src="shared.js"></script>
+<script src="ill2.js"></script>
+<script src="flow.js"></script>
+<script src="flows_ends2.js"></script>
+</head>
+<body>
+<script>
+// 原型里的愿望和这周的计划（正式版用 TA 自己的：习惯打卡、没动的小步、下一个里程碑）
+const WISH = "敢开口说英语";
+const PLAN = [
+  { v: "h1", label: "每天背 20 个单词", hint: "习惯 · 本周 2/7", prog: 2 / 7, icon: "check", kind: "habit" },
+  { v: "h2", label: "每周跟读 3 次", hint: "习惯 · 本周 1/3", prog: 1 / 3, icon: "check", kind: "habit" },
+  { v: "s1", label: "约 Mia 周末练口语", hint: "小步 · 放了 6 天", icon: "flag", kind: "step" },
+];
+const WEEK = `<div class="rowcs wk">${PLAN.map((p) => `<div class="rowc">${icon(p.icon)}<span><b>${p.label}</b><small>${p.hint}</small></span>${p.prog != null ? `<em class="prog"><i style="width:${Math.round(p.prog * 100)}%"></i></em>` : ""}</div>`).join("")}</div>
+  <p class="tb-note">下一个里程碑「能用英语做 3 分钟自我介绍」还有 10 天。</p>`;
+const FEEL = [
+  { v: "smooth", label: "挺顺的", hint: "照着做就行", ill: "sunrise", react: "顺的时候，最适合再往前一点点。" },
+  { v: "stuck", label: "有点卡", hint: "有一件动不起来", ill: "stone", react: "卡住很正常，我们看看是哪一件。" },
+  { v: "full", label: "太满了", hint: "顾了这头顾不上那头", ill: "busy", react: "那就先放下一点，留出喘气的地方。" },
+  { v: "none", label: "顾不上", hint: "这周几乎没碰", ill: "battery", react: "没关系，这周我们只保一件。" },
+];
+const HOW = [
+  { v: "small", label: "改小一点", hint: "小到一定做得到", ill: "pot1" },
+  { v: "time", label: "换个时间", hint: "定个固定的时候", ill: "clock" },
+  { v: "pause", label: "这周先停一停", hint: "不算放弃", ill: "night", react: "好，停一停也是在照顾自己。" },
+];
+const WHEN = [
+  { v: "wake", label: "起床后", hint: "08:00 左右", ill: "sunrise", time: "08:00" },
+  { v: "lunch", label: "午饭后", hint: "13:00 左右", ill: "bowl", time: "13:00" },
+  { v: "after", label: "下课或下班后", hint: "18:30 左右", ill: "bag", time: "18:30" },
+  { v: "bed", label: "睡前", hint: "22:00 左右", ill: "night", time: "22:00" },
+];
+const opt = (list, v) => list.find((o) => o.v === v);
+const item = (st) => opt(PLAN, st.a.which) || (st.a.which === "custom" ? { v: "custom", label: st.l.which, kind: "step" } : null);
+const smaller = (st) => [...(ENDS.smaller[item(st)?.v] || []).map((t, i) => ({ v: "o" + i, label: t, icon: "sparkles" })),
+  { v: "keep", label: "不用改了", icon: "close" }];
+
+runFlow({
+  title: "让愿望落地",
+  sub: "这周怎么样，我们一起调一调",
+  state: { total: 3 },
+  first: "feel",
+  steps: {
+    feel: { type: "cards", q: `这周的「${WISH}」，你觉得怎么样？`, body: WEEK, opts: FEEL, custom: "说说你的感觉",
+      customReact: "嗯，我听到了。我们看看是哪一件。",
+      next: (st) => { st.total = 3; return ({ smooth: "more", full: "which", none: "which" })[st.a.feel] || "which"; } },
+    which: { type: "rows", q: (st) => ({ full: "先放下哪一件？", none: "只留一件最想保住的，是哪件？" })[st.a.feel] || "是哪一件？",
+      opts: PLAN, custom: "是别的事",
+      react: (v, st) => st.a.feel === "none" ? "好，这周就保它。" : "好，我们看看它。",
+      next: (st) => st.a.feel === "none" ? "small" : "how" },
+    how: { type: "cards", q: "想怎么调它？", opts: HOW, custom: "我想这样调……",
+      react: (v) => v === "small" ? "好，小到一定做得到。" : v === "time" ? "好，给它找个固定的时候。" : v === "pause" ? "好，停一停也是在照顾自己。" : "好，就照你说的。",
+      next: (st) => { const n = ({ small: "small", time: "when" })[st.a.how] || null; if (n) st.total = 4; return n; } },
+    small: { type: "rows", q: "这样小一点，行吗？", opts: smaller, custom: "我自己定", skip: false,
+      react: (v) => v === "keep" ? "好，那就不改。" : "好，就这么小。", next: null },
+    when: { type: "cards", q: "什么时候做它最顺？", sub: "挑一个每天都会经过的时刻。", opts: WHEN, custom: "比如：周六上午",
+      react: (v, st, text) => `好，${opt(WHEN, v)?.label || text}。`, next: null },
+    more: { type: "cards", q: "那这周想……", opts: [{ v: "add", label: "再加一点", hint: "往前多走一步", ill: "pot2" },
+      { v: "same", label: "保持现在就好", hint: "照着来", ill: "steady", react: "好，稳稳的也很好。" }],
+      next: (st) => st.a.more === "add" ? "add" : null },
+    add: { type: "rows", q: "加一件这周能做的？", opts: [...ENDS.add.wish.map((t, i) => ({ v: "o" + i, label: t, icon: "sparkles" })),
+      { v: "none", label: "先不加了", icon: "close" }], custom: "我想加……", skip: false,
+      react: (v) => v === "none" ? "好，那就照现在的来。" : "好，加上了。", next: null },
+  },
+  ending: async (st, ui) => {
+    const { xg, me, dock } = ui;
+    const a = st.a, l = st.l, it = item(st);
+    const lines = [], keepRows = [];
+    let line = "这周就照这个来。";
+    if (a.feel === "smooth") {
+      if (a.more === "add" && a.add && a.add !== "none") { lines.push(`新的小步：「${l.add}」`); line = "顺的时候多走一步，刚刚好。"; }
+      else { line = "这周照现在的来，挺好。"; }
+    } else if (it) {
+      if (a.how === "pause") { lines.push(`「${it.label}」这周先停一停`); line = "停一停不算退，下周再接上。"; }
+      else if (a.how === "time" || a.when) {
+        const w = opt(WHEN, a.when);
+        lines.push(`「${it.label}」放到${w ? w.label : l.when}`);
+        if (w) keepRows.push({ html: `每天 ${w.time} 提醒我`, to: "例行任务", on: false });
+        line = "有个固定的时候，就不用每天想着了。";
+      } else if (a.how === "custom") { lines.push(`「${it.label}」：${l.how}`); }
+      else if (a.small && a.small !== "keep") {
+        lines.push(it.kind === "step" ? `先做：「${l.small}」（今天）` : `「${it.label}」先改成「${l.small}」`);
+        line = "小一点，这周就做得成。";
+      }
+      if (a.feel === "none") { lines.push("其余的这周先停一停"); line = "这周只保这一件，够了。"; }
+    }
+    if (!lines.length) {
+      await xg(a.feel === "smooth" ? "这周照现在的来，挺好。有变化随时回来调。" : "好，这周先不改。想调的时候随时回来。");
+      ui.bar("", `<button class="tb-skip" data-again>再来一遍</button>`);
+      dock.querySelector("[data-again]").onclick = () => document.querySelector(".tb-x").click();
+      return;
+    }
+    await xg(line, { think: 700 });
+    const step = it?.kind === "step" || (a.add && a.add !== "none");
+    const row = await xg(`<div class="wcard"><small>这周的打算</small><b>${esc(WISH)}</b>
+        <div class="plan-list">${lines.map((t) => `<p>${icon("check")}<span>${esc(t)}</span></p>`).join("")}</div></div>
+      ${keeps([{ html: "改到蜕变计划里", to: "蜕变计划" }, ...keepRows])}
+      <div class="tb-acts"><button class="btn btn-good" data-save>存好</button>${step ? `<button class="btn btn-ghost" data-now>现在就做</button>` : ""}</div>`, { wide: true });
+    if (!row) return;
+    ui.bar("勾了的才存", `<button class="tb-skip" data-again>再来一遍</button>`);
+    dock.querySelector("[data-again]").onclick = () => document.querySelector(".tb-x").click();
+    row.querySelector("[data-save]").onclick = async () => { row.querySelector(".tb-acts").remove(); ui.bar("", "", { canBack: false }); me("存好"); await xg("存好了，蜕变计划里已经改好。"); };
+    row.querySelector("[data-now]")?.addEventListener("click", async () => {
+      row.querySelector(".tb-acts").remove(); ui.bar("", "", { canBack: false }); me("现在就做");
+      await xg(`好～<div class="kick-stub">这里会打开「两分钟启动」，任务已经填好：「${esc(l.small || l.add || it?.label || "")}」</div>`);
+    });
+  },
+});
+</script>
+</body>
+</html>

@@ -11,9 +11,7 @@ id_ed25519
 host_ops*
 
 # Runtime user data (keep example only)
-demo/data/users/*
-!demo/data/users/_example/
-!demo/data/users/_example/**
+demo/data/
 
 # Python / OS junk
 __pycache__/
@@ -34,10 +32,14 @@ Thumbs.db
 __MACOSX/
 ._*
 
-# Local caches / large scratch (keep vendor + shots + muse zip)
+# Local caches / scratch
 .cache/
 *.log
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 node_modules/
+tools/.raw/
+
+# Model benchmark output (python demo/bench_models.py)
+docs/bench-*.json

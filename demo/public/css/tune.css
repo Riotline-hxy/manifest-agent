@@ -1,0 +1,232 @@
+/* 显化你的愿望 / 调整现有计划（tune.js）：对话样子的全屏层。消息气泡用 chat.css 的 .msg，这里只有它自己的几块 */
+.tune { position: fixed; inset: 0; z-index: 250; display: grid; grid-template-rows: auto 1fr auto; background: var(--bg);
+  opacity: 0; transform: translateY(16px); transition: opacity .3s var(--ease), transform .35s var(--spring); }
+.tune::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(70% 40% at 50% 0%, var(--accent-soft), transparent 70%); }
+.tune.in { opacity: 1; transform: none; }
+.tune.out { opacity: 0; transform: translateY(16px); }
+.tune > * { position: relative; }
+.tb-top { display: flex; align-items: center; gap: 12px; width: min(760px, 100%); margin: 0 auto; padding: 16px 20px 10px; }
+.tb-top b { font-size: 15px; }
+.tb-top small { display: block; font-size: 12px; font-weight: 700; color: var(--text-3); }
+.tb-top .grow { flex: 1; min-width: 0; }
+.tb-x { width: 36px; height: 36px; border-radius: 12px; font-size: 26px; line-height: 1; color: var(--text-3); }
+.tb-x:hover { color: var(--text); background: var(--surface-2); }
+.tb-dots { display: flex; gap: 5px; }
+.tb-dots i { width: 18px; height: 6px; border-radius: 9px; background: var(--surface-3); transition: background .3s, width .3s; }
+.tb-dots i.on { background: var(--accent); }
+.tb-dots i.now { width: 26px; background: var(--accent); }
+.tb-thread { overflow-y: auto; overscroll-behavior: contain; }
+.tb-thread .thread-in { padding-top: 8px; }
+.tb-thread .msg .bub { font-size: 15.5px; line-height: 1.6; }
+.tb-thread .msg.wide .col { flex: 1; max-width: min(94%, calc(100% - 44px)); }
+.tb-thread .typing { display: inline-flex; gap: 4px; padding: 4px 2px; }
+.tb-thread .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-4); animation: tb-dot 1s infinite; }
+.tb-thread .typing i:nth-child(2) { animation-delay: .15s; } .tb-thread .typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes tb-dot { 30% { transform: translateY(-4px); opacity: .5; } }
+.tb-xp { display: flex; align-items: center; gap: 6px; padding-left: 4px; font-size: 12.5px; font-weight: 800; color: var(--text-3); }
+.tb-xp .ic-svg { width: 14px; height: 14px; color: var(--accent); }
+
+/* ---------- 插图：柔和的扁平小画，颜色跟着主题 ---------- */
+.ill { --il-s: color-mix(in srgb, var(--c-violet) 72%, var(--text-3)); --il-s2: color-mix(in srgb, var(--c-violet) 32%, var(--surface));
+  --il-f1: color-mix(in srgb, var(--c-violet) 58%, var(--surface)); --il-f2: color-mix(in srgb, var(--c-violet) 20%, var(--surface));
+  width: 84px; height: 56px; overflow: visible; flex: none; }
+/* 森林：紫色在深绿上发闷，换成奶白线条、金色和嫩绿 */
+[data-theme="forest"] .ill { --il-s: rgba(244,241,230,.86); --il-s2: rgba(244,241,230,.32); --il-f1: rgba(247,203,77,.72); --il-f2: rgba(244,241,230,.14); }
+.ill .s, .ill .s2 { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.ill .s { stroke: var(--il-s); }
+.ill .s2 { stroke: var(--il-s2); }
+.ill .dash { stroke-dasharray: 2 7; }
+.ill .f1 { fill: var(--il-f1); }
+.ill .f2 { fill: var(--il-f2); }
+.ill .fp { fill: color-mix(in srgb, var(--c-pink) 62%, var(--surface)); }
+.ill .fm { fill: color-mix(in srgb, var(--c-mint) 62%, var(--surface)); }
+.ill .fm2 { fill: color-mix(in srgb, var(--c-mint) 40%, var(--surface)); }
+.ill .fl { fill: color-mix(in srgb, var(--c-lemon) 72%, var(--surface)); }
+.ill .fs { fill: color-mix(in srgb, var(--c-sky) 48%, var(--surface)); }
+.ill .pot { fill: color-mix(in srgb, var(--c-orange) 42%, var(--surface)); }
+.ill .pot2 { fill: color-mix(in srgb, var(--c-orange) 62%, var(--surface)); }
+.ill .star { fill: #fff; opacity: .92; }
+
+/* 选项：一张张带插图的卡片，放在小光的话下面 */
+.ils { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px; margin-top: 2px; }
+.il { display: flex; flex-direction: column; justify-content: flex-start; align-items: flex-start; gap: 8px; min-height: 116px; padding: 12px 12px 11px;
+  border-radius: 18px; background: var(--surface); border: 1.5px solid var(--line); text-align: left;
+  box-shadow: 0 8px 22px -18px rgba(30,20,60,.35); transition: transform .3s var(--spring), border-color .2s, box-shadow .2s, background .2s, opacity .25s;
+  animation: tb-in .5s var(--spring) backwards; animation-delay: calc(var(--i) * 60ms + 60ms); }
+@keyframes tb-in { from { opacity: 0; transform: translateY(12px) scale(.96); } }
+.il:hover { transform: translateY(-2px); box-shadow: 0 14px 26px -18px rgba(30,20,60,.4); }
+.il .ill { width: 72px; height: 48px; }
+.il b { display: block; font-size: 14.5px; line-height: 1.35; }
+.il small { display: block; margin-top: 2px; font-size: 12px; font-weight: 700; color: var(--text-3); }
+.il.on { border-color: color-mix(in srgb, var(--accent) 70%, transparent); background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  box-shadow: 0 0 0 4px var(--accent-soft); }
+.il.on .ill { animation: ill-pop .7s var(--spring); }
+@keyframes ill-pop { 35% { transform: scale(1.12) rotate(-3deg); } 70% { transform: scale(.97); } }
+.ils.dim .il { pointer-events: none; }
+.ils.dim .il:not(.on) { opacity: .36; transform: scale(.97); }
+.ils.three .il .ill { width: 100%; height: 66px; }
+/* 答过的题：没选的那几张还能点，点了就从这一题重新走 */
+.ils.dim.past .il, .rowcs.dim.past .rowc, .tb-chips.dim.past .chip { pointer-events: auto; cursor: pointer; }
+.ils.dim.past .il:not(.on):hover, .rowcs.dim.past .rowc:not(.on):hover { opacity: .75; }
+.tb-chips.dim .chip { pointer-events: none; }
+.tb-chips.dim .chip:not(.on) { opacity: .4; }
+.tb-chips .chip.on { border-color: var(--accent); color: var(--accent); }
+
+/* 小光那句话下面的小字 */
+.bub-sub { display: block; margin-top: 4px; font-size: 13.5px; font-weight: 700; color: var(--text-3); line-height: 1.55; }
+/* 文字卡片：TA 自己的记录、小光的建议（可带进度条） */
+.rowcs { display: grid; gap: 8px; }
+.rowc { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: var(--surface); border: 1.5px solid var(--line); text-align: left;
+  transition: border-color .2s, background .2s, opacity .25s; animation: tb-in .45s var(--spring) backwards; animation-delay: calc(var(--i) * 60ms + 60ms); }
+.rowc > .ic-svg { flex: none; width: 18px; height: 18px; color: var(--accent); }
+.rowc > span { flex: 1; min-width: 0; }
+.rowc b { display: block; font-size: 14.5px; line-height: 1.4; }
+.rowc small { display: block; margin-top: 1px; font-size: 12px; font-weight: 700; color: var(--text-3); }
+.rowc .prog { flex: none; width: 56px; height: 6px; border-radius: 9px; background: var(--surface-3); overflow: hidden; }
+.rowc .prog i { display: block; height: 100%; border-radius: 9px; background: var(--good); }
+.rowc.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.rowcs.dim .rowc { pointer-events: none; }
+.rowcs.dim .rowc:not(.on) { opacity: .36; }
+/* 「我自己写」：虚线边，和别的卡片区分开 */
+.il.mine, .rowc.mine { border-style: dashed; background: transparent; box-shadow: none; }
+.rowc.mine > .ic-svg { color: var(--text-3); }
+/* 这周的样子：只是给 TA 看的一块，不像可以点的卡片 */
+.rowcs.wk { gap: 0; padding: 4px 14px; border-radius: 16px; background: color-mix(in srgb, var(--surface) 60%, transparent); border: 1px dashed var(--line-2); }
+.rowcs.wk .rowc { padding: 8px 0; border: 0; border-radius: 0; background: none; animation: none; }
+.rowcs.wk .rowc + .rowc { border-top: 1px dashed var(--line); }
+.rowcs.wk .rowc b { font-size: 13.5px; }
+.rowcs.wk .rowc > .ic-svg { width: 15px; height: 15px; color: var(--text-3); }
+.tb-note { margin: 0 0 0 4px; font-size: 12.5px; font-weight: 700; color: var(--text-3); line-height: 1.6; }
+/* 写一句的例子 */
+.tb-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+/* 走过的路：几个数 + TA 自己写过的一句 */
+.stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.stats span { padding: 7px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); font-size: 13.5px; font-weight: 800; }
+.stats b { color: var(--accent); font-size: 16px; margin-right: 2px; }
+.quote { margin: 0; padding: 10px 14px; border-left: 3px solid var(--accent); border-radius: 4px 14px 14px 4px; background: var(--surface); font-size: 14px; font-weight: 700; line-height: 1.6; color: var(--text-2); }
+
+/* 结尾：愿望卡 / 这周的打算 */
+.wcard { position: relative; overflow: hidden; display: grid; gap: 6px; padding: 18px 18px 16px; border-radius: 22px; border: 1.5px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  background: radial-gradient(90% 120% at 100% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%), var(--surface); animation: tb-in .55s var(--spring); }
+.wcard > small { font-size: 12px; font-weight: 900; letter-spacing: .1em; color: var(--accent); }
+.wcard > b { font-size: 21px; line-height: 1.35; }
+.wc-line { margin: 0; font-size: 14px; line-height: 1.65; color: var(--text-2); }
+.wc-line em { font-style: normal; font-size: 12px; font-weight: 900; color: var(--text-3); margin-right: 6px; }
+.vow { display: inline-block; margin-top: 2px; font-size: 16.5px; color: var(--accent); }
+.plan-list { display: grid; gap: 6px; margin-top: 4px; }
+.plan-list p { margin: 0; display: flex; gap: 8px; align-items: baseline; font-size: 14.5px; font-weight: 700; line-height: 1.55; }
+.plan-list p .ic-svg { flex: none; width: 15px; height: 15px; color: var(--good); transform: translateY(2px); }
+.msg .col > .quote { margin: 2px 0; }
+.msg .col > .tb-note { display: flex; align-items: center; gap: 6px; margin: 2px 0 0 4px; }
+.msg .col > .tb-note .ic-svg { width: 14px; height: 14px; color: var(--accent); flex: none; }
+/* 七步走完，小光写的小纸条 */
+.msg .bub.letter { padding: 16px 18px; line-height: 1.85; background: color-mix(in srgb, var(--c-lemon) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--c-lemon) 40%, var(--line)); }
+.wcard .vow { font-size: 15.5px; line-height: 1.6; margin-top: 6px; }
+/* 调整现有计划：现在的计划（按愿望分组）、一条条改动 */
+.rowcs.wk + .rowcs.wk { margin-top: 8px; }
+.wk-h { margin: 6px 0 2px; font-size: 12.5px; font-weight: 900; color: var(--text-3); letter-spacing: .04em; }
+.chg { display: grid; gap: 8px; }
+.chg-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 16px; background: var(--surface); border: 1.5px solid var(--line); cursor: pointer;
+  transition: border-color .2s, background .2s, opacity .2s; animation: tb-in .45s var(--spring) backwards; animation-delay: calc(var(--i) * 70ms + 60ms); }
+.chg-row input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); flex: none; }
+.chg-row > span { flex: 1; min-width: 0; }
+.chg-row small.k { display: inline-block; margin-bottom: 3px; padding: 1px 8px; border-radius: 99px; font-size: 11.5px; font-weight: 900; color: var(--accent); background: var(--accent-soft); }
+.chg-row b { display: block; font-size: 14.5px; line-height: 1.45; }
+.chg-row b s { color: var(--text-4); font-weight: 700; }
+.chg-row em { display: block; margin-top: 2px; font-style: normal; font-size: 12.5px; font-weight: 700; color: var(--text-3); }
+.chg-row:has(input:not(:checked)) { opacity: .5; }
+.chg-row:has(input:checked) { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.chg-none { display: flex; align-items: center; gap: 8px; padding: 14px; border-radius: 16px; background: var(--surface); border: 1px dashed var(--line-2); font-size: 14px; font-weight: 700; color: var(--text-2); }
+.chg-none .ic-svg { width: 16px; height: 16px; color: var(--good); }
+.keeps { display: grid; padding: 6px 14px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); }
+.keep { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 14px; cursor: pointer; }
+.keep + .keep { border-top: 1px dashed var(--line); }
+.keep input { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+.keep span { flex: 1; min-width: 0; font-weight: 700; line-height: 1.45; }
+.keep span em { display: block; font-style: normal; font-size: 12px; color: var(--text-3); }
+.keep small { color: var(--text-3); font-size: 12px; font-weight: 800; flex: none; }
+.keep.off { opacity: .55; cursor: default; }
+.tb-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.tb-acts .btn { height: 42px; font-size: 14.5px; }
+
+/* 底下一条：跳过 / 想让我先知道的 */
+.tb-dock { border-top: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 92%, transparent); }
+.tb-dock-in { width: min(760px, 100%); margin: 0 auto; padding: 12px 20px 16px; display: flex; align-items: center; gap: 10px; min-height: 66px; }
+.tb-hint { flex: 1; font-size: 12.5px; font-weight: 800; color: var(--text-4); }
+.tb-skip { font-size: 13px; font-weight: 800; color: var(--text-3); padding: 6px 2px; }
+.tb-skip:hover { color: var(--text); }
+.tb-back { display: inline-flex; align-items: center; gap: 2px; flex: none; height: 34px; padding: 0 12px 0 6px; border-radius: 12px;
+  font-size: 13px; font-weight: 800; color: var(--text-3); background: var(--surface); border: 1px solid var(--line); }
+.tb-back svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.tb-back:hover { color: var(--text); }
+.tb-composer { flex: 1; display: flex; align-items: center; padding: 4px 14px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line-2); }
+.tb-composer input { flex: 1; min-width: 0; height: 40px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 15px; outline: none; }
+.tb-composer input::placeholder { color: var(--text-4); }
+.tb-composer { padding-right: 5px; }
+.tb-send { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); flex: none; }
+.tb-send .ic-svg { width: 18px; height: 18px; }
+.tb-go { height: 42px; padding: 0 22px; font-size: 14.5px; }
+
+@media (max-width: 700px) {
+  .tb-top { padding: 12px 14px 8px; }
+  .tb-dock-in { padding: 10px 14px 14px; }
+  .tb-thread .thread-in { padding: 4px 12px 16px; }
+  .ils { grid-template-columns: 1fr 1fr; }
+  .ils.three { grid-template-columns: repeat(3, 1fr); }
+  .ils.three .il { padding: 11px 9px 10px; }
+  .il { min-height: 110px; }
+}
+@media (prefers-reduced-motion: reduce) { .il, .rowc, .wcard, .il.on .ill { animation: none; } }
+
+/* ---------- 显化卡：结尾一条横栏，点开看整张卡 ---------- */
+.mc-bar { display: flex; align-items: center; gap: 12px; width: 100%; padding: 13px 14px; border-radius: 20px; text-align: left;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 16%, var(--surface)), color-mix(in srgb, var(--c-lemon) 18%, var(--surface)));
+  border: 1.5px solid color-mix(in srgb, var(--accent) 38%, var(--line)); box-shadow: 0 10px 24px -18px color-mix(in srgb, var(--accent) 70%, transparent);
+  transition: transform .25s var(--spring), box-shadow .25s; animation: tb-in .5s var(--spring) backwards; }
+.mc-bar:hover { transform: translateY(-2px); box-shadow: 0 16px 28px -18px color-mix(in srgb, var(--accent) 80%, transparent); }
+.mc-bar-ic { flex: none; width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center;
+  background: linear-gradient(150deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--c-lemon))); }
+.mc-bar-ic svg { width: 21px; height: 21px; fill: var(--accent-ink); animation: mc-twinkle 2.8s ease-in-out infinite; }
+.mc-bar-t { flex: 1; min-width: 0; }
+.mc-bar-t b { display: block; font-size: 15px; }
+.mc-bar-t small { display: block; margin-top: 1px; font-size: 12.5px; font-weight: 700; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-bar-go { flex: none; padding: 6px 12px; border-radius: 99px; font-size: 12.5px; font-weight: 900; color: var(--accent-ink); background: var(--accent); }
+@keyframes mc-twinkle { 50% { transform: scale(.86) rotate(-8deg); opacity: .85; } }
+
+.mc-wrap { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; padding: 18px; background: rgba(18,14,36,.42);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 0; transition: opacity .25s var(--ease); }
+.mc-wrap.in { opacity: 1; }
+.mc { position: relative; width: min(372px, 100%); max-height: 88%; overflow: auto; overscroll-behavior: contain; border-radius: 28px;
+  background: linear-gradient(var(--surface), var(--surface)), var(--bg); box-shadow: 0 30px 70px -24px rgba(0,0,0,.55); transform: translateY(14px) scale(.95); transition: transform .4s var(--spring); }
+.mc-wrap.in .mc { transform: none; }
+.mc-head { position: relative; overflow: hidden; padding: 26px 22px 20px; color: var(--accent-ink);
+  background: radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--c-lemon) 55%, transparent), transparent 60%),
+    linear-gradient(155deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--c-pink))); }
+.mc-head small { position: relative; font-size: 12px; font-weight: 900; letter-spacing: .12em; opacity: .85; }
+.mc-head h3 { position: relative; margin: 8px 0 14px; font-size: 23px; line-height: 1.35; font-weight: 900; padding-right: 26px; }
+.mc-star { position: absolute; right: 26px; top: 40px; width: 46px; height: 46px; opacity: .3; animation: mc-twinkle 3.2s ease-in-out infinite; }
+.mc-star svg { width: 100%; height: 100%; fill: var(--accent-ink); }
+.mc-star.s2 { right: 72px; top: 18px; width: 18px; height: 18px; opacity: .35; animation-delay: .8s; }
+.mc-star.s3 { right: 16px; top: 98px; width: 14px; height: 14px; opacity: .3; animation-delay: 1.6s; }
+.mc-seven { position: relative; display: flex; align-items: center; gap: 5px; }
+.mc-seven i { width: 16px; height: 5px; border-radius: 9px; background: color-mix(in srgb, var(--accent-ink) 25%, transparent); }
+.mc-seven i.on { background: var(--accent-ink); }
+.mc-seven i.skip { background: transparent; outline: 1px dashed color-mix(in srgb, var(--accent-ink) 40%, transparent); }
+.mc-seven em { margin-left: 6px; font-style: normal; font-size: 11.5px; font-weight: 900; opacity: .8; }
+.mc-x { position: absolute; top: 12px; right: 12px; z-index: 1; width: 32px; height: 32px; border-radius: 50%; font-size: 22px; line-height: 1;
+  color: var(--accent-ink); background: color-mix(in srgb, var(--accent-ink) 14%, transparent); }
+.mc-list { list-style: none; margin: 0; padding: 18px 20px 4px; display: grid; gap: 14px; }
+.mc-list li { position: relative; display: grid; grid-template-columns: 26px 1fr; gap: 12px; animation: tb-in .5s var(--spring) backwards; }
+.mc-list li:nth-child(2) { animation-delay: .05s; } .mc-list li:nth-child(3) { animation-delay: .1s; } .mc-list li:nth-child(4) { animation-delay: .15s; }
+.mc-list li:nth-child(5) { animation-delay: .2s; } .mc-list li:nth-child(6) { animation-delay: .25s; } .mc-list li:nth-child(7) { animation-delay: .3s; }
+.mc-list li + li::before { content: ""; position: absolute; left: 12px; top: -14px; height: 14px; border-left: 2px dotted color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.mc-list li > i { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 12.5px; font-weight: 900;
+  color: var(--accent); background: var(--accent-soft); border: 1.5px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+.mc-list small { display: block; font-size: 11.5px; font-weight: 900; color: var(--text-4); letter-spacing: .06em; }
+.mc-list p { margin: 2px 0 0; font-size: 14.5px; font-weight: 700; line-height: 1.6; color: var(--text); }
+.mc-list p em { font-style: normal; color: var(--text-3); margin-right: 6px; font-size: 13px; }
+.mc-vow { margin: 16px 18px 20px; padding: 14px 16px; border-radius: 18px; text-align: center; font-size: 15.5px; font-weight: 800; line-height: 1.65;
+  color: var(--text); background: color-mix(in srgb, var(--c-lemon) 16%, transparent); border: 1px dashed color-mix(in srgb, var(--c-lemon) 55%, var(--line)); }
+.mc-vow::before { content: "♡"; display: block; font-size: 16px; color: color-mix(in srgb, var(--c-pink) 80%, var(--text-3)); margin-bottom: 2px; }
+@media (prefers-reduced-motion: reduce) { .mc-bar, .mc-list li, .mc-star, .mc-bar-ic svg { animation: none; } }

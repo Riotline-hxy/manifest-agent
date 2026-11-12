@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="mist">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>显化你的愿望 · 演示</title>
+<link rel="stylesheet" href="../../demo/public/css/fonts.css">
+<link rel="stylesheet" href="../../demo/public/css/base.css">
+<link rel="stylesheet" href="../../demo/public/css/components.css">
+<link rel="stylesheet" href="../../demo/public/css/chat.css">
+<link rel="stylesheet" href="../../demo/public/css/tune.css">
+<link rel="stylesheet" href="../聊聊现在的你/flow.css">
+<link rel="stylesheet" href="demo.css">
+<script src="../聊聊现在的你/icons.js"></script>
+<script src="../聊聊现在的你/shared.js"></script>
+<script src="../聊聊现在的你/ill2.js"></script>
+<script src="engine.js"></script>
+<script src="data.js"></script>
+</head>
+<body>
+<script>
+// 演示：阿青，已有一个愿望「敢开口说英语」。小光的每一句都是真模型（DeepSeek flash，温柔）用 gen.py 里的提示词预先跑出来的；
+// 自己写的内容原型里不调模型（正式版每一步都会接着你写的说）。
+const O = window.OPT, NW = O.NEW_WISHES;
+const SELF = "（原型里自己写的不调模型；正式版小光会接着你写的说）";
+const STAGES = ["清晰愿景", "消除怀疑", "调整行为", "克服考验", "无条件感恩", "嫉妒变动力", "信任"];
+const stage = (n) => () => `显化第 ${n} 步 · ${STAGES[n - 1]}`;
+const old = (st) => st.a.pick === "old";
+const dot = (n) => (st) => n - (old(st) ? 2 : 1);           // 已有的愿望从第 2 步开始
+const W = (st) => (old(st) ? "old" : String(NW.indexOf(st.a.want)));   // -1：自己写的
+const wishTitle = (st) => (old(st) ? O.OLD.title : st.l.spec || st.l.want || "我的愿望");
+const pick = (obj) => Object.entries(obj);
+const rows = (list, icon) => list.map((t, i) => ({ v: "o" + i, label: t, icon }));
+const ILL = { light: "light", proud: "proud", calm: "calm", steadyfeel: "steadyfeel", happy: "happy" };
+const DOUBT_ILL = { worth: "rain", able: "stone", late: "hourglass", others: "eyes", none: "sunrise" };
+const TEST_ILL = { settle: "fork", old: "drift", cold: "rain", none: "sunrise" };
+const TRUST_ILL = { rush: "hourglass", fear: "rain", calm: "calm" };
+const ENVY_ILL = { sour: "rain", admire: "light", learn: "study", none: "calm" };
+const bubbles = (...parts) => parts.filter(Boolean).map((p) => p.startsWith("<") ? p : `<div class="bub">${p}</div>`).join("");
+
+runFlow({
+  title: "显化你的愿望",
+  sub: "说清它，相信它，走向它",
+  endSub: "都走完了",
+  state: { total: 7 },
+  first: "pick",
+  steps: {
+    pick: { type: "cards", skip: false, q: "今天想显化哪个愿望？", sub: "新的愿望完整走七步；已有的愿望从第 2 步开始，让信念更坚定。",
+      opts: [{ v: "old", label: O.OLD.title, hint: "让信念更坚定 · 6 步", ill: "wish", react: "好，我们一起把它再看清楚一点。" },
+             { v: "new", label: "一个新的愿望", hint: "完整走一遍 · 7 步", ill: "newwish", react: "好，从说清它开始。" }],
+      next: (st) => { st.total = old(st) ? 6 : 7; return old(st) ? "doubt" : "want"; } },
+
+    // ---------- 1 清晰愿景（新的愿望才有）----------
+    want: { type: "text", stage: stage(1), dot: 0, q: "你想要什么？先随口说一句就好。", sub: "下一步我们一起把它说具体。",
+      chips: NW, ph: "写下你想要的", react: (v, st) => D.spec[W(st)]?.say || SELF, next: "spec" },
+    spec: { type: "rows", stage: stage(1), dot: 0, q: "越具体，越有力量。说具体一点，可能是这样：", sub: "挑一个，或者自己写。",
+      opts: (st) => rows(D.spec[W(st)]?.opts || [], "sparkles"), custom: "写下更具体的样子", react: () => "好，就是它。", next: "feel" },
+    feel: { type: "cards", stage: stage(1), dot: 0, q: "现在闭上眼，想象它已经实现了。那一刻，你感觉……",
+      opts: pick(O.FEELS).map(([v, label]) => ({ v, label, ill: ILL[v] })),
+      react: (v, st) => {
+        const e = D.vision[`${W(st)}|${(st.a.spec || "").slice(1)}|${v}`];
+        st.vision = e?.vision || "";
+        return e ? bubbles("那一刻，大概是这样：", `<p class="quote">${esc(e.vision)}</p>`, esc(e.say)) : SELF;
+      }, next: "doubt" },
+
+    // ---------- 2 消除怀疑 ----------
+    doubt: { type: "cards", stage: stage(2), dot: dot(2),
+      q: (st) => (old(st) ? `「${O.OLD.title}」，你当初写下的样子还在。想到它，心里有没有一个声音说「我做不到」？` : "想到它，心里有没有一个声音说「我做不到」？"),
+      body: (st) => (old(st) ? `<p class="quote">${esc(O.OLD.vision)}</p>` : ""),
+      opts: pick(O.DOUBTS).map(([v, label]) => ({ v, label, ill: DOUBT_ILL[v] })), custom: "说说那个声音",
+      react: (v, st) => D.doubt[`${W(st)}|${v}`]?.say || SELF, next: "aff" },
+    aff: { type: "rows", stage: stage(2), dot: dot(2), q: "挑一句，以后对自己说：", sub: "小声念一遍试试。",
+      opts: (st) => rows(D.doubt[`${W(st)}|${st.a.doubt}`]?.opts || [], "quote"), custom: "写一句自己的", react: () => "嗯，记住这句。", next: "act" },
+
+    // ---------- 3 调整行为 ----------
+    act: { type: "rows", stage: stage(3), dot: dot(3), q: "如果你已经是实现了它的人，今天会做一件什么事？", sub: "显化不是许愿，是行动。",
+      opts: (st) => rows(D.act[W(st)]?.opts || [], "flag"), custom: "写下今天要做的事",
+      react: (v, st) => D.act_say[`${W(st)}|${v.slice(1)}`]?.say || SELF, next: "test" },
+
+    // ---------- 4 克服考验 ----------
+    test: { type: "cards", stage: stage(4), dot: dot(4), q: "往前走的时候，总有想将就、想退回去的时候。最近有吗？",
+      opts: pick(O.TESTS).map(([v, label]) => ({ v, label, ill: TEST_ILL[v] })), custom: "说说是什么",
+      react: (v, st) => D.test[`${W(st)}|${v}`]?.say || SELF, next: "plan" },
+    plan: { type: "rows", stage: stage(4), dot: dot(4), q: "下次它再出现，你打算……",
+      opts: (st) => rows(D.test[`${W(st)}|${st.a.test}`]?.opts || [], "check"), custom: "写下你的打算", react: () => "好，到时候你会想起来的。", next: "thanks" },
+
+    // ---------- 5 无条件感恩 ----------
+    thanks: { type: "text", stage: stage(5), dot: dot(5), q: "对现在的生活，有什么让你觉得有幸？",
+      sub: "也可以写一句「我必须……」，我们把它换成「我有幸能……」。", chips: O.THANKS, ph: "写一句",
+      react: (v, st) => {
+        const e = D.thanks[`${W(st)}|${O.THANKS.indexOf(st.a.thanks)}`];
+        st.thanks = e?.line || "";
+        return e ? bubbles(`<p class="quote">${esc(e.line)}</p>`, esc(e.say)) : SELF;
+      }, next: "envy" },
+
+    // ---------- 6 嫉妒变动力 ----------
+    envy: { type: "cards", stage: stage(6), dot: dot(6), q: "有没有谁，已经活成了你想要的样子？看到 TA，你心里……",
+      opts: pick(O.ENVY).map(([v, label]) => ({ v, label, ill: ENVY_ILL[v] })), custom: "说说你的感觉",
+      react: (v, st) => {
+        const e = D.envy[`${W(st)}|${v}`];
+        st.learn = e?.learn || "";
+        return e ? bubbles(esc(e.say), `<p class="tb-note">${icon("sparkles")} 可以学的：${esc(e.learn)}</p>`) : SELF;
+      }, next: "trust" },
+
+    // ---------- 7 信任 ----------
+    trust: { type: "cards", stage: stage(7), dot: dot(7), q: "最后一步。想到它什么时候会来，你心里……",
+      opts: pick(O.TRUST).map(([v, label]) => ({ v, label, ill: TRUST_ILL[v] })), custom: "说说你的感觉",
+      react: (v, st) => D.trust[`${W(st)}|${v}`]?.say || SELF, next: "letgo" },
+    letgo: { type: "rows", stage: stage(7), dot: dot(7), q: "该做的你会去做，剩下的交给时间。挑一句，心急的时候对自己说：",
+      opts: (st) => rows(D.trust[`${W(st)}|${st.a.trust}`]?.opts || [], "quote"), custom: "写一句自己的", next: null },
+  },
+
+  ending: async (st, ui) => {
+    const { xg, me } = ui;
+    const a = st.a, l = st.l, w = W(st);
+    // 七步走完：小光把这一路串成一小段话（模型用上 TA 说的那个声音、挑的那句话、今天要做的事），最后一句落在自爱
+    const c = D.close[[w, a.doubt, (a.aff || "").slice(1), (a.act || "").slice(1), a.trust].join("|")];
+    await xg(`<div class="bub letter">${esc(c?.letter || "七步走完了，你今天把这个愿望看得更清楚了。" + SELF)}</div>`, { think: 1600 });
+    const vision = old(st) ? O.OLD.vision : st.vision;
+    const line = (em, t) => (t ? `<p class="wc-line"><em>${em}</em>${esc(t)}</p>` : "");
+    const keepRows = [
+      !old(st) && { html: "把愿望和那一刻的样子放进蜕变计划", to: "蜕变计划" },
+      l.aff && { html: `「${esc(l.aff)}」留在愿望的轨迹上`, to: "蜕变计划" },
+      l.act && { html: `「${esc(l.act)}」放进今天的小步`, to: "今天" },
+      st.thanks && { html: `「${esc(st.thanks)}」贴到幸福墙`, to: "好消息" },
+      (l.doubt || l.test) && { html: "那个怀疑和最近的考验，让小光记着", to: "记忆", on: false },
+      l.aff && { html: "每天早上提醒我念一遍这句话", to: "例行任务", on: false },
+    ].filter(Boolean);
+    const row = await xg(`<div class="bub">这是你今天走过的七步，收好它：</div><div class="wcard"><small>我的显化卡</small><b>${esc(wishTitle(st))}</b>
+        ${line("那一刻", vision)}${line("对自己说", l.aff)}${line("今天去做", l.act)}${line("下次它出现", (l.plan || "").replace(/^下次它出现时，?/, ""))}
+        ${line("我有幸能", (st.thanks || "").replace(/^我有幸能/, ""))}${line("可以学的", st.learn)}${line("交给时间", l.letgo)}
+        ${c?.love ? `<span class="vow">${esc(c.love)}</span>` : ""}</div>
+      ${keeps(keepRows)}
+      <div class="tb-acts"><button class="btn btn-good" data-save>存好</button>${l.act ? `<button class="btn btn-ghost" data-now>现在就去做</button>` : ""}</div>`, { wide: true });
+    if (!row) return;
+    ui.bar("勾了的才存", `<button class="tb-skip" data-again>再来一遍</button>`);
+    ui.dock.querySelector("[data-again]").onclick = () => document.querySelector(".tb-x").click();
+    const done = async (now) => {
+      row.querySelector(".tb-acts").remove();
+      ui.bar("", "", { canBack: false });
+      me(now ? "现在就去做" : "存好");
+      await xg(now ? `好～<div class="kick-stub">这里会打开「两分钟启动」，任务已经填好：「${esc(l.act)}」</div>` : "存好了。想它的时候，回来看看这张卡。");
+    };
+    row.querySelector("[data-save]").onclick = () => done(false);
+    row.querySelector("[data-now]")?.addEventListener("click", () => done(true));
+  },
+});
+</script>
+</body>
+</html>

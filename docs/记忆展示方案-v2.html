@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>「小光眼中的你」v2 · 少而准</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0d3528; --surface: rgba(255,255,255,.055); --surface-2: rgba(255,255,255,.09); --surface-3: rgba(255,255,255,.14);
+    --line: rgba(255,255,255,.09); --line-2: rgba(255,255,255,.17);
+    --text: #f4f1e6; --text-2: rgba(244,241,230,.74); --text-3: rgba(244,241,230,.5); --text-4: rgba(244,241,230,.32);
+    --accent: #f7cb4d; --accent-ink: #3b2a00; --good: #7ed957;
+    --c-orange: #ffad4d; --c-pink: #ff8fb1; --c-sky: #6cb8ff; --c-violet: #a99bff; --c-mint: #4fd1a5; --c-lemon: #f2c34b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0a2a20; color: var(--text); font: 500 14px/1.6 "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 32px 28px 60px; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  .lead { color: var(--text-2); max-width: 960px; margin: 0 0 20px; }
+  .principles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 26px; }
+  .pr { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; }
+  .pr b { display: block; margin-bottom: 3px; }
+  .pr span { font-size: 12.5px; color: var(--text-2); }
+  .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; }
+  .cols > section { min-width: 0; }
+  .stage { display: inline-block; font-size: 11.5px; font-weight: 900; padding: 2px 9px; border-radius: 8px; background: var(--surface-3); color: var(--text-2); }
+  .col-h h2 { font-size: 16px; margin: 6px 0 2px; }
+  .col-h p { margin: 0 0 10px; font-size: 12.5px; color: var(--text-2); min-height: 40px; }
+
+  .phone { background: var(--bg); border: 1px solid var(--line-2); border-radius: 26px; padding: 18px 14px 20px; }
+  .top { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 12px; }
+  .top b { font-size: 18px; }
+  .top span { font-size: 12px; color: var(--text-3); }
+
+  /* ① 一句话 */
+  .hero { border-radius: 18px; padding: 15px 15px 13px; background: linear-gradient(160deg, rgba(169,155,255,.20), rgba(79,209,165,.10)); border: 1px solid var(--line-2); margin-bottom: 14px; }
+  .hero p { margin: 0; font-size: 15px; font-weight: 800; line-height: 1.65; }
+  .hero small { display: block; margin-top: 7px; font-size: 11.5px; color: var(--text-3); }
+  .hero.early p { font-size: 14px; font-weight: 700; color: var(--text-2); }
+
+  /* ② 关于你：一张卡，最多四行，没有的行不出现 */
+  .lbl { font-size: 12px; font-weight: 900; color: var(--text-3); margin: 0 2px 7px; display: flex; align-items: center; }
+  .lbl small { margin-left: auto; font-weight: 700; color: var(--text-4); }
+  .about { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 4px 13px; margin-bottom: 14px; }
+  .row { display: flex; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 13px; }
+  .row:first-child { border-top: 0; }
+  .row i { flex: none; width: 46px; font-style: normal; font-size: 11.5px; font-weight: 800; color: var(--text-3); padding-top: 1px; }
+  .row span { flex: 1; min-width: 0; }
+  .row em { font-style: normal; color: var(--text-3); }
+
+  /* ③ 发现：同一种卡，最多三张 + 一行「下一个发现」 */
+  .find { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 11px 13px; margin-bottom: 8px; }
+  .find .t { font-size: 13.5px; font-weight: 800; line-height: 1.5; }
+  .find .src { font-size: 11px; color: var(--text-3); margin-top: 6px; display: flex; align-items: center; gap: 6px; }
+  .find .src .yes { margin-left: auto; display: flex; gap: 5px; }
+  .b { font-size: 11px; font-weight: 800; padding: 2px 9px; border-radius: 8px; box-shadow: inset 0 0 0 1.5px var(--line-2); color: var(--text-2); }
+  .b.main { background: var(--accent); color: var(--accent-ink); box-shadow: none; }
+  .ok { color: var(--good); font-weight: 800; }
+  .week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 8px; align-items: end; height: 30px; }
+  .week b { display: block; border-radius: 4px; background: var(--surface-3); }
+  .week b.hi { background: var(--c-mint); }
+  .wk { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; font-size: 10px; color: var(--text-4); text-align: center; margin-top: 2px; }
+  .next { display: flex; align-items: center; gap: 10px; padding: 9px 13px; border-radius: 14px; border: 1px dashed var(--line-2); font-size: 12.5px; color: var(--text-2); margin-bottom: 14px; }
+  .next .ring { flex: none; width: 26px; height: 26px; border-radius: 50%; background: conic-gradient(var(--c-mint) var(--p), var(--surface-2) 0); display: grid; place-items: center; }
+  .next .ring::after { content: ""; width: 18px; height: 18px; border-radius: 50%; background: var(--bg); }
+  .next b { color: var(--text); }
+
+  /* ④ 底部两个入口 */
+  .links { border-top: 1px solid var(--line); margin-top: 4px; }
+  .link { display: flex; align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 700; }
+  .link small { margin-left: 8px; color: var(--text-3); font-weight: 600; font-size: 11.5px; }
+  .link::after { content: "›"; margin-left: auto; color: var(--text-4); }
+
+  .foot { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; margin-top: 28px; }
+  .box { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px; }
+  .box h3 { margin: 0 0 8px; font-size: 15px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  td, th { text-align: left; padding: 6px; border-top: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--text-3); font-weight: 800; border-top: 0; }
+  .box ul { margin: 0; padding-left: 18px; color: var(--text-2); font-size: 13px; }
+  .box li { margin: 4px 0; }
+  @media (max-width: 1100px) { .cols, .principles, .foot { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>「小光眼中的你」v2 · 少而准</h1>
+  <p class="lead">只有一个版本，按用户用了多久画三遍：刚来第 2 天、用了 10 天、用了一个多月。目的是看它在数据很少时也不难看、数据多了也不乱。整页只有三块，从上往下固定顺序，每块只在有真内容时出现。</p>
+
+  <div class="principles">
+    <div class="pr"><b>没有就不出现，不放空标题</b><span>不会有「正在积累」的一排空卡；还没有的东西，最多用一行「下一个发现」告诉 TA 还差什么。</span></div>
+    <div class="pr"><b>每块有上限，再多也不变长</b><span>「关于你」最多 4 行，「发现」最多 3 张。新的挤掉旧的，旧的去「管理全部记忆」里找。</span></div>
+    <div class="pr"><b>先算出来，再让小光说</b><span>「发现」由代码按真实记录统计、达到门槛才出；小光只负责把结论说成一句人话，并写明依据。不让模型自由发挥。</span></div>
+  </div>
+
+  <div class="cols">
+    <!-- 第 2 天 -->
+    <section>
+      <div class="col-h"><span class="stage">刚来 · 第 2 天</span><h2>只有建档时说的那点事</h2><p>没有一句话总结（还不够认识）；关于你只有 2 行；发现一张都没有，只告诉 TA 第一个发现还差什么。</p></div>
+      <div class="phone">
+        <div class="top"><b>小光眼中的你</b><span>认识第 2 天</span></div>
+        <div class="hero early"><p>我们才刚认识。你想敢开口说英语，别的，我们慢慢聊。</p></div>
+        <div class="lbl">关于你</div>
+        <div class="about">
+          <div class="row"><i>在努力</i><span>敢开口说英语 <em>· 下学期去交换</em></span></div>
+          <div class="row"><i>在意的人</i><span>阿琪 <em>· 室友</em></span></div>
+        </div>
+        <div class="next" style="--p:25%"><span class="ring"></span><span>第一个发现：<b>你一周里什么时候最有劲</b>　再打 3 次卡就知道</span></div>
+        <div class="links">
+          <div class="link">小光的笔记本<small>还没开始写</small></div>
+          <div class="link">管理全部记忆<small>3 条</small></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 第 10 天 -->
+    <section>
+      <div class="col-h"><span class="stage">用了 10 天</span><h2>有了第一个发现</h2><p>出现一句话总结；关于你 3 行；第一个发现带着依据，等 TA 点「像我」；下一个还差什么照样一行写清楚。</p></div>
+      <div class="phone">
+        <div class="top"><b>小光眼中的你</b><span>认识第 10 天</span></div>
+        <div class="hero"><p>一个想在课上敢开口的人，周三晚上最有劲。</p><small>小光每晚更新这句话 · 可以改</small></div>
+        <div class="lbl">关于你</div>
+        <div class="about">
+          <div class="row"><i>在努力</i><span>敢开口说英语 <em>· 已经在小组里提过一次问题</em></span></div>
+          <div class="row"><i>在意的人</i><span>阿琪 <em>· 室友，下周过生日</em></span></div>
+          <div class="row"><i>口味</i><span>爱糖醋排骨 <em>· 不吃香菜</em></span></div>
+        </div>
+        <div class="lbl">发现</div>
+        <div class="find"><div class="t">一周里，你周三晚上最有劲</div>
+          <div class="week"><b style="height:30%"></b><b style="height:40%"></b><b class="hi" style="height:100%"></b><b style="height:35%"></b><b style="height:20%"></b><b style="height:15%"></b><b style="height:30%"></b></div>
+          <div class="wk"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+          <div class="src">来自 9 次打卡<span class="yes"><span class="b main">像我</span><span class="b">不太像</span></span></div></div>
+        <div class="next" style="--p:50%"><span class="ring"></span><span>下一个：<b>卡住你的通常是什么</b>　再用 2 次两分钟启动</span></div>
+        <div class="links">
+          <div class="link">小光的笔记本<small>昨晚更新</small></div>
+          <div class="link">管理全部记忆<small>11 条</small></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 一个多月 -->
+    <section>
+      <div class="col-h"><span class="stage">用了 40 天</span><h2>满了也不变长</h2><p>关于你 4 行封顶；发现 3 张封顶（确认过的显示绿勾，没确认的带按钮）；所有发现都解锁了，「下一个」就不出现。</p></div>
+      <div class="phone">
+        <div class="top"><b>小光眼中的你</b><span>认识第 40 天</span></div>
+        <div class="hero"><p>一个开头前会想很多、一旦开头就停不下来的人。最近，你越来越敢开口了。</p><small>小光每晚更新这句话 · 可以改</small></div>
+        <div class="lbl">关于你</div>
+        <div class="about">
+          <div class="row"><i>在努力</i><span>敢开口说英语 <em>· 课上、英语角都开过口了</em></span></div>
+          <div class="row"><i>在意的人</i><span>阿琪 <em>· 室友</em>　妈妈 <em>· 最近在聊交换的事</em></span></div>
+          <div class="row"><i>口味</i><span>爱糖醋排骨、甜的 <em>· 不吃香菜，寿司最近吃腻了</em></span></div>
+          <div class="row"><i>小规矩</i><span>别聊体重 <em>· 累的时候先陪着，别催</em></span></div>
+        </div>
+        <div class="lbl">发现<small>3 / 7</small></div>
+        <div class="find"><div class="t">卡住你的，多半是「怕做不好」，不是没时间</div><div class="src">来自 6 次两分钟启动<span class="yes ok">✓ 你说像</span></div></div>
+        <div class="find"><div class="t">放了很久的事，真做起来平均只用了 4 分钟</div><div class="src">来自 5 个小步<span class="yes"><span class="b main">像我</span><span class="b">不太像</span></span></div></div>
+        <div class="find"><div class="t">一周里，你周三晚上最有劲</div><div class="src">来自 27 次打卡<span class="yes ok">✓ 你说像</span></div></div>
+        <div class="links">
+          <div class="link">小光的笔记本<small>昨晚更新</small></div>
+          <div class="link">管理全部记忆<small>38 条</small></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="foot">
+    <div class="box">
+      <h3>每一块什么时候出现、内容从哪来</h3>
+      <table>
+        <tr><th>块</th><th>出现条件</th><th>内容从哪来</th><th>怎么保证不乱</th></tr>
+        <tr><td>一句话</td><td>认识满 7 天，且记得 5 件以上的事；之前显示一句固定的「我们才刚认识……」</td><td>每晚整理时，小光照笔记本写一句，30 字以内</td><td>只写笔记本里有的事；TA 改过就以 TA 的为准，不再自动覆盖</td></tr>
+        <tr><td>关于你</td><td>每一行有内容才出现，最多 4 行</td><td>固定 4 个格子：在努力 / 在意的人 / 口味和喜好 / 小规矩。每晚整理时把记忆归进格子</td><td>格子是固定的，不会冒出新分类；每格最多两三样，按最近、最常提到的排</td></tr>
+        <tr><td>发现</td><td>某个问题的记录达到门槛才出，最多 3 张；TA 点「不太像」的不再出现</td><td>代码统计（打卡时间、启动里的阻碍、小步从加到做完的天数……），小光只把结论说成一句话</td><td>结论是算出来的，每张都写「来自几次什么」；先上 3 个最有把握的问题，慢慢加</td></tr>
+        <tr><td>下一个发现</td><td>还有没解锁的问题时，只出一行</td><td>离门槛最近的那个问题</td><td>永远只有一行，不会出现一排空卡</td></tr>
+      </table>
+    </div>
+    <div class="box">
+      <h3>和现在比，拿掉了什么</h3>
+      <ul>
+        <li>「时间线」整页拿掉（面板里的「动态」已经有了）。</li>
+        <li>「夜里整理」整页拿掉：每天的小结和改动只给小光用；用户能看到的变化就是「一句话」「关于你」「笔记本」本身变了。</li>
+        <li>记忆卡上的「类型、来源、日期」标签拿掉，只在「管理全部记忆」里保留。</li>
+        <li>「小光猜的」不再单独一块：猜测要么是「发现」的一张卡（带像我 / 不太像），要么在笔记本里写成「（猜）」。</li>
+        <li>两分钟启动记忆不再在这里列出来，它是「发现」的原料。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</body>
+</html>
